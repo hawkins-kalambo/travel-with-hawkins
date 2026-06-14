@@ -1,0 +1,13 @@
+- [x] Inspect current booking modal flow in app/page.tsx
+- [x] Add custom destination input field when bookingType === "custom" and wire it to state (customDestination)
+- [x] Fix booking payload destination logic (route vs customDestination)
+- [x] Add modal close (✕) and Cancel button that reset all booking-related state and close modal
+- [x] Ensure success flow remains unchanged and modal state resets correctly after success
+- [ ] Return updated full app/page.tsx code
+- [x] Fix trip grouping & passenger list rendering identifiers (Booking ID vs Trip ID)
+- [x] Fix Admin Refresh ordering + ensure all bookings show deterministically (sort by timestamp desc)
+- [ ] Fix Apps Script status workflow (persistent updateStatus endpoint + admin refetch)
+- [ ] Return complete updated app/admin/page.tsx
+- [ ] Create/return updated Google Apps Script Code.gs with doPost updateStatus + robust doGet field mapping
+- [ ] Add /track page + receipt + WhatsApp + remaining Phase 1 upgrades
+
