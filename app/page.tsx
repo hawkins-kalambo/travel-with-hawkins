@@ -193,11 +193,21 @@ function PremiumBoardingPass({
         );
       }
 
-      const doc = new (Ctor as unknown as new (opts: Record<string, unknown>) => unknown)({
+      // Strongly type the jsPDF doc instance so methods like addPage() are known.
+      type JsPdfDoc = {
+        addPage: () => void;
+        setFont: (fontName: string, fontStyle?: string) => void;
+        setFontSize: (size: number) => void;
+        text: (text: string, x: number, y: number) => void;
+        save: (filename: string) => void;
+      };
+
+      const doc = new (Ctor as unknown as new (opts: Record<string, unknown>) => JsPdfDoc)({
         orientation: "portrait",
         unit: "pt",
         format: "a4",
       });
+
 
       const lines = [
         "TRAVEL WITH HAWKINS",
