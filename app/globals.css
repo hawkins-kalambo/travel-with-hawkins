@@ -49,6 +49,26 @@ textarea::placeholder {
   hyphens: auto;
 }
 
+/* Simple pop animation for header CTAs */
+@keyframes twh-pop {
+  0% {
+    transform: translateY(10px) scale(0.96);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-2px) scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pop {
+  animation: twh-pop 420ms ease-out both;
+}
+
 
 /* Stepper connector line for progress timeline */
 .stepper-connector {

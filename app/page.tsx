@@ -686,13 +686,33 @@ export default function Home() {
               </button>
             </div>
 
-            <button
-              onClick={() => setMenuOpen(!menuOpen)}
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              className="md:hidden text-2xl p-2 rounded-lg hover:bg-slate-100"
-            >
-              ☰
-            </button>
+              <div className="md:hidden flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setSelectedRoute("");
+                    setBookingType("custom");
+                    setShowBooking(true);
+                  }}
+                  className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-xl shadow-md text-sm font-semibold transition-transform animate-pop"
+                >
+                  Book Now
+                </button>
+
+                <button
+                  onClick={() => setShowTrack(true)}
+                  className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-xl shadow-md text-sm font-semibold transition-transform animate-pop"
+                >
+                  Track Booking
+                </button>
+
+                <button
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  aria-label={menuOpen ? "Close menu" : "Open menu"}
+                  className="text-2xl p-2 rounded-lg hover:bg-slate-100"
+                >
+                  ☰
+                </button>
+              </div>
           </div>
         </div>
       </nav>
