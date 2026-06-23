@@ -693,16 +693,16 @@ export default function Home() {
                     setBookingType("custom");
                     setShowBooking(true);
                   }}
-                  className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-xl shadow-md text-sm font-semibold transition-transform animate-pop"
+                  className="bg-orange-500 hover:bg-orange-600 text-white px-2 py-1.5 rounded-lg shadow-md text-[11px] font-bold transition-transform animate-pop whitespace-nowrap"
                 >
                   Book Now
                 </button>
 
                 <button
                   onClick={() => setShowTrack(true)}
-                  className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-xl shadow-md text-sm font-semibold transition-transform animate-pop"
+                  className="bg-blue-900 hover:bg-blue-800 text-white px-2 py-1.5 rounded-lg shadow-md text-[11px] font-bold transition-transform animate-pop whitespace-nowrap"
                 >
-                  Track Booking
+                  Track
                 </button>
 
                 <button
