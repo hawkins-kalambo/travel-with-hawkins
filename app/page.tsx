@@ -508,7 +508,7 @@ export default function Home() {
     remaining: number;
   };
 
-  const urgencyDisplay: UrgencyDisplay | null = (() => {
+  const urgencyDisplay: UrgencyDisplay | null = useMemo(() => {
     if (allBookings.length === 0) return null;
     const today = new Date().toISOString().split("T")[0];
 
@@ -532,8 +532,6 @@ export default function Home() {
     }
 
     for (const [, g] of groupMap) {
-      // Count active (non-cancelled) seats
-      const active = g.statuses.filter((s) => s !== "Cancelled").length;
       const seatsUsed = g.totalSeats; // seats booked
       const threshold = 15; // vehicle capacity baseline
       const remaining = threshold - seatsUsed;
@@ -548,7 +546,6 @@ export default function Home() {
       }
     }
 
-    // Fallback: Check if any dest is filling up generally
     return null;
   }, [allBookings]);
 
