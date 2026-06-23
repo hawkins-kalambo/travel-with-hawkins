@@ -245,7 +245,11 @@ function PremiumBoardingPass({
       const ensureSpace = () => {
         cursorY = safeCursor(cursorY);
         if (cursorY > pageBottom - lineHeight) {
-          doc.addPage();
+          // TS: doc can be inferred as unknown from the permissive jsPDF constructor typing.
+          // Runtime guard ensures build-time type-safety without changing behavior.
+          if (typeof (doc as any)?.addPage === "function") {
+            (doc as any).addPage();
+          }
           cursorY = 50;
         }
       };
@@ -498,7 +502,13 @@ export default function Home() {
   }, []);
 
   // Compute urgency: find destinations with low remaining seats for upcoming dates
-  const urgencyDisplay = (() => {
+  type UrgencyDisplay = {
+    message: string;
+    dest: string;
+    remaining: number;
+  };
+
+  const urgencyDisplay: UrgencyDisplay | null = (() => {
     if (allBookings.length === 0) return null;
     const today = new Date().toISOString().split("T")[0];
 
@@ -507,6 +517,7 @@ export default function Home() {
       string,
       { destination: string; travelDate: string; totalSeats: number; statuses: string[] }
     >();
+
     for (const b of allBookings) {
       const dest = b.destination || "";
       const date = b.travelDate || "";
