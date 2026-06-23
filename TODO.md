@@ -1,13 +1,8 @@
-- [x] Inspect current booking modal flow in app/page.tsx
-- [x] Add custom destination input field when bookingType === "custom" and wire it to state (customDestination)
-- [x] Fix booking payload destination logic (route vs customDestination)
-- [x] Add modal close (✕) and Cancel button that reset all booking-related state and close modal
-- [x] Ensure success flow remains unchanged and modal state resets correctly after success
-- [ ] Return updated full app/page.tsx code
-- [x] Fix trip grouping & passenger list rendering identifiers (Booking ID vs Trip ID)
-- [x] Fix Admin Refresh ordering + ensure all bookings show deterministically (sort by timestamp desc)
-- [ ] Fix Apps Script status workflow (persistent updateStatus endpoint + admin refetch)
-- [ ] Return complete updated app/admin/page.tsx
-- [ ] Create/return updated Google Apps Script Code.gs with doPost updateStatus + robust doGet field mapping
-- [ ] Add /track page + receipt + WhatsApp + remaining Phase 1 upgrades
+# TODO
+
+## Payment → Overview update fix
+- [ ] Add Apps Script action `confirmPayment` that sets booking `Status` to `Confirmed` by `bookingId` or `tripId`.
+- [ ] Add admin UI button to mark a booking/trip as paid/confirmed (calls `confirmPayment` or reuses existing `updateStatus`).
+- [ ] Ensure revenue/overview uses booking fair + fee correctly after status becomes `Confirmed`.
+- [ ] Test flow end-to-end: create booking → admin mark paid/confirm → admin overview + stepper update.
 

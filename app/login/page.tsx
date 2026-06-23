@@ -41,11 +41,12 @@ export default function LoginPage() {
           Student Transport Management System for safe and reliable journeys
         </p>
 
-        <div className="mt-10 text-center text-xs text-blue-300 space-y-2">
-          <p>✔ Secure Admin Access</p>
-          <p>✔ Real-time Booking Control</p>
-          <p>✔ Trip Management Dashboard</p>
-        </div>
+          <div className="mt-10 text-center text-xs text-blue-300 space-y-2">
+          
+          <p>Secure Admin Access</p>
+          <p>Real-time Booking Control</p>
+          <p>Trip Management Dashboard</p>
+          </div>
       </div>
 
       {/* ================= RIGHT PANEL (LOGIN FORM) ================= */}
