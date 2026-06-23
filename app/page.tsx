@@ -655,9 +655,9 @@ export default function Home() {
                 className="object-contain"
                 alt="Travel with Hawkins Logo"
               />
-              <div>
-                <h1 className="text-lg font-bold text-blue-900">Travel with Hawkins</h1>
-                <p className="text-[10px] text-gray-500">Safe Journeys • Trusted Service</p>
+              <div className="min-w-0">
+                <h1 className="text-[14px] leading-tight font-extrabold text-blue-950 truncate">Travel with Hawkins</h1>
+                <p className="text-[10px] text-slate-500 truncate">Safe Journeys • Trusted Service</p>
               </div>
             </div>
 
