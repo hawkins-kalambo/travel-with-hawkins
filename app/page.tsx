@@ -542,8 +542,8 @@ export default function Home() {
               ["Financial Analyst", "Joshua Kalambo", "/images/team/joshua.jpg"],
             ].map(([role, name, img]) => (
               <div key={role} className="overflow-hidden rounded-lg border border-slate-200 bg-white text-center shadow-md transition-shadow hover:shadow-xl">
-                <div className="h-56 bg-slate-50 sm:h-48 md:h-40">
-                  <Image src={img} width={360} height={210} className="h-full w-full object-contain object-top" alt={name} />
+                <div className="h-56 overflow-hidden bg-slate-50 sm:h-48 md:h-40">
+                  <Image src={img} width={360} height={210} className="h-full w-full object-cover object-top" alt={name} />
                 </div>
                 <div className="p-4 text-sm">
                   <div className="font-black text-[#0f3f78]">{role}</div>
