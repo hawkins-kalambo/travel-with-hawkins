@@ -13,42 +13,62 @@ if (!supabaseAnonKey) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+});
 
 // ================= AUTH HELPERS =================
 
 export async function getCurrentSession() {
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
+  try {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
 
-  if (error) {
-    console.error(error);
+    if (error) {
+      console.warn("getCurrentSession warning", error.message);
+      return null;
+    }
+
+    return session;
+  } catch (error) {
+    console.warn("getCurrentSession failed", error);
     return null;
   }
-
-  return session;
 }
 
 export async function getCurrentUser() {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  try {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
 
-  if (error) {
-    console.error(error);
+    if (error) {
+      console.warn("getCurrentUser warning", error.message);
+      return null;
+    }
+
+    return user;
+  } catch (error) {
+    console.warn("getCurrentUser failed", error);
     return null;
   }
-
-  return user;
 }
 
 export async function logout() {
-  const { error } = await supabase.auth.signOut();
+  try {
+    const { error } = await supabase.auth.signOut();
 
-  if (error) {
-    console.error(error);
+    if (error) {
+      console.warn("logout warning", error.message);
+    }
+  } catch (error) {
+    console.warn("logout failed", error);
   }
 }
