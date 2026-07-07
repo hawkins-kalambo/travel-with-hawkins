@@ -1040,7 +1040,7 @@ const filtered = useMemo(() => {
                                       if (!id) return;
                                       setPaymentUpdating(id);
                                       try {
-                                        const res = await fetch("/api/payments/confirm", {
+                                        const res = await authFetch("/api/payments/confirm", {
                                           method: "POST",
                                           headers: {
                                             "Content-Type": "application/json",
@@ -1096,7 +1096,7 @@ const filtered = useMemo(() => {
                                           if (!b.email) return;
                                           setSendingReceipt(id);
                                           try {
-                                            const res = await fetch("/api/payments/send-receipt", {
+                                            const res = await authFetch("/api/payments/send-receipt", {
                                               method: "POST",
                                               headers: { "Content-Type": "application/json" },
                                               body: JSON.stringify({ bookingId: id }),

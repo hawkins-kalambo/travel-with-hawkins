@@ -460,10 +460,10 @@ export default function Home() {
             <h2 className="text-2xl font-black">Simple Steps to Your Journey</h2>
             <div className="mt-6 grid gap-5 md:grid-cols-4">
               {[
-                ["1", "Search Route", "Enter your departure and destination."],
-                ["2", "Choose a Bus", "Compare bus operators and prices."],
-                ["3", "Select & Pay", "Choose your seat and confirm."],
-                ["4", "Travel & Enjoy", "Receive your ticket and go."],
+                ["1", "Choose Route", "Select a popular route or enter a custom destination that fits your trip."],
+                ["2", "Book Online", "Fill in your details, choose your travel date and seats, and submit your booking request online."],
+                ["3", "Receive Confirmation", "Your booking is recorded and confirmed through the system, with payment updates shared for your trip."],
+                ["4", "Travel Safely", "Arrive on time, board with your booking details, and enjoy a safe, reliable journey."],
               ].map(([n, t, d]) => (
                 <div key={n} className="relative">
                   <div className="mb-3 grid h-8 w-8 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">{n}</div>
@@ -509,10 +509,35 @@ export default function Home() {
           <p className="text-xs font-black uppercase text-[#0f3f78]">Frequently Asked Questions</p>
           <h2 className="text-2xl font-black">Got Questions? We have Got Answers</h2>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {["How do I book a bus ticket?", "Can I cancel or reschedule my booking?", "How will I receive my ticket?", "What payment methods do you accept?", "Is my payment secure?", "Who can I contact for support?"].map((q) => (
-              <details key={q} className="rounded-md border border-slate-200 bg-white px-5 py-3">
-                <summary className="cursor-pointer font-bold">{q}</summary>
-                <p className="mt-2 text-sm text-slate-600">Contact Travel with Hawkins support or use the booking form for help with this question.</p>
+            {[
+              {
+                q: "How do I book a bus ticket?",
+                a: "Choose your route or enter a custom destination, fill in your details, select your travel date and seat count, and submit the booking form.",
+              },
+              {
+                q: "Can I cancel or reschedule my booking?",
+                a: "Changes are handled based on availability and timing. Contact us with your booking ID as soon as possible so we can assist you.",
+              },
+              {
+                q: "How will I receive my confirmation?",
+                a: "Once your booking is submitted, the system records it and the admin confirms the payment and trip details for you.",
+              },
+              {
+                q: "What payment methods do you accept?",
+                a: "Payments are confirmed through the booking process and verified by the admin team before your trip is fully confirmed.",
+              },
+              {
+                q: "Is my payment secure?",
+                a: "Yes. Bookings and payment updates are managed through the secure admin-backed system, and receipts are generated for confirmed trips.",
+              },
+              {
+                q: "Who can I contact for support?",
+                a: "You can reach us through the WhatsApp button or email listed in the contact section for booking, payment, or travel support.",
+              },
+            ].map((item) => (
+              <details key={item.q} className="rounded-md border border-slate-200 bg-white px-5 py-3">
+                <summary className="cursor-pointer font-bold">{item.q}</summary>
+                <p className="mt-2 text-sm text-slate-600">{item.a}</p>
               </details>
             ))}
           </div>
@@ -587,6 +612,7 @@ export default function Home() {
                 <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">Call</p>
                   <a href="tel:+265886470843" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0886470843</a>
+                  <a href="tel:+265989127308" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0989127308</a>
                 </div>
 
                 <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
