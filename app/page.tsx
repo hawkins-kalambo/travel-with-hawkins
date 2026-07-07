@@ -543,7 +543,7 @@ export default function Home() {
             ].map(([role, name, img]) => (
               <div key={role} className="overflow-hidden rounded-lg border border-slate-200 bg-white text-center shadow-md transition-shadow hover:shadow-xl">
                 <div className="h-56 overflow-hidden bg-slate-50 sm:h-48 md:h-40">
-                  <Image src={img} width={360} height={210} className="h-full w-full object-cover object-[center_top_10%]" alt={name} />
+                  <Image src={img} width={360} height={210} className="h-full w-full object-cover object-[center_4%]" alt={name} />
                 </div>
                 <div className="p-4 text-sm">
                   <div className="font-black text-[#0f3f78]">{role}</div>
