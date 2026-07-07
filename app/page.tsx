@@ -360,8 +360,8 @@ export default function Home() {
               ))}
             </nav>
             <div className="flex items-center gap-2">
-              <button onClick={() => setShowTrack(true)} className="inline-flex rounded-md border border-[#0f3f78] px-3 py-2 text-xs font-bold text-[#101815] sm:px-4 sm:py-2 sm:text-sm">Track</button>
-              <button onClick={() => openBooking()} className="rounded-md bg-[#0f3f78] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#0a2d56] sm:px-5 sm:py-2.5">Book</button>
+              <button onClick={() => setShowTrack(true)} className="inline-flex h-10 min-w-[72px] items-center justify-center rounded-md border border-[#0f3f78] px-3 text-sm font-bold text-[#101815] transition-colors hover:bg-[#f5f9ff] sm:min-w-[80px] sm:px-4">Track</button>
+              <button onClick={() => openBooking()} className="inline-flex h-10 min-w-[72px] items-center justify-center rounded-md bg-[#0f3f78] px-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56] sm:min-w-[80px] sm:px-4">Book</button>
               <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-md lg:hidden" aria-label="Menu">
                 <span className="flex w-5 flex-col gap-1">
                   <span className="h-0.5 rounded bg-[#101815]" />
