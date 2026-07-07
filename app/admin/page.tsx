@@ -734,6 +734,12 @@ const filtered = useMemo(() => {
                 {tab.icon} {tab.label}
               </button>
             ))}
+            <Link
+              href="/admin/reports"
+              className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
+            >
+              Reports
+            </Link>
           </div>
 
           <nav className="hidden lg:block space-y-1 text-sm">
@@ -792,6 +798,12 @@ const filtered = useMemo(() => {
                   </button>
                 )}
               </div>
+              <Link
+                href="/admin/reports"
+                className="inline-flex items-center justify-center rounded-lg border border-[#d7ebff] bg-white px-3 py-2 text-sm font-semibold text-[#0f3f78] shadow-sm transition hover:bg-[#eef6ff] sm:hidden"
+              >
+                Reports
+              </Link>
               <button
                 onClick={() => {
                   setLoading(true);

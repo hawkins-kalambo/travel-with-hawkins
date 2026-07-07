@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
+import { logoPngBase64 } from "@/lib/logoBase64";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -92,25 +93,79 @@ function PremiumBoardingPass(props: { name: string; studentId: string; phone: st
     try {
       const imported = await import("jspdf");
       const Ctor = imported.default || imported.jsPDF;
-      const doc = new Ctor({ orientation: "portrait", unit: "pt", format: "a4" });
-      const lines = [
-        "TRAVEL WITH HAWKINS",
-        "Student Transport Boarding Pass",
-        `Passenger: ${props.name}`,
-        `Student ID: ${props.studentId}`,
-        `Phone: ${props.phone}`,
-        `Seats: ${props.seats}`,
-        `Destination: ${props.destination}`,
-        `Travel Date: ${props.travelDate}`,
-        `Booking ID: ${props.bookingId}`,
-        `Type: ${props.bookingType}`,
-      ];
+      const doc = new Ctor({ orientation: "portrait", unit: "pt", format: "a5", compress: true });
+      const margin = 24;
+      const width = 420 - margin * 2;
+      let y = 24;
+      const logoBase64 = logoPngBase64 || null;
+
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(margin, y, width, 112, 8, 8, "F");
+      doc.setDrawColor("#E5E7EB");
+      doc.roundedRect(margin, y, width, 112, 8, 8, "S");
+
+      doc.setTextColor("#1A0F00");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(15);
-      doc.text(lines[0], 40, 48);
+      doc.setFontSize(16);
+      doc.text("Travel with Hawkins", margin + 12, y + 24);
+
+      if (logoBase64) {
+        doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", margin + width - 48, y + 10, 36, 36);
+      }
+
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
-      lines.slice(1).forEach((line, i) => doc.text(line, 40, 78 + i * 18));
+      doc.setFontSize(8.5);
+      doc.setTextColor("#6B7280");
+      doc.text("Student Transport Boarding Pass", margin + 12, y + 44);
+
+      y += 124;
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(margin, y, width, 134, 8, 8, "F");
+      doc.setDrawColor("#E5E7EB");
+      doc.roundedRect(margin, y, width, 134, 8, 8, "S");
+
+      const boxPadding = 14;
+      const leftX = margin + boxPadding;
+      const rightX = margin + width / 2 + 6;
+      let boxY = y + 16;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor("#111827");
+      doc.text("Passenger Details", leftX, boxY);
+
+      boxY += 12;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor("#374151");
+      doc.text(`Passenger: ${props.name}`, leftX, boxY);
+      doc.text(`Student ID: ${props.studentId}`, leftX, boxY + 14);
+      doc.text(`Phone: ${props.phone}`, leftX, boxY + 28);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Trip Details", rightX, y + 16);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Destination: ${props.destination}`, rightX, y + 28);
+      doc.text(`Travel Date: ${props.travelDate}`, rightX, y + 42);
+      doc.text(`Seats: ${props.seats}`, rightX, y + 56);
+      doc.text(`Booking Type: ${props.bookingType}`, rightX, y + 70);
+
+      y += 276;
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(margin, y, width, 48, 8, 8, "F");
+      doc.setDrawColor("#E5E7EB");
+      doc.roundedRect(margin, y, width, 48, 8, 8, "S");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor("#111827");
+      doc.text("Booking ID", margin + boxPadding, y + 16);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor("#0f3f78");
+      doc.text(props.bookingId, margin + boxPadding, y + 32);
+
       doc.save(`TWH-Boarding-Pass-${props.bookingId}.pdf`);
     } catch {
       window.print();
@@ -305,8 +360,8 @@ export default function Home() {
               ))}
             </nav>
             <div className="flex items-center gap-2">
-              <button onClick={() => setShowTrack(true)} className="hidden rounded-md border border-[#0f3f78] px-4 py-2 text-sm font-bold text-[#101815] sm:inline-flex">Track Booking</button>
-              <button onClick={() => openBooking()} className="rounded-md bg-[#0f3f78] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#0a2d56]">Book Now</button>
+              <button onClick={() => setShowTrack(true)} className="inline-flex rounded-md border border-[#0f3f78] px-3 py-2 text-xs font-bold text-[#101815] sm:px-4 sm:py-2 sm:text-sm">Track</button>
+              <button onClick={() => openBooking()} className="rounded-md bg-[#0f3f78] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#0a2d56] sm:px-5 sm:py-2.5">Book</button>
               <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-md lg:hidden" aria-label="Menu">
                 <span className="flex w-5 flex-col gap-1">
                   <span className="h-0.5 rounded bg-[#101815]" />

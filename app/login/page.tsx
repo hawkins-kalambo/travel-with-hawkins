@@ -67,8 +67,8 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-center bg-[color:var(--off-white)] px-6 py-10">
-        <div className="w-full max-w-md rounded-[28px] border border-[color:var(--gray-200)] bg-[color:var(--white)] p-8 shadow-[0_18px_45px_rgba(26,15,0,0.08)]">
+      <div className="flex flex-1 items-center justify-center bg-[color:var(--off-white)] px-4 py-6 sm:px-6 sm:py-10">
+        <div className="w-full max-w-md rounded-[28px] border border-[color:var(--gray-200)] bg-[color:var(--white)] p-6 shadow-[0_18px_45px_rgba(26,15,0,0.08)] sm:p-8">
           <div className="mb-6 flex flex-col items-center md:hidden">
             <Image
               src="/logo.png"
@@ -116,13 +116,15 @@ export default function LoginPage() {
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Logging in..." : "Login to Dashboard"}
-            </button>
+            <div className="sticky bottom-3 z-10 mt-6 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full rounded-2xl py-3.5 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Logging in..." : "Login to Dashboard"}
+              </button>
+            </div>
           </form>
 
           <p className="mt-6 text-center text-xs text-gray-500">Secure Transport Management System</p>
