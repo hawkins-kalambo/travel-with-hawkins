@@ -24,7 +24,7 @@ const POPULAR_ROUTES = [
   "Mzuzu - Lilongwe",
   "Mzuzu - Blantyre",
   "Mzuzu - Zomba",
-  "Mzuzu - Kasunga",
+  "Mzuzu - Kasungu",
   "Mzuzu - Karonga",
 ];
 
@@ -32,7 +32,7 @@ const ROUTES_DATA = [
   { route: "Mzuzu - Lilongwe", buses: "Travel With Us today", price: "MWK 70,000", rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },
   { route: "Mzuzu - Blantyre", buses: "Travel With Us today", price: "MWK 120,000", rating: "4.7 (98+)", img: "/images/routes/mzuzu-blantyre.jpg" },
   { route: "Mzuzu - Zomba", buses: "Travel With Us today", price: "MWK 110,000", rating: "4.6 (76+)", img: "/images/routes/mzuzu-zomba.jpeg" },
-  { route: "Mzuzu - Kasunga", buses: "Travel With Us Today", price: "MWK 60,000", rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
+  { route: "Mzuzu - Kasungu", buses: "Travel With Us Today", price: "MWK 60,000", rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
   { route: "Mzuzu - Karonga", buses: "Travel With Us Today", price: "MWK 45,000", rating: "4.5 (50+)", img: "/images/routes/mzuzu-karonga.jpg" },
 ];
 
@@ -642,7 +642,7 @@ export default function Home() {
                 <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Lilongwe</a></li>
                 <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Blantyre</a></li>
                 <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Zomba</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Kasunga</a></li>
+                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Kasungu</a></li>
                 <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Karonga</a></li>
                 <li><a href="#routes" className="transition-colors hover:text-white hover:underline">View All Routes</a></li>
               </ul>

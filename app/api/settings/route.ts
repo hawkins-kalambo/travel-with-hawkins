@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       const defaults = {
         booking_fee: 2000,
         max_seats: 15,
-        routes: "Mzuzu - Lilongwe: 5000\nMzuzu - Blantyre: 8000\nMzuzu - Zomba: 7000\nMzuzu - Kasunga: 3000\nMzuzu - Karonga: 6000",
+        routes: "Mzuzu - Lilongwe: 5000\nMzuzu - Blantyre: 8000\nMzuzu - Zomba: 7000\nMzuzu - Kasungu: 3000\nMzuzu - Karonga: 6000",
         updated_at: new Date().toISOString(),
       };
 

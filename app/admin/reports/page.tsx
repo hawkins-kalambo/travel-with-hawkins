@@ -22,7 +22,7 @@ const DEFAULT_ROUTE_OPTIONS = [
   "Mzuzu - Lilongwe",
   "Mzuzu - Blantyre",
   "Mzuzu - Zomba",
-  "Mzuzu - Kasunga",
+  "Mzuzu - Kasungu",
   "Mzuzu - Karonga",
 ];
 

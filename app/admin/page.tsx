@@ -306,7 +306,7 @@ export default function AdminPage() {
       maxSeats: "15",
       secretPassword: "1234",
       routes:
-        "Mzuzu - Lilongwe: 5000\nMzuzu - Blantyre: 8000\nMzuzu - Zomba: 7000\nMzuzu - Kasunga: 3000\nMzuzu - Karonga: 6000",
+        "Mzuzu - Lilongwe: 5000\nMzuzu - Blantyre: 8000\nMzuzu - Zomba: 7000\nMzuzu - Kasungu: 3000\nMzuzu - Karonga: 6000",
     }),
     []
   );
