@@ -170,7 +170,7 @@ export default function Home() {
   const [trackError, setTrackError] = useState("");
   const [trackResult, setTrackResult] = useState<BookingRecord | null>(null);
   const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
-  const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; date: string; bookingId: string; seats: number } | null>(null);
+  const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; travelDate: string; bookingId: string; seats: number } | null>(null);
   const [form, setForm] = useState(() => {
     const base = {
       name: "",
@@ -250,7 +250,7 @@ export default function Home() {
           phone: form.phone,
           route: destination,
           bookingType,
-          date: form.travelDate,
+          travelDate: form.travelDate,
           seats: form.seats,
           bookingId: normalized.bookingId || result.bookingId || "PENDING",
         });
@@ -654,7 +654,7 @@ export default function Home() {
       {successData && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
           <div className="py-6">
-            <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.date} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} />
+            <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} />
             <div className="mt-4 text-center"><button onClick={() => setSuccessData(null)} className="rounded-md bg-[#0f3f78] px-8 py-3 font-black text-white">Done</button></div>
           </div>
         </div>

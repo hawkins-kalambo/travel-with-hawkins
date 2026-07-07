@@ -85,7 +85,7 @@ export default function Home(){
   });
   const POPULAR_ROUTES=["Mzuzu → Lilongwe","Mzuzu → Blantyre","Mzuzu → Zomba","Mzuzu → Kasungu","Mzuzu → Karonga"];
   const [customDestination,setCustomDestination]=useState("");
-  const [successData,setSuccessData]=useState<{name:string;studentId:string;phone:string;route:string;bookingType:"route"|"custom";date:string;bookingId:string;tripId:string;seats:number;}|null>(null);
+  const [successData,setSuccessData]=useState<{name:string;studentId:string;phone:string;route:string;bookingType:"route"|"custom";travelDate:string;bookingId:string;tripId:string;seats:number;}|null>(null);
   const [showTrack,setShowTrack]=useState(false);
   const [trackId,setTrackId]=useState("");
   const [trackLoading,setTrackLoading]=useState(false);
@@ -113,7 +113,7 @@ export default function Home(){
     try{
       const res=await fetch(API_URL,{method:"POST",body:JSON.stringify({name:form.name.trim(),studentId:form.studentId.trim(),phone:form.phone.trim(),destination,travelDate:form.travelDate,seats:form.seats,pickup:"Mzuzu University",location:"Campus",bookingType})});
       const result=await res.json();
-      if(result.success){setSuccessData({name:form.name,studentId:form.studentId,phone:form.phone,route:isCustom?customDestination:selectedRoute,bookingType,date:form.travelDate,bookingId:result.bookingId||"PENDING",tripId:result.tripId||"PENDING",seats:form.seats});try{localStorage.setItem("twh_profile",JSON.stringify({name:form.name.trim(),studentId:form.studentId.trim(),phone:form.phone.trim()}));}catch{}closeBooking();}
+      if(result.success){setSuccessData({name:form.name,studentId:form.studentId,phone:form.phone,route:isCustom?customDestination:selectedRoute,bookingType,travelDate:form.travelDate,bookingId:result.bookingId||"PENDING",tripId:result.tripId||"PENDING",seats:form.seats});try{localStorage.setItem("twh_profile",JSON.stringify({name:form.name.trim(),studentId:form.studentId.trim(),phone:form.phone.trim()}));}catch{}closeBooking();}
       else setError(result.error||"Booking failed. Please try again.");
     }catch{setError("Network error. Please check your connection.");}
     setLoading(false);
@@ -545,7 +545,7 @@ export default function Home(){
     {successData&&(
       <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[9999] overflow-y-auto">
         <div className="w-full max-w-md">
-          <BoardingPass {...{...successData,route:successData.route,destination:successData.route}}/>
+          <BoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} tripId={successData.tripId} bookingType={successData.bookingType} />
           <button onClick={()=>setSuccessData(null)} className="w-full mt-3 py-3 rounded-xl font-semibold text-white text-[14px]" style={{background:"rgba(255,255,255,0.15)"}}>Close</button>
         </div>
       </div>
