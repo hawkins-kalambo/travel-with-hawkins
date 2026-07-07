@@ -250,7 +250,7 @@ export default function Home() {
       setHeroIndex((current) => (current + 1) % HERO_WALLPAPERS.length);
     }, 5500);
     return () => clearInterval(slider);
-  }, []);
+  }, [HERO_WALLPAPERS.length]);
 
   useEffect(() => {
     const fetchBookings = async () => {

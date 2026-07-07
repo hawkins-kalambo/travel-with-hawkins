@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 
 const API_URL = "https://script.google.com/macros/s/AKfycby17HHcmR3G_8GhP7wdb3pvkcZpnAy6R0mtH8W7qrkcRuu5JiEQy4FIRkEDQ81KFk_L/exec";
@@ -73,7 +73,7 @@ export default function Home(){
   const [menuOpen,setMenuOpen]=useState(false);
   const HERO_IMAGES=["/images/hero/hero1.jpg","/images/hero/hero2.jpg","/images/hero/hero3.jpg","/images/hero/hero4.jpg","/images/hero/hero5.jpg","/images/hero/hero6.jpg","/images/hero/hero7.jpg","/images/hero/hero8.jpg"];
   const [heroIndex,setHeroIndex]=useState(0);
-  useEffect(()=>{const id=setInterval(()=>setHeroIndex(i=>(i+1)%HERO_IMAGES.length),6000);return()=>clearInterval(id);},[]);
+  useEffect(()=>{const id=setInterval(()=>setHeroIndex(i=>(i+1)%HERO_IMAGES.length),6000);return()=>clearInterval(id);},[HERO_IMAGES.length]);
   const [selectedRoute,setSelectedRoute]=useState("");
   const [bookingType,setBookingType]=useState<"route"|"custom">("custom");
   const [showBooking,setShowBooking]=useState(false);
@@ -95,14 +95,14 @@ export default function Home(){
   const [allBookings,setAllBookings]=useState<BookingRecord[]>([]);
   useEffect(()=>{const f=async()=>{try{const res=await fetch(API_URL);const data=await res.json();if(data?.bookings&&Array.isArray(data.bookings))setAllBookings(data.bookings as BookingRecord[]);}catch{}};f();const id=setInterval(f,30000);return()=>clearInterval(id);},[]);
   type UrgencyDisplay={message:string;dest:string;remaining:number;};
-  const urgencyDisplay:UrgencyDisplay|null=useMemo(()=>{
+  const urgencyDisplay:UrgencyDisplay|null = (() => {
     if(!allBookings.length)return null;
     const today=new Date().toISOString().split("T")[0];
     const groupMap=new Map<string,{destination:string;travelDate:string;totalSeats:number;}>();
     for(const b of allBookings){const dest=b.destination||"",date=b.travelDate||"";if(date<today)continue;const key=`${dest}||${date}`;if(!groupMap.has(key))groupMap.set(key,{destination:dest,travelDate:date,totalSeats:0});groupMap.get(key)!.totalSeats+=b.seats||1;}
     for(const[,g]of groupMap){const rem=15-g.totalSeats;if(rem>0&&rem<=4){const day=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(g.travelDate).getDay()];return{message:`🔥 Only ${rem} seat${rem===1?"":"s"} left for ${day}'s ${g.destination} dispatch!`,dest:g.destination,remaining:rem};}}
     return null;
-  },[allBookings]);
+  })();
   const isFormValid=()=>form.name.trim()&&form.studentId.trim()&&form.phone.trim()&&form.seats>=1&&String(form.travelDate).trim();
   const closeBooking=()=>{setShowBooking(false);setForm(p=>({...p,name:"",studentId:"",phone:"",seats:1}));setSelectedRoute("");setCustomDestination("");setBookingType("custom");setError("");};
   const handleBooking=async()=>{
