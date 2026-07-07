@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { logoPngBase64 } from "./logoBase64";
+import { formatMwk } from "./routePricing";
 
 function safeText(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "—";
@@ -43,6 +44,7 @@ function buildReceiptDocument(booking: BookingRecord) {
   const paymentStatus = safeText(booking.paymentStatus);
   const paymentConfirmedAt = formatDate(booking.paymentConfirmedAt);
   const bookingType = safeText(booking.bookingType);
+  const fare = typeof booking.fare === "number" ? booking.fare : undefined;
   const logoBase64 = logoPngBase64 || null;
 
   doc.setTextColor("#1A0F00");
@@ -161,6 +163,8 @@ function buildReceiptDocument(booking: BookingRecord) {
   doc.setTextColor("#374151");
   addWrappedText(doc, `Status: ${paymentStatus}`, margin + boxPadding, boxY, width / 2 - 16, 8);
   addWrappedText(doc, `Confirmed: ${paymentConfirmedAt}`, margin + width / 2 + 4, boxY, width / 2 - 16, 8);
+  boxY += 11;
+  addWrappedText(doc, `Fare: ${fare != null ? formatMwk(fare) : "—"}`, margin + boxPadding, boxY, width / 2 - 16, 8);
 
   y += 60;
   doc.setFont("helvetica", "normal");

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { logoPngBase64 } from "@/lib/logoBase64";
+import { formatMwk, resolveRouteFare } from "@/lib/routePricing";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -29,11 +30,11 @@ const POPULAR_ROUTES = [
 ];
 
 const ROUTES_DATA = [
-  { route: "Mzuzu - Lilongwe", buses: "Travel With Us today", price: "MWK 70,000", rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },
-  { route: "Mzuzu - Blantyre", buses: "Travel With Us today", price: "MWK 120,000", rating: "4.7 (98+)", img: "/images/routes/mzuzu-blantyre.jpg" },
-  { route: "Mzuzu - Zomba", buses: "Travel With Us today", price: "MWK 110,000", rating: "4.6 (76+)", img: "/images/routes/mzuzu-zomba.jpeg" },
-  { route: "Mzuzu - Kasungu", buses: "Travel With Us Today", price: "MWK 60,000", rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
-  { route: "Mzuzu - Karonga", buses: "Travel With Us Today", price: "MWK 45,000", rating: "4.5 (50+)", img: "/images/routes/mzuzu-karonga.jpg" },
+  { route: "Mzuzu - Lilongwe", buses: "Travel With Us today", fallbackPrice: 70000, rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },
+  { route: "Mzuzu - Blantyre", buses: "Travel With Us today", fallbackPrice: 120000, rating: "4.7 (98+)", img: "/images/routes/mzuzu-blantyre.jpg" },
+  { route: "Mzuzu - Zomba", buses: "Travel With Us today", fallbackPrice: 110000, rating: "4.6 (76+)", img: "/images/routes/mzuzu-zomba.jpeg" },
+  { route: "Mzuzu - Kasungu", buses: "Travel With Us Today", fallbackPrice: 60000, rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
+  { route: "Mzuzu - Karonga", buses: "Travel With Us Today", fallbackPrice: 45000, rating: "4.5 (50+)", img: "/images/routes/mzuzu-karonga.jpg" },
 ];
 
 const HERO_WALLPAPERS = ["/hero.png", "/images/hero/hero1.jpg", "/images/hero/hero3.jpg", "/images/hero/hero6.jpg"];
@@ -53,8 +54,9 @@ function StatusBadge({ status }: { status: BookingStatus }) {
 }
 
 function PaymentBadge({ status }: { status: string }) {
-  const paid = status === "Payment Confirmed";
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${paid ? "border-blue-200 bg-blue-50 text-blue-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{status || "Pending"}</span>;
+  const normalized = String(status || "Pending").trim();
+  const paid = normalized === "Payment Confirmed" || normalized.toLowerCase() === "paid";
+  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${paid ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{normalized}</span>;
 }
 
 function StepperTimeline({ currentStatus }: { currentStatus: BookingStatus }) {
@@ -79,7 +81,7 @@ function StepperTimeline({ currentStatus }: { currentStatus: BookingStatus }) {
   );
 }
 
-function PremiumBoardingPass(props: { name: string; studentId: string; phone: string; destination: string; travelDate: string; seats: number; bookingId: string; bookingType: string }) {
+function PremiumBoardingPass(props: { name: string; studentId: string; phone: string; destination: string; travelDate: string; seats: number; bookingId: string; bookingType: string; fare?: number }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
     try {
@@ -148,7 +150,8 @@ function PremiumBoardingPass(props: { name: string; studentId: string; phone: st
       doc.text(`Destination: ${props.destination}`, rightX, y + 28);
       doc.text(`Travel Date: ${props.travelDate}`, rightX, y + 42);
       doc.text(`Seats: ${props.seats}`, rightX, y + 56);
-      doc.text(`Booking Type: ${props.bookingType}`, rightX, y + 70);
+      doc.text(`Fare: ${formatMwk(props.fare)}`, rightX, y + 70);
+      doc.text(`Booking Type: ${props.bookingType}`, rightX, y + 84);
 
       y += 276;
       doc.setFillColor(248, 250, 252);
@@ -190,6 +193,7 @@ function PremiumBoardingPass(props: { name: string; studentId: string; phone: st
             ["Seats", props.seats],
             ["Destination", props.destination],
             ["Travel Date", props.travelDate],
+            ["Fare", props.fare != null ? formatMwk(props.fare) : "—"],
           ].map(([label, value]) => (
             <div key={String(label)}>
               <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
@@ -225,7 +229,9 @@ export default function Home() {
   const [trackError, setTrackError] = useState("");
   const [trackResult, setTrackResult] = useState<BookingRecord | null>(null);
   const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
-  const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; travelDate: string; bookingId: string; seats: number } | null>(null);
+  const [routePrices, setRoutePrices] = useState<Record<string, number>>({});
+  const [settingsText, setSettingsText] = useState("");
+  const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; travelDate: string; bookingId: string; seats: number; fare?: number } | null>(null);
   const [form, setForm] = useState(() => {
     const base = {
       name: "",
@@ -260,12 +266,38 @@ export default function Home() {
         if (Array.isArray(data?.bookings)) setAllBookings(data.bookings);
       } catch {}
     };
+
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch("/api/settings", { cache: "no-store" });
+        const data = await res.json();
+        const routesText = typeof data?.settings?.routes === "string" ? data.settings.routes : "";
+        const parsedPrices: Record<string, number> = {};
+        if (routesText) {
+          for (const line of routesText.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const separatorIndex = trimmed.indexOf(":");
+            if (separatorIndex === -1) continue;
+            const route = trimmed.slice(0, separatorIndex).trim();
+            const rawPrice = trimmed.slice(separatorIndex + 1).trim();
+            const numericPrice = Number(rawPrice.replace(/[^0-9.-]/g, ""));
+            if (route && Number.isFinite(numericPrice) && numericPrice > 0) parsedPrices[route] = numericPrice;
+          }
+        }
+        setRoutePrices(parsedPrices);
+        setSettingsText(routesText);
+      } catch {}
+    };
+
     fetchBookings();
+    fetchSettings();
     const interval = setInterval(fetchBookings, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const isFormValid = () => form.name.trim() && form.studentId.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
+  const getFareForDestination = (destination: string) => resolveRouteFare(destination, settingsText, routePrices[destination] || 0);
   const today = new Date().toISOString().split("T")[0];
   const urgencyDisplay = allBookings.find((b) => b.travelDate && b.travelDate >= today && b.seats && b.seats >= 11);
 
@@ -291,10 +323,11 @@ export default function Home() {
     if (bookingType === "custom" && !customDestination.trim()) return setError("Please enter your destination.");
     setLoading(true);
     const destination = bookingType === "custom" ? customDestination.trim() : selectedRoute;
+    const fare = getFareForDestination(destination);
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType }),
+        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType, fare }),
       });
       const result = await res.json();
       if (result?.success) {
@@ -308,6 +341,7 @@ export default function Home() {
           travelDate: form.travelDate,
           seats: form.seats,
           bookingId: normalized.bookingId || result.bookingId || "PENDING",
+          fare,
         });
         localStorage.setItem("twh_profile", JSON.stringify({ name: form.name.trim(), studentId: form.studentId.trim(), phone: form.phone.trim() }));
         closeBooking();
@@ -474,12 +508,14 @@ export default function Home() {
           </div>
 
           <div className="grid gap-5 md:grid-cols-4">
-            {ROUTES_DATA.map((route) => (
+            {ROUTES_DATA.map((route) => {
+              const fare = routePrices[route.route] || route.fallbackPrice;
+              return (
               <article key={route.route} className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
                 <Image src={route.img} width={420} height={170} className="h-32 w-full object-cover" alt={route.route} />
                 <div className="space-y-3 p-4">
                   <h3 className="font-black">{route.route}</h3>
-                  <div className="flex justify-between text-xs"><span>{route.buses}</span><span>From {route.price}</span></div>
+                  <div className="flex justify-between text-xs"><span>{route.buses}</span><span>From {formatMwk(fare)}</span></div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-500">* {route.rating}</span>
                     <button
@@ -491,7 +527,8 @@ export default function Home() {
                   </div>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -725,7 +762,15 @@ export default function Home() {
                 <StepperTimeline currentStatus={trackResult.status || "Booked"} />
                 <div className="mb-3 flex flex-wrap gap-2"><StatusBadge status={trackResult.status || "Booked"} /><PaymentBadge status={String(trackResult.paymentStatus ?? "Pending")} /></div>
                 <div className="space-y-2 rounded-md border border-blue-100 bg-blue-50 p-4 text-sm">
-                  {["name", "status", "destination", "travelDate", "seats", "bookingType"].map((key) => <div key={key}><p className="text-[10px] uppercase text-slate-500">{key}</p><p className="font-bold">{String(trackResult[key] ?? "-")}</p></div>)}
+                  {[
+                    ["name", trackResult.name],
+                    ["status", trackResult.status || "Booked"],
+                    ["destination", trackResult.destination],
+                    ["travelDate", trackResult.travelDate],
+                    ["seats", trackResult.seats],
+                    ["bookingType", trackResult.bookingType],
+                    ["fare", formatMwk(getFareForDestination(String(trackResult.destination || "")))],
+                  ].map(([label, value]) => <div key={String(label)}><p className="text-[10px] uppercase text-slate-500">{String(label)}</p><p className="font-bold">{String(value ?? "-")}</p></div>)}
                 </div>
               </div>
             )}
@@ -736,7 +781,7 @@ export default function Home() {
       {successData && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
           <div className="py-6">
-            <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} />
+            <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} fare={successData.fare} />
             <div className="mt-4 text-center"><button onClick={() => setSuccessData(null)} className="rounded-md bg-[#0f3f78] px-8 py-3 font-black text-white">Done</button></div>
           </div>
         </div>

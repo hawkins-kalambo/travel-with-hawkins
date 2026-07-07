@@ -71,12 +71,14 @@ export async function sendBookingEmail({
   destination,
   travelDate,
   seats,
+  fare,
 }: {
   to: string;
   name: string;
   destination: string;
   travelDate: string;
   seats: number;
+  fare?: number;
 }) {
   return sendEmail({
     from: DEFAULT_FROM_ADDRESS,
@@ -95,6 +97,7 @@ export async function sendBookingEmail({
           <li><b>Destination:</b> ${destination}</li>
           <li><b>Travel Date:</b> ${travelDate}</li>
           <li><b>Seats:</b> ${seats}</li>
+          <li><b>Fare:</b> ${fare != null ? `MWK ${fare.toLocaleString("en-MW")}` : "Pending"}</li>
         </ul>
 
         <p>Status: <b>Pending Confirmation</b></p>

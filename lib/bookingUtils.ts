@@ -26,6 +26,7 @@ export type BookingRecord = {
   pickup?: string;
   location?: string;
   bookingType?: string;
+  fare?: number;
 
   // Journey status only
   status?: JourneyStatus;
@@ -121,6 +122,9 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       normalized.pickup = toSafeString(value);
     } else if (key === "location") {
       normalized.location = toSafeString(value);
+    } else if (key === "fare") {
+      const parsedFare = Number(value);
+      if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
     } else if (key === "status") {
       const rawStatus = toSafeString(value)?.toLowerCase();
       if (rawStatus === "pending") {

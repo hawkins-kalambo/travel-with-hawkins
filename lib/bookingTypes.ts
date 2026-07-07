@@ -26,6 +26,7 @@ export type BookingRecord = {
   pickup?: string;
   location?: string;
   bookingType?: string;
+  fare?: number;
 
   // Journey status only
   status?: JourneyStatus;

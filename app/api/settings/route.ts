@@ -31,13 +31,6 @@ function toStringValue(value: unknown): string | undefined {
 }
 
 export async function GET(request: NextRequest) {
-  const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(request, response);
-
-  if (!authorized) {
-    return jsonError(error || "Unauthorized", 401);
-  }
-
   try {
     const { data, error } = await supabaseAdmin
       .from("settings")

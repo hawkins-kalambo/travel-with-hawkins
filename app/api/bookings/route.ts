@@ -4,6 +4,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
+import { resolveRouteFare } from "@/lib/routePricing";
 import {
   generateBookingId,
   generateTripId,
@@ -43,7 +44,7 @@ function getNonEmptyString(value: unknown): string | undefined {
   return undefined;
 }
 
-async function sendAdminNotification(payload: BookingRecord, bookingId: string, tripId: string) {
+async function sendAdminNotification(payload: BookingRecord, bookingId: string, tripId: string, fare?: number) {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logWarn("Admin notification skipped because ADMIN_NOTIFICATION_EMAIL is not configured.");
@@ -63,6 +64,7 @@ async function sendAdminNotification(payload: BookingRecord, bookingId: string, 
         <p><b>Destination:</b> ${payload.destination || "N/A"}</p>
         <p><b>Date:</b> ${payload.travelDate || "N/A"}</p>
         <p><b>Seats:</b> ${payload.seats || 1}</p>
+        <p><b>Fare:</b> ${fare != null ? `MWK ${fare.toLocaleString("en-MW")}` : "Pending"}</p>
       </div>
     `,
   });
@@ -72,7 +74,7 @@ async function sendAdminNotification(payload: BookingRecord, bookingId: string, 
   }
 }
 
-async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: string, tripId: string) {
+async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: string, tripId: string, fare?: number) {
   const userEmail = typeof payload.email === "string" ? payload.email.trim() : "";
   const isValidEmail = userEmail.length > 0 && userEmail.includes("@");
 
@@ -99,6 +101,7 @@ async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: stri
     destination: String(payload.destination || "Unknown"),
     travelDate: String(payload.travelDate || "TBD"),
     seats: Number(payload.seats ?? 1),
+    fare,
   });
 
   logInfo("Booking confirmation email result", { result });
@@ -159,6 +162,9 @@ export async function POST(req: Request) {
 
     const bookingId = generateBookingId();
     const tripId = generateTripId(destination, travelDate);
+    const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+    const fare = getPositiveNumber(payload.fare) ?? resolveRouteFare(destination, routesText, 5000);
     const normalizedPayload = {
       ...payload,
       bookingId,
@@ -186,13 +192,13 @@ export async function POST(req: Request) {
     const record = normalizeBookingRecord((data as Record<string, unknown>) ?? {});
 
     try {
-      await sendAdminNotification(record, bookingId, tripId);
+      await sendAdminNotification(record, bookingId, tripId, fare);
     } catch (error) {
       logError("Admin notification execution failed", { error });
     }
 
     try {
-      await sendUserConfirmationEmail(record, bookingId, tripId);
+      await sendUserConfirmationEmail(record, bookingId, tripId, fare);
     } catch (error) {
       logError("User confirmation email execution failed", { error });
     }

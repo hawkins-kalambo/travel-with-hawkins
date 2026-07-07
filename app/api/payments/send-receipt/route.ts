@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { sendEmail } from "@/lib/resend";
 import { generateReceiptPdfBase64 } from "@/lib/receiptGenerator";
+import { resolveRouteFare } from "@/lib/routePricing";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -55,6 +56,9 @@ export async function POST(request: NextRequest) {
     }
 
     const booking = normalizeBookingRecord(data as Record<string, unknown>);
+    const { data: settingsData } = await supabaseAdmin.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+    const bookingWithFare = { ...booking, fare: resolveRouteFare(booking.destination, routesText, 5000) };
 
     if (booking.paymentStatus !== "Payment Confirmed") {
       return jsonError("Receipt can only be sent after payment is confirmed", 400);
@@ -65,7 +69,7 @@ export async function POST(request: NextRequest) {
       return jsonError("No customer email available.", 400);
     }
 
-    const pdfBase64 = generateReceiptPdfBase64(booking);
+    const pdfBase64 = generateReceiptPdfBase64(bookingWithFare);
 
     const emailResult = await sendEmail({
       to: customerEmail,
@@ -77,6 +81,7 @@ export async function POST(request: NextRequest) {
           <p>Thank you for your payment. Your receipt is attached to this email.</p>
           <p><b>Receipt Number:</b> ${booking.receiptNumber || "N/A"}</p>
           <p><b>Trip ID:</b> ${booking.tripId || "N/A"}</p>
+          <p><b>Fare:</b> ${bookingWithFare.fare != null ? `MWK ${bookingWithFare.fare.toLocaleString("en-MW")}` : "Pending"}</p>
           <p>If you have any questions, reply to this message or contact our support.</p>
           <hr />
           <p style="font-size:12px;color:#666;">Travel with Hawkins — Thank you for choosing us.</p>
