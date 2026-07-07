@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
+import { resolveRouteFare } from "@/lib/routePricing";
 import { logError } from "@/lib/logger";
 
 
@@ -85,10 +86,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const record = normalizeBookingRecord(data as Record<string, unknown>);
+
+    // Resolve fare from settings to ensure it stays consistent with the latest configured pricing.
+    // This also helps “amount paid/overview” displays after confirmation.
+    let resolvedFare: number | undefined;
+    try {
+      const { data: settingsData } = await supabaseAdmin
+        .from("settings")
+        .select("routes")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+      resolvedFare = resolveRouteFare(record.destination, routesText, 5000);
+    } catch {
+      // ignore - fare will remain whatever is already stored
+    }
+
     const updatePayload: Record<string, unknown> = {
       payment_status: "Payment Confirmed",
       payment_confirmed_at: new Date().toISOString(),
     };
+
+    if (resolvedFare && Number.isFinite(resolvedFare) && resolvedFare > 0) {
+      updatePayload.fare = resolvedFare;
+    }
 
     if (receiptNumber) {
       updatePayload.receipt_number = receiptNumber;

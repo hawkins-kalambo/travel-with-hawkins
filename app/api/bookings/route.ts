@@ -178,9 +178,14 @@ export async function POST(req: Request) {
       bookingType: getNonEmptyString(payload.bookingType) || "Online",
     };
 
+    const bookingPayload = {
+      ...toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked"),
+      fare,
+    };
+
     const { data, error } = await supabase
       .from("bookings")
-      .insert([toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked")])
+      .insert([bookingPayload])
       .select()
       .single();
 
