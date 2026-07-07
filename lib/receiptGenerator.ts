@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { BookingRecord } from "@/lib/bookingTypes";
+import { logoPngBase64 } from "./logoBase64";
 
 function safeText(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "—";
@@ -42,11 +43,16 @@ function buildReceiptDocument(booking: BookingRecord) {
   const paymentStatus = safeText(booking.paymentStatus);
   const paymentConfirmedAt = formatDate(booking.paymentConfirmedAt);
   const bookingType = safeText(booking.bookingType);
+  const logoBase64 = logoPngBase64 || null;
 
   doc.setTextColor("#1A0F00");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
   doc.text("Travel with Hawkins", margin, y);
+
+  if (logoBase64) {
+    doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", margin + width - 46, y - 8, 38, 38);
+  }
 
   y += 14;
   doc.setFont("helvetica", "normal");
