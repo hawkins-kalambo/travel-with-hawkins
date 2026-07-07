@@ -447,7 +447,7 @@ export default function Home() {
             <p className="text-xs font-black uppercase text-[#0f3f78]">Why Choose Us</p>
             <h2 className="text-2xl font-black">Built for Students, Designed for Comfort</h2>
             <ul className="mt-4 space-y-2 text-sm">
-              {["Trusted bus operators", "Safe and comfortable journeys", "Easy booking in minutes", "24/7 customer support", "Affordable prices for students"].map((item) => (
+              {["Trusted bus operators", "Safe and comfortable journeys", "Easy booking in seconds", "24/7 customer support", "Affordable prices for students"].map((item) => (
                 <li key={item} className="flex items-start gap-2 font-medium">
                   <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0f3f78] text-[10px] font-black text-white">✓</span>
                   <span>{item}</span>
@@ -482,9 +482,9 @@ export default function Home() {
           <h2 className="mt-1 text-2xl font-black">The People Behind Travel with Hawkins</h2>
           <div className="mx-auto mt-6 grid max-w-4xl gap-6 md:grid-cols-3">
             {[
-              ["Financial Account", "Joshua Kalambo", "/images/team/designer.jpg"],
-              ["CEO", "Mwira MCDonald Mukumbwa.", "/images/team/ceo.jpg"],
-              ["Logistics Manager", "Hawkins Kalambo", "/images/team/developer.jpg"],
+              ["C.E.O", "Mwira Mcdonald Mukumbwa", "/images/team/Mwira.jpeg"],
+              ["Lead Systems Analyst", "Hawkins Kalambo.", "/images/team/hawkins.jpeg"],
+              ["Financial Analyst", "Joshua Kalambo", "/images/team/joshua.jpg"],
             ].map(([role, name, img]) => (
               <div key={role} className="overflow-hidden rounded-lg border border-slate-200 bg-white text-center shadow-md transition-shadow hover:shadow-xl">
                 <Image src={img} width={360} height={210} className="h-40 w-full object-cover object-top" alt={name} />
