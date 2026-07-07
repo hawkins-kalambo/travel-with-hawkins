@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* 
+  FAVICON: To use your logo as favicon, replace app/favicon.ico with your logo.
+  Or add this to app/layout.tsx metadata:
+    icons: { icon: '/logo.png', apple: '/logo.png' }
+*/
+
+:root {
+  --background: #ffffff;
+  --foreground: #1a0f00;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Force light mode always */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #ffffff;
+    --foreground: #1a0f00;
+  }
+}
+
+html {
+  font-size: 16px; /* DEFAULT — readable base size */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-size: 1rem; /* 16px */
+  line-height: 1.6;
+}
+
+/* Force high-contrast on all form inputs */
+input, select, textarea {
+  background-color: #ffffff !important;
+  color: #1a0f00 !important;
+  caret-color: #1a0f00 !important;
+  font-size: 1rem !important;
+}
+input::placeholder, select::placeholder, textarea::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+}
+
+.break-words-force {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Pop animation for CTAs */
+@keyframes twh-pop {
+  0%   { transform: translateY(10px) scale(0.96); opacity: 0; }
+  60%  { transform: translateY(-2px) scale(1.02); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.animate-pop { animation: twh-pop 420ms ease-out both; }
+
+/* Fade-in for hero content */
+@keyframes twh-fadein {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fadein { animation: twh-fadein 550ms ease-out both; }
+
+/* Hero background — travel road photo */
+.hero-bg {
+  background-image: url('/hero.png');
+  background-size: cover;
+  background-position: center center;
+}
+
+/* Stepper connector line */
+.stepper-connector { position: relative; }
+.stepper-connector::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 100%;
+  width: 100%; height: 2px;
+  background: #f0e0d0;
+  transform: translateY(-50%);
+}
+.stepper-connector.active::after { background: #E8650A; }
+.stepper-connector:last-child::after { display: none; }
