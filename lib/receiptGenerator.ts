@@ -1,6 +1,5 @@
 import { jsPDF } from "jspdf";
 import type { BookingRecord } from "@/lib/bookingTypes";
-import { logoPngBase64 } from "./logoBase64";
 
 function safeText(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "—";
@@ -17,54 +16,18 @@ function formatDate(value: string | Date | undefined): string {
   }).format(date);
 }
 
-const logoBase64 = logoPngBase64 || null;
+function addWrappedText(doc: jsPDF, text: string, x: number, y: number, maxWidth: number, fontSize = 9) {
+  doc.setFontSize(fontSize);
+  const lines = doc.splitTextToSize(text, maxWidth);
+  doc.text(lines, x, y);
+  return lines.length * (fontSize + 1);
+}
 
 function buildReceiptDocument(booking: BookingRecord) {
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-  const margin = 40;
-  const width = 595 - margin * 2;
-  const halfWidth = width / 2 - 12;
-  let y = 40;
-
-  const receiptTitle = "Travel with Hawkins";
-  const receiptSubtitle = "Professional Student Transport Services";
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor("#1A0F00");
-  doc.text(receiptTitle, margin, y);
-
-  if (logoBase64) {
-    doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", margin + width - 70, 30, 60, 60);
-  }
-
-  y += 24;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor("#666666");
-  doc.text(receiptSubtitle, margin, y);
-
-  y += 28;
-  doc.setDrawColor("#E8650A");
-  doc.setLineWidth(1.5);
-  doc.line(margin, y, margin + width, y);
-  y += 22;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.setTextColor("#1A0F00");
-  doc.text("OFFICIAL RECEIPT", margin, y);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor("#444444");
-  doc.text(`Date: ${formatDate(new Date())}`, margin + width - 140, y);
-
-  y += 18;
-  doc.setDrawColor("#E8650A");
-  doc.setLineWidth(0.8);
-  doc.line(margin, y, margin + width, y);
-  y += 24;
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a5", compress: true });
+  const margin = 24;
+  const width = 420 - margin * 2;
+  let y = 28;
 
   const receiptNumber = safeText(booking.receiptNumber);
   const bookingId = safeText(booking.bookingId);
@@ -80,100 +43,126 @@ function buildReceiptDocument(booking: BookingRecord) {
   const paymentConfirmedAt = formatDate(booking.paymentConfirmedAt);
   const bookingType = safeText(booking.bookingType);
 
-  const sectionGap = 18;
-  const sectionHeight = 92;
-
-  doc.setFillColor(248, 247, 245);
-  doc.rect(margin, y, width, sectionHeight, "F");
-  doc.setDrawColor("#E2D5C0");
-  doc.rect(margin, y, width, sectionHeight, "S");
-
-  const sectionPadding = 12;
-  let sectionY = y + 20;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
   doc.setTextColor("#1A0F00");
-  doc.text("Receipt Details", margin + sectionPadding, sectionY);
-
-  sectionY += 18;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor("#333333");
-  doc.text("Receipt Number:", margin + sectionPadding, sectionY);
-  doc.text(receiptNumber, margin + sectionPadding + 110, sectionY);
-  doc.text("Booking ID:", margin + halfWidth + sectionPadding, sectionY);
-  doc.text(bookingId, margin + halfWidth + sectionPadding + 88, sectionY);
-
-  sectionY += 14;
-  doc.text("Trip ID:", margin + sectionPadding, sectionY);
-  doc.text(tripId, margin + sectionPadding + 110, sectionY);
-  doc.text("Status:", margin + halfWidth + sectionPadding, sectionY);
-  doc.text(paymentStatus, margin + halfWidth + sectionPadding + 88, sectionY);
-
-  sectionY += 14;
-  doc.text("Confirmed At:", margin + sectionPadding, sectionY);
-  doc.text(paymentConfirmedAt, margin + sectionPadding + 110, sectionY);
-
-  y += sectionHeight + sectionGap;
-
-  doc.setFillColor(255, 255, 255);
-  doc.rect(margin, y, width, 120, "F");
-  doc.setDrawColor("#E2D5C0");
-  doc.rect(margin, y, width, 120, "S");
-
-  sectionY = y + 20;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor("#1A0F00");
-  doc.text("Passenger Information", margin + sectionPadding, sectionY);
+  doc.setFontSize(16);
+  doc.text("Travel with Hawkins", margin, y);
 
-  sectionY += 18;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor("#333333");
-  doc.text(`Name: ${studentName}`, margin + sectionPadding, sectionY);
-  doc.text(`Type: ${bookingType}`, margin + halfWidth + sectionPadding, sectionY);
-
-  sectionY += 14;
-  doc.text(`Student ID: ${studentId}`, margin + sectionPadding, sectionY);
-  doc.text(`Phone: ${phone}`, margin + halfWidth + sectionPadding, sectionY);
-
-  sectionY += 14;
-  doc.text(`Destination: ${destination}`, margin + sectionPadding, sectionY);
-  doc.text(`Travel Date: ${travelDate}`, margin + halfWidth + sectionPadding, sectionY);
-
-  sectionY += 14;
-  doc.text(`Pickup Location: ${pickup}`, margin + sectionPadding, sectionY);
-  doc.text(`Seats: ${seats}`, margin + halfWidth + sectionPadding, sectionY);
-
-  y += 120 + sectionGap;
-
-  doc.setFillColor(248, 247, 245);
-  doc.rect(margin, y, width, 70, "F");
-  doc.setDrawColor("#E2D5C0");
-  doc.rect(margin, y, width, 70, "S");
-
-  sectionY = y + 20;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor("#1A0F00");
-  doc.text("Payment Summary", margin + sectionPadding, sectionY);
-
-  sectionY += 18;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor("#333333");
-  doc.text(`Payment Status: ${paymentStatus}`, margin + sectionPadding, sectionY);
-  doc.text(`Confirmed At: ${paymentConfirmedAt}`, margin + halfWidth + sectionPadding, sectionY);
-
-  y += 70 + sectionGap;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor("#666666");
-  doc.text("This receipt is proof of payment and should be kept for your records.", margin, y);
   y += 14;
-  doc.text("For support, contact Travel with Hawkins at +265 989 127 308 or hgkalambo@gmail.com.", margin, y);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#6B7280");
+  doc.text("Professional student transport receipt", margin, y);
+
+  y += 16;
+  doc.setDrawColor("#E8650A");
+  doc.setLineWidth(1);
+  doc.line(margin, y, margin + width, y);
+
+  y += 16;
+  doc.setTextColor("#111827");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Official Payment Receipt", margin, y);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#4B5563");
+  doc.text(`Issued: ${formatDate(new Date())}`, margin + width - 95, y);
+
+  y += 14;
+  doc.setDrawColor("#E5E7EB");
+  doc.setLineWidth(0.5);
+  doc.line(margin, y, margin + width, y);
+
+  y += 14;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(margin, y, width, 88, 6, 6, "F");
+  doc.setDrawColor("#E5E7EB");
+  doc.roundedRect(margin, y, width, 88, 6, 6, "S");
+
+  const boxPadding = 10;
+  const leftColX = margin + boxPadding;
+  const rightColX = margin + width / 2 + 6;
+  let boxY = y + 12;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor("#111827");
+  doc.text("Receipt Details", leftColX, boxY);
+
+  boxY += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#374151");
+  addWrappedText(doc, `Receipt No: ${receiptNumber}`, leftColX, boxY, width / 2 - 16, 8);
+  boxY += 11;
+  addWrappedText(doc, `Booking ID: ${bookingId}`, leftColX, boxY, width / 2 - 16, 8);
+  boxY += 11;
+  addWrappedText(doc, `Trip ID: ${tripId}`, leftColX, boxY, width / 2 - 16, 8);
+
+  boxY = y + 12;
+  doc.setFont("helvetica", "bold");
+  doc.text("Passenger Details", rightColX, boxY);
+
+  boxY += 10;
+  doc.setFont("helvetica", "normal");
+  addWrappedText(doc, `Name: ${studentName}`, rightColX, boxY, width / 2 - 16, 8);
+  boxY += 11;
+  addWrappedText(doc, `Student ID: ${studentId}`, rightColX, boxY, width / 2 - 16, 8);
+  boxY += 11;
+  addWrappedText(doc, `Phone: ${phone}`, rightColX, boxY, width / 2 - 16, 8);
+
+  y += 104;
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(margin, y, width, 82, 6, 6, "F");
+  doc.setDrawColor("#E5E7EB");
+  doc.roundedRect(margin, y, width, 82, 6, 6, "S");
+
+  boxY = y + 12;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor("#111827");
+  doc.text("Trip Information", margin + boxPadding, boxY);
+
+  boxY += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#374151");
+  addWrappedText(doc, `Route: ${destination}`, margin + boxPadding, boxY, width - 20, 8);
+  boxY += 11;
+  addWrappedText(doc, `Pickup: ${pickup}`, margin + boxPadding, boxY, width - 20, 8);
+  boxY += 11;
+  addWrappedText(doc, `Travel Date: ${travelDate}`, margin + boxPadding, boxY, width - 20, 8);
+  boxY += 11;
+  addWrappedText(doc, `Seats: ${seats} • Booking Type: ${bookingType}`, margin + boxPadding, boxY, width - 20, 8);
+
+  y += 98;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(margin, y, width, 44, 6, 6, "F");
+  doc.setDrawColor("#E5E7EB");
+  doc.roundedRect(margin, y, width, 44, 6, 6, "S");
+
+  boxY = y + 12;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor("#111827");
+  doc.text("Payment Summary", margin + boxPadding, boxY);
+
+  boxY += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#374151");
+  addWrappedText(doc, `Status: ${paymentStatus}`, margin + boxPadding, boxY, width / 2 - 16, 8);
+  addWrappedText(doc, `Confirmed: ${paymentConfirmedAt}`, margin + width / 2 + 4, boxY, width / 2 - 16, 8);
+
+  y += 60;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.2);
+  doc.setTextColor("#6B7280");
+  doc.text("This receipt confirms your payment and should be kept for your records.", margin, y);
+  y += 10;
+  doc.text("Support: +265 989 127 308 | smoothridemw@gmail.com", margin, y);
 
   return doc;
 }
