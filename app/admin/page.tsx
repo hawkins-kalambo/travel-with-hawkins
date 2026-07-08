@@ -7,6 +7,7 @@ import Image from "next/image";
 import { supabase } from "@/lib/auth";
 import { type BookingRecord } from "@/lib/bookingTypes";
 import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
+import { parseRoutePrices, resolveRouteFare, formatMwk } from "@/lib/routePricing";
 
 // ================= TYPES =================
 type JourneyStatus =
@@ -28,45 +29,7 @@ type EnrichedBooking = BookingRecord & {
 type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "settings";
 
 // ================= PRICING HELPERS =================
-function normalizeRouteText(value: string | undefined): string {
-  if (!value) return "";
-
-  return value
-    .trim()
-    .replace(/[→—–−]/g, "-")
-    .replace(/\s*[-–—−]\s*/g, " - ")
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
-function parseRoutePrices(routesStr: string): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const line of routesStr.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const parts = trimmed.split(":");
-    if (parts.length === 2) {
-      const route = normalizeRouteText(parts[0].trim());
-      const price = parseInt(parts[1].trim());
-      if (route && !isNaN(price)) map.set(route, price);
-    }
-  }
-  return map;
-}
-
-function getRoutePrice(destination: string | undefined, routesStr: string, fallback = 5000): number {
-  if (!destination) return fallback;
-  const normalizedDestination = normalizeRouteText(destination);
-  const priceMap = parseRoutePrices(routesStr);
-  if (priceMap.has(normalizedDestination)) return priceMap.get(normalizedDestination) ?? fallback;
-
-  for (const [route, price] of priceMap.entries()) {
-    if (route === normalizedDestination) return price;
-    if (route.includes(normalizedDestination) || normalizedDestination.includes(route)) return price;
-  }
-
-  return fallback;
-}
+// Use centralized pricing helpers from lib/routePricing
 
 function getBookingFee(settingsBookingFee: string): number {
   // bookingFee is a flat amount per confirmed booking
@@ -80,7 +43,7 @@ function calcBookingRevenue(
   routesStr: string,
   bookingFeeStr: string
 ): { ticketRevenue: number; bookingFee: number; total: number } {
-  const routePrice = getRoutePrice(b.destination, routesStr);
+  const routePrice = resolveRouteFare(b.destination, routesStr);
   const ticketPrice = typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0 ? b.fare : routePrice;
   const seats = b.seats || 1;
 
@@ -1109,7 +1072,7 @@ const filtered = useMemo(() => {
                                             fare:
                                               typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0
                                                 ? b.fare
-                                                : getRoutePrice(b.destination, settings.routes, 5000),
+                                                : resolveRouteFare(b.destination, settings.routes, 5000),
                                           };
                                           const pdfBlob = generateReceiptPdfBlob(receiptBooking);
                                             const url = URL.createObjectURL(pdfBlob);
