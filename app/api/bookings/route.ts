@@ -4,9 +4,6 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
-// NOTE: fare persistence on booking creation is disabled right now.
-// The database currently does NOT include `bookings.fare` (Supabase PGRST204).
-// Home page fare and boarding pass fare should not depend on backend right now.
 import { resolveRouteFare } from "@/lib/routePricing";
 import {
   generateBookingId,
@@ -179,18 +176,25 @@ export async function POST(req: Request) {
       studentId,
       seats,
       bookingType: getNonEmptyString(payload.bookingType) || "Online",
+      fare,
     };
 
-    // IMPORTANT: Do not write `fare` during booking creation.
-    // The DB schema for `bookings.fare` may be missing or constrained, which would cause Supabase insert to fail (500).
-    // We will populate/repair `fare` later on payment confirmation.
     const bookingPayload = toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked");
 
-    const { data, error } = await supabase
-      .from("bookings")
-      .insert([bookingPayload])
-      .select()
-      .single();
+    const insertResult = await supabase.from("bookings").insert([bookingPayload]).select().single();
+    let data = insertResult.data as Record<string, unknown> | null;
+    let error = insertResult.error;
+
+    if (error) {
+      const reason = String(error?.message || error?.details || error).toLowerCase();
+      const missingFareColumn = reason.includes("fare") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+      if (missingFareColumn) {
+        delete (bookingPayload as Record<string, unknown>).fare;
+        const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
+        data = retry.data as Record<string, unknown> | null;
+        error = retry.error;
+      }
+    }
 
     if (error) {
       // Return the real Supabase error to help diagnose production failures.
@@ -202,7 +206,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const record = normalizeBookingRecord((data as Record<string, unknown>) ?? {});
+    const record = normalizeBookingRecord(data ?? {});
+    const responseBooking = { ...record, fare };
+    delete (responseBooking as Record<string, unknown>).tripId;
 
     try {
       await sendAdminNotification(record, bookingId, tripId, fare);
@@ -216,10 +222,7 @@ export async function POST(req: Request) {
       logError("User confirmation email execution failed", { error });
     }
 
-    const customerRecord = { ...record };
-    delete (customerRecord as Record<string, unknown>).tripId;
-
-    return NextResponse.json({ success: true, booking: customerRecord, bookingId, message: "Booking created" });
+    return NextResponse.json({ success: true, booking: responseBooking, bookingId, message: "Booking created" });
   } catch (error) {
     console.error("Booking POST failed", error);
     logError("Booking POST failed", { error });

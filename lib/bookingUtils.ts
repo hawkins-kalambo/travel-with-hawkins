@@ -61,6 +61,7 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   bookingType: "booking_type",
   createdAt: "created_at",
   updatedAt: "updated_at",
+  fare: "fare",
 
   paymentStatus: "payment_status",
   paymentConfirmedAt: "payment_confirmed_at",
@@ -82,6 +83,15 @@ function toSafeNumber(value: unknown): number {
     if (Number.isFinite(parsed)) return parsed;
   }
   return 1;
+}
+
+function toSafePositiveNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
 }
 
 export function normalizeBookingRecord(record: Record<string, unknown> | null | undefined): BookingRecord {
@@ -190,6 +200,7 @@ export function toSupabaseBookingPayload(
     // Payment status independent
     payment_status: "Pending",
 
+    fare: toSafePositiveNumber(input.fare),
     booking_type: toSafeString(input.bookingType) ?? "Online",
   };
 }

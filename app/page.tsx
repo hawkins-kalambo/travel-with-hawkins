@@ -251,12 +251,14 @@ export default function Home() {
     return base;
   });
 
+  const heroCount = HERO_WALLPAPERS.length;
+
   useEffect(() => {
     const slider = setInterval(() => {
-      setHeroIndex((current) => (current + 1) % HERO_WALLPAPERS.length);
+      setHeroIndex((current) => (current + 1) % heroCount);
     }, 5500);
     return () => clearInterval(slider);
-  }, [HERO_WALLPAPERS.length]);
+  }, [heroCount]);
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -297,7 +299,7 @@ export default function Home() {
   }, []);
 
   const isFormValid = () => form.name.trim() && form.studentId.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
-  const getFareForDestination = (destination: string) => resolveRouteFare(destination, settingsText, routePrices[destination] || 0);
+  const getFareForDestination = (destination: string) => resolveRouteFare(destination, settingsText, 5000);
   const today = new Date().toISOString().split("T")[0];
   const urgencyDisplay = allBookings.find((b) => b.travelDate && b.travelDate >= today && b.seats && b.seats >= 11);
 
@@ -394,8 +396,14 @@ export default function Home() {
               ))}
             </nav>
             <div className="flex items-center gap-2">
-              <button onClick={() => setShowTrack(true)} className="inline-flex h-10 min-w-[72px] items-center justify-center rounded-md border border-[#0f3f78] px-3 text-sm font-bold text-[#101815] transition-colors hover:bg-[#f5f9ff] sm:min-w-[80px] sm:px-4">Track</button>
-              <button onClick={() => openBooking()} className="inline-flex h-10 min-w-[72px] items-center justify-center rounded-md bg-[#0f3f78] px-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56] sm:min-w-[80px] sm:px-4">Book</button>
+              <button onClick={() => setShowTrack(true)} className="inline-flex w-full items-center justify-center rounded-md border border-[#0f3f78] px-3 py-2 text-sm font-bold text-[#101815] transition-colors hover:bg-[#f5f9ff] sm:w-auto sm:px-5 sm:py-2.5">
+                <span className="hidden sm:inline">Track Booking</span>
+                <span className="inline sm:hidden">Track</span>
+              </button>
+              <button onClick={() => openBooking()} className="inline-flex w-full items-center justify-center rounded-md bg-[#0f3f78] px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56] sm:w-auto sm:px-5 sm:py-2.5">
+                <span className="hidden sm:inline">Book Trip</span>
+                <span className="inline sm:hidden">Book</span>
+              </button>
               <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-md lg:hidden" aria-label="Menu">
                 <span className="flex w-5 flex-col gap-1">
                   <span className="h-0.5 rounded bg-[#101815]" />
@@ -515,7 +523,7 @@ export default function Home() {
                 <Image src={route.img} width={420} height={170} className="h-32 w-full object-cover" alt={route.route} />
                 <div className="space-y-3 p-4">
                   <h3 className="font-black">{route.route}</h3>
-                  <div className="flex justify-between text-xs"><span>{route.buses}</span><span>From {formatMwk(fare)}</span></div>
+                  <div className="flex justify-between text-xs"><span>{route.buses}</span><span>Fair {formatMwk(fare)}</span></div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-500">* {route.rating}</span>
                     <button

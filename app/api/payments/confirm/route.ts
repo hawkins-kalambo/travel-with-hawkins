@@ -88,19 +88,24 @@ export async function POST(request: NextRequest) {
 
     const record = normalizeBookingRecord(data as Record<string, unknown>);
 
-    // Resolve fare from settings to ensure it stays consistent with the latest configured pricing.
-    // This also helps “amount paid/overview” displays after confirmation.
-    let resolvedFare: number | undefined;
-    try {
-      const { data: settingsData } = await supabaseAdmin
-        .from("settings")
-        .select("routes")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const safeStoredFare = typeof record.fare === "number" && Number.isFinite(record.fare) && record.fare > 0 ? record.fare : undefined;
 
-      const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-      resolvedFare = resolveRouteFare(record.destination, routesText, 5000);
+    // Resolve fare from settings to ensure it stays consistent with the latest configured pricing.
+    // Prefer an already-stored fare if present, otherwise compute from the latest route settings.
+    let fareToStore = safeStoredFare;
+    try {
+      if (!fareToStore) {
+        const { data: settingsData } = await supabaseAdmin
+          .from("settings")
+          .select("routes")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+        const resolvedFare = resolveRouteFare(record.destination, routesText, 5000);
+        if (Number.isFinite(resolvedFare) && resolvedFare > 0) fareToStore = resolvedFare;
+      }
     } catch {
       // ignore - fare will remain whatever is already stored
     }
@@ -110,20 +115,41 @@ export async function POST(request: NextRequest) {
       payment_confirmed_at: new Date().toISOString(),
     };
 
-    if (resolvedFare && Number.isFinite(resolvedFare) && resolvedFare > 0) {
-      updatePayload.fare = resolvedFare;
+    if (fareToStore && Number.isFinite(fareToStore) && fareToStore > 0) {
+      updatePayload.fare = fareToStore;
     }
 
     if (receiptNumber) {
       updatePayload.receipt_number = receiptNumber;
     }
 
-    const { data: updatedBooking, error: updateError } = await supabaseAdmin
+    let { data: updatedBooking, error: updateError } = await supabaseAdmin
       .from("bookings")
       .update(updatePayload)
       .eq("booking_id", bookingId)
       .select()
       .single();
+
+    if (updateError && updatePayload.fare != null) {
+      const maybeError = updateError as unknown;
+      const message = String(
+        typeof maybeError === "object" && maybeError !== null && "message" in maybeError ? (maybeError as Record<string, unknown>).message : null ||
+        typeof maybeError === "object" && maybeError !== null && "details" in maybeError ? (maybeError as Record<string, unknown>).details : null ||
+        updateError
+      ).toLowerCase();
+      const missingFareColumn = message.includes("fare") && (message.includes("column") || message.includes("unknown") || message.includes("undefined") || message.includes("null"));
+      if (missingFareColumn) {
+        delete updatePayload.fare;
+        const retry = await supabaseAdmin
+          .from("bookings")
+          .update(updatePayload)
+          .eq("booking_id", bookingId)
+          .select()
+          .single();
+        updatedBooking = retry.data as Record<string, unknown> | null;
+        updateError = retry.error;
+      }
+    }
 
     if (updateError) {
       console.error("Payment confirmation update failed", updateError);

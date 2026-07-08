@@ -57,11 +57,12 @@ function getBookingFee(settingsBookingFee: string): number {
 
 
 function calcBookingRevenue(
-  b: { destination?: string; seats?: number; paymentStatus?: string },
+  b: { destination?: string; seats?: number; fare?: number; paymentStatus?: string },
   routesStr: string,
   bookingFeeStr: string
 ): { ticketRevenue: number; bookingFee: number; total: number } {
-  const ticketPrice = getRoutePrice(b.destination, routesStr);
+  const routePrice = getRoutePrice(b.destination, routesStr);
+  const ticketPrice = typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0 ? b.fare : routePrice;
   const seats = b.seats || 1;
 
   const isPaid = String(b.paymentStatus || "Pending") === "Payment Confirmed";
