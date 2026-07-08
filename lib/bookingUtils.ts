@@ -51,6 +51,12 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   booking_type: "bookingType",
   created_at: "createdAt",
   updated_at: "updatedAt",
+  fare: "fare",
+  payment_status: "paymentStatus",
+  payment_confirmed_at: "paymentConfirmedAt",
+  receipt_number: "receiptNumber",
+  receipt_sent: "receiptSent",
+  payment_notes: "paymentNotes",
 };
 
 const CAMEL_TO_SNAKE: Record<string, string> = {
@@ -109,6 +115,19 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       else if (camelKey === "bookingType") normalized.bookingType = toSafeString(value);
       else if (camelKey === "createdAt") normalized.createdAt = toSafeString(value);
       else if (camelKey === "updatedAt") normalized.updatedAt = toSafeString(value);
+      else if (camelKey === "fare") {
+        const parsedFare = Number(value);
+        if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
+      }
+      else if (camelKey === "paymentStatus") normalized.paymentStatus = (toSafeString(value) as PaymentStatus | undefined) || "Pending";
+      else if (camelKey === "paymentConfirmedAt") normalized.paymentConfirmedAt = toSafeString(value);
+      else if (camelKey === "receiptNumber") normalized.receiptNumber = toSafeString(value);
+      else if (camelKey === "receiptSent") {
+        if (typeof value === "boolean") normalized.receiptSent = value;
+        else if (typeof value === "string") normalized.receiptSent = value === "true";
+        else normalized.receiptSent = undefined;
+      }
+      else if (camelKey === "paymentNotes") normalized.paymentNotes = toSafeString(value);
     } else if (key === "id") {
       normalized.bookingId = toSafeString(value);
     } else if (key in CAMEL_TO_SNAKE) {
@@ -120,6 +139,19 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       else if (camelKey === "bookingType") normalized.bookingType = toSafeString(value);
       else if (camelKey === "createdAt") normalized.createdAt = toSafeString(value);
       else if (camelKey === "updatedAt") normalized.updatedAt = toSafeString(value);
+      else if (camelKey === "fare") {
+        const parsedFare = Number(value);
+        if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
+      }
+      else if (camelKey === "paymentStatus") normalized.paymentStatus = (toSafeString(value) as PaymentStatus | undefined) || "Pending";
+      else if (camelKey === "paymentConfirmedAt") normalized.paymentConfirmedAt = toSafeString(value);
+      else if (camelKey === "receiptNumber") normalized.receiptNumber = toSafeString(value);
+      else if (camelKey === "receiptSent") {
+        if (typeof value === "boolean") normalized.receiptSent = value;
+        else if (typeof value === "string") normalized.receiptSent = value === "true";
+        else normalized.receiptSent = undefined;
+      }
+      else if (camelKey === "paymentNotes") normalized.paymentNotes = toSafeString(value);
     } else if (key === "name") {
       normalized.name = toSafeString(value);
     } else if (key === "phone") {
