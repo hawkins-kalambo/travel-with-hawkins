@@ -18,6 +18,8 @@ export async function middleware(request: NextRequest) {
     method === "GET" &&
     request.nextUrl.searchParams.has("trackingId");
 
+  // Only protect admin/settings/reporting routes.
+  // Booking creation and public booking lookup should remain public.
   const isProtected =
     isSettingsRoute ||
     (isBookingsRoute && !isPublicBookingLookup && !isPublicBookingCreate);
