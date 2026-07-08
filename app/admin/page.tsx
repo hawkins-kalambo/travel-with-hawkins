@@ -28,6 +28,17 @@ type EnrichedBooking = BookingRecord & {
 type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "settings";
 
 // ================= PRICING HELPERS =================
+function normalizeRouteText(value: string | undefined): string {
+  if (!value) return "";
+
+  return value
+    .trim()
+    .replace(/[→—–−]/g, "-")
+    .replace(/\s*[-–—−]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function parseRoutePrices(routesStr: string): Map<string, number> {
   const map = new Map<string, number>();
   for (const line of routesStr.split("\n")) {
@@ -35,7 +46,7 @@ function parseRoutePrices(routesStr: string): Map<string, number> {
     if (!trimmed) continue;
     const parts = trimmed.split(":");
     if (parts.length === 2) {
-      const route = parts[0].trim();
+      const route = normalizeRouteText(parts[0].trim());
       const price = parseInt(parts[1].trim());
       if (route && !isNaN(price)) map.set(route, price);
     }
@@ -45,8 +56,16 @@ function parseRoutePrices(routesStr: string): Map<string, number> {
 
 function getRoutePrice(destination: string | undefined, routesStr: string, fallback = 5000): number {
   if (!destination) return fallback;
+  const normalizedDestination = normalizeRouteText(destination);
   const priceMap = parseRoutePrices(routesStr);
-  return priceMap.get(destination.trim()) ?? fallback;
+  if (priceMap.has(normalizedDestination)) return priceMap.get(normalizedDestination) ?? fallback;
+
+  for (const [route, price] of priceMap.entries()) {
+    if (route === normalizedDestination) return price;
+    if (route.includes(normalizedDestination) || normalizedDestination.includes(route)) return price;
+  }
+
+  return fallback;
 }
 
 function getBookingFee(settingsBookingFee: string): number {
@@ -1085,7 +1104,14 @@ const filtered = useMemo(() => {
                                           const id = b.bookingId || "";
                                           if (!id) return;
                                           try {
-                                            const pdfBlob = generateReceiptPdfBlob(b);
+                                            const receiptBooking = {
+                                            ...b,
+                                            fare:
+                                              typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0
+                                                ? b.fare
+                                                : getRoutePrice(b.destination, settings.routes, 5000),
+                                          };
+                                          const pdfBlob = generateReceiptPdfBlob(receiptBooking);
                                             const url = URL.createObjectURL(pdfBlob);
                                             const anchor = document.createElement("a");
                                             anchor.href = url;

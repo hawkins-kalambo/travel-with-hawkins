@@ -10,8 +10,6 @@ export type FilterableQuery<T = unknown> = T & {
   lte?: (field: string, value: unknown) => FilterableQuery<T>;
 };
 
-export type QueryResult<T> = T extends { eq?: infer E } ? T : FilterableQuery<T>;
-
 export type ReportFilters = {
   tripId?: string;
   travelDate?: string;

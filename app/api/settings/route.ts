@@ -30,7 +30,7 @@ function toStringValue(value: unknown): string | undefined {
   return undefined;
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const { data, error } = await supabaseAdmin
       .from("settings")

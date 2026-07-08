@@ -176,8 +176,9 @@ export async function POST(request: NextRequest) {
     }
 
     const updatedRecord = normalizeBookingRecord((updatedBooking as Record<string, unknown>) ?? {});
-
-
+    if ((typeof updatedRecord.fare !== "number" || !Number.isFinite(updatedRecord.fare) || updatedRecord.fare <= 0) && typeof fareToStore === "number" && Number.isFinite(fareToStore) && fareToStore > 0) {
+      updatedRecord.fare = fareToStore;
+    }
 
     return NextResponse.json({
       success: true,

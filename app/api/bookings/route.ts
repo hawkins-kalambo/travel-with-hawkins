@@ -50,7 +50,18 @@ async function sendAdminNotification(payload: BookingRecord, bookingId: string, 
     logWarn("Admin notification skipped because ADMIN_NOTIFICATION_EMAIL is not configured.");
     return;
   }
-
+  // Ensure we have a fare to show in the admin notification. If not provided,
+  // attempt to resolve from the latest settings.routes so the admin sees the amount.
+  try {
+    if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
+      const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+      const resolved = resolveRouteFare(payload.destination, routesText, 5000);
+      if (Number.isFinite(resolved) && resolved > 0) fare = resolved;
+    }
+  } catch (e) {
+    // fallback to whatever was passed in; this should never block notification sending
+  }
   const result = await sendEmail({
     to: adminEmail,
     subject: `🚐 New Booking: ${payload.destination || "Unknown"}`,
@@ -95,6 +106,18 @@ async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: stri
     seats: payload.seats || 1,
   });
 
+  // If fare was not provided, try to resolve it from settings so the user sees the amount.
+  try {
+    if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
+      const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+      const resolved = resolveRouteFare(payload.destination, routesText, 5000);
+      if (Number.isFinite(resolved) && resolved > 0) fare = resolved;
+    }
+  } catch (e) {
+    // ignore and proceed with whatever fare is available
+  }
+
   const result = await sendBookingEmail({
     to: userEmail,
     name: String(payload.name || "Guest"),
@@ -127,7 +150,16 @@ export async function GET(req: Request) {
     const { data, error } = await query;
     if (error) throw error;
 
-    const bookings = (data ?? []).map((row) => normalizeBookingRecord(row as Record<string, unknown>));
+    const settings = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const routesText = typeof settings.data?.routes === "string" ? settings.data.routes : "";
+
+    const bookings = (data ?? []).map((row) => {
+      const booking = normalizeBookingRecord(row as Record<string, unknown>);
+      if (typeof booking.fare !== "number" || !Number.isFinite(booking.fare) || booking.fare <= 0) {
+        booking.fare = resolveRouteFare(booking.destination, routesText, 5000);
+      }
+      return booking;
+    });
 
     return NextResponse.json({
       success: true,

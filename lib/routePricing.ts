@@ -1,3 +1,14 @@
+function normalizeRouteText(value: string | undefined): string {
+  if (!value) return "";
+
+  return value
+    .trim()
+    .replace(/[→—–−]/g, "-")
+    .replace(/\s*[-–—−]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 export function parseRoutePrices(routesText: string): Record<string, number> {
   const prices: Record<string, number> = {};
 
@@ -10,7 +21,7 @@ export function parseRoutePrices(routesText: string): Record<string, number> {
     const separatorIndex = trimmed.indexOf(":");
     if (separatorIndex === -1) continue;
 
-    const route = trimmed.slice(0, separatorIndex).trim();
+    const route = normalizeRouteText(trimmed.slice(0, separatorIndex));
     const rawPrice = trimmed.slice(separatorIndex + 1).trim();
     const numericPrice = Number(rawPrice.replace(/[^0-9.-]/g, ""));
 
@@ -23,17 +34,16 @@ export function parseRoutePrices(routesText: string): Record<string, number> {
 }
 
 export function resolveRouteFare(destination: string | undefined, routesText: string | undefined, fallback = 5000): number {
-  const normalizedDestination = destination?.trim();
+  const normalizedDestination = normalizeRouteText(destination);
   if (!normalizedDestination) return fallback;
 
   const prices = parseRoutePrices(routesText || "");
 
   if (prices[normalizedDestination] != null) return prices[normalizedDestination];
 
-  const normalizedLookup = normalizedDestination.toLowerCase();
   for (const [route, price] of Object.entries(prices)) {
-    if (route.toLowerCase() === normalizedLookup) return price;
-    if (route.toLowerCase().includes(normalizedLookup) || normalizedLookup.includes(route.toLowerCase())) return price;
+    if (route === normalizedDestination) return price;
+    if (route.includes(normalizedDestination) || normalizedDestination.includes(route)) return price;
   }
 
   return fallback;
