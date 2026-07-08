@@ -192,8 +192,13 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
-      logError("Booking insert failed", { error });
-      return jsonError("Booking could not be saved right now", 500);
+      // Return the real Supabase error to help diagnose production failures.
+      // UI is unchanged; this only affects the admin/dev response payload.
+      console.error("Booking insert failed", error);
+      return NextResponse.json(
+        { success: false, error: "Booking could not be saved right now", details: error },
+        { status: 500 }
+      );
     }
 
     const record = normalizeBookingRecord((data as Record<string, unknown>) ?? {});
@@ -215,8 +220,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, booking: customerRecord, bookingId, message: "Booking created" });
   } catch (error) {
+    console.error("Booking POST failed", error);
     logError("Booking POST failed", { error });
-    return jsonError(error instanceof Error ? error.message : "Unknown error");
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
   }
 }
 
