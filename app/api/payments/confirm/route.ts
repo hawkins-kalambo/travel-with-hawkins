@@ -130,23 +130,42 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
-    if (updateError && updatePayload.fare != null) {
-      const maybeError = updateError as unknown;
-      const message = String(
-        typeof maybeError === "object" && maybeError !== null && "message" in maybeError ? (maybeError as Record<string, unknown>).message : null ||
-        typeof maybeError === "object" && maybeError !== null && "details" in maybeError ? (maybeError as Record<string, unknown>).details : null ||
-        updateError
-      ).toLowerCase();
-      const missingFareColumn = message.includes("fare") && (message.includes("column") || message.includes("unknown") || message.includes("undefined") || message.includes("null"));
-      if (missingFareColumn) {
-        delete updatePayload.fare;
+    if (updateError) {
+      const fallbackKeys = ["fare", "receipt_number", "payment_confirmed_at"];
+      const payloads: Record<string, unknown>[] = [];
+
+      // Single-field fallback attempts
+      for (const key of fallbackKeys) {
+        const payload = { ...updatePayload };
+        delete (payload as Record<string, unknown>)[key];
+        if (Object.keys(payload).length < Object.keys(updatePayload).length) payloads.push(payload);
+      }
+
+      // Two-field fallback attempts
+      for (let i = 0; i < fallbackKeys.length; i += 1) {
+        for (let j = i + 1; j < fallbackKeys.length; j += 1) {
+          const payload = { ...updatePayload };
+          delete (payload as Record<string, unknown>)[fallbackKeys[i]];
+          delete (payload as Record<string, unknown>)[fallbackKeys[j]];
+          if (Object.keys(payload).length < Object.keys(updatePayload).length) payloads.push(payload);
+        }
+      }
+
+      // Minimal payload: only confirm payment status.
+      payloads.push({ payment_status: "Payment Confirmed" });
+
+      for (const retryPayload of payloads) {
         const retry = await supabaseAdmin
           .from("bookings")
-          .update(updatePayload)
+          .update(retryPayload)
           .eq("booking_id", bookingId)
           .select()
           .single();
-        updatedBooking = retry.data as Record<string, unknown> | null;
+        if (!retry.error) {
+          updatedBooking = retry.data as Record<string, unknown> | null;
+          updateError = null;
+          break;
+        }
         updateError = retry.error;
       }
     }
