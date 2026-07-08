@@ -4,6 +4,9 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
+// NOTE: fare persistence on booking creation is disabled right now.
+// The database currently does NOT include `bookings.fare` (Supabase PGRST204).
+// Home page fare and boarding pass fare should not depend on backend right now.
 import { resolveRouteFare } from "@/lib/routePricing";
 import {
   generateBookingId,

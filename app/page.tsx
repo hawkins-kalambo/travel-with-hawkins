@@ -327,7 +327,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType, fare }),
+        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType }),
       });
       const result = await res.json();
       if (result?.success) {

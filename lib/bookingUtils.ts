@@ -171,9 +171,6 @@ export function toSupabaseBookingPayload(
   tripId: string,
   status = "Booked"
 ) {
-  const fareInput = input.fare;
-  const fare = typeof fareInput === "number" && Number.isFinite(fareInput) && fareInput > 0 ? fareInput : undefined;
-
   return {
     booking_id: bookingId,
     trip_id: tripId,
@@ -194,9 +191,6 @@ export function toSupabaseBookingPayload(
     payment_status: "Pending",
 
     booking_type: toSafeString(input.bookingType) ?? "Online",
-
-    // Stored fare (used by receipts, booking screens, admin overview)
-    fare,
   };
 }
 
