@@ -334,6 +334,7 @@ export default function Home() {
       const result = await res.json();
       if (result?.success) {
         const normalized = normalizeBookingRecord(result.booking ?? {});
+        const finalFare = fare ?? normalized.fare ?? resolveRouteFareIfAvailable(destination, settingsText);
         setSuccessData({
           name: form.name,
           studentId: form.studentId,
@@ -343,7 +344,7 @@ export default function Home() {
           travelDate: form.travelDate,
           seats: form.seats,
           bookingId: normalized.bookingId || result.bookingId || "PENDING",
-          fare,
+          fare: finalFare,
         });
         localStorage.setItem("twh_profile", JSON.stringify({ name: form.name.trim(), studentId: form.studentId.trim(), phone: form.phone.trim() }));
         closeBooking();
