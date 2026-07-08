@@ -178,12 +178,10 @@ export async function POST(req: Request) {
       bookingType: getNonEmptyString(payload.bookingType) || "Online",
     };
 
-    const bookingPayload = {
-      ...toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked"),
-      // Only set fare if it is a valid positive number.
-      // If the DB schema doesn't have `fare` or it rejects null/undefined, this prevents 500s.
-      ...(typeof fare === "number" && Number.isFinite(fare) && fare > 0 ? { fare } : {}),
-    };
+    // IMPORTANT: Do not write `fare` during booking creation.
+    // The DB schema for `bookings.fare` may be missing or constrained, which would cause Supabase insert to fail (500).
+    // We will populate/repair `fare` later on payment confirmation.
+    const bookingPayload = toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked");
 
     const { data, error } = await supabase
       .from("bookings")
