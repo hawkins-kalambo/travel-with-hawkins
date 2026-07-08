@@ -197,7 +197,8 @@ export async function POST(req: Request) {
     const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
     const routeFare = resolveRouteFareIfAvailable(destination, routesText);
-    const fare = getPositiveNumber(payload.fare) ?? routeFare;
+    const payloadFare = getPositiveNumber(payload.fare);
+    const fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : payloadFare;
     const normalizedPayload = {
       ...payload,
       bookingId,

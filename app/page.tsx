@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { logoPngBase64 } from "@/lib/logoBase64";
-import { formatMwk, resolveRouteFare } from "@/lib/routePricing";
+import { formatMwk, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -299,7 +299,7 @@ export default function Home() {
   }, []);
 
   const isFormValid = () => form.name.trim() && form.studentId.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
-  const getFareForDestination = (destination: string) => resolveRouteFare(destination, settingsText, 5000);
+  const getFareForDestination = (destination: string) => resolveRouteFareIfAvailable(destination, settingsText)
   const today = new Date().toISOString().split("T")[0];
   const urgencyDisplay = allBookings.find((b) => b.travelDate && b.travelDate >= today && b.seats && b.seats >= 11);
 
@@ -777,7 +777,16 @@ export default function Home() {
                     ["travelDate", trackResult.travelDate],
                     ["seats", trackResult.seats],
                     ["bookingType", trackResult.bookingType],
-                    ["fare", formatMwk(getFareForDestination(String(trackResult.destination || "")))],
+                    [
+                      "fare",
+                      (() => {
+                        const displayFare =
+                          typeof trackResult.fare === "number" && Number.isFinite(trackResult.fare) && trackResult.fare > 0
+                            ? trackResult.fare
+                            : resolveRouteFareIfAvailable(String(trackResult.destination || ""), settingsText);
+                        return displayFare != null ? formatMwk(displayFare) : "Pending";
+                      })(),
+                    ],
                   ].map(([label, value]) => <div key={String(label)}><p className="text-[10px] uppercase text-slate-500">{String(label)}</p><p className="font-bold">{String(value ?? "-")}</p></div>)}
                 </div>
               </div>

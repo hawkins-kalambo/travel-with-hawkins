@@ -7,7 +7,7 @@ import Image from "next/image";
 import { supabase } from "@/lib/auth";
 import { type BookingRecord } from "@/lib/bookingTypes";
 import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
-import { parseRoutePrices, resolveRouteFare, formatMwk } from "@/lib/routePricing";
+import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 // ================= TYPES =================
 type JourneyStatus =
@@ -43,7 +43,7 @@ function calcBookingRevenue(
   routesStr: string,
   bookingFeeStr: string
 ): { ticketRevenue: number; bookingFee: number; total: number } {
-  const routePrice = resolveRouteFare(b.destination, routesStr);
+  const routePrice = resolveRouteFareIfAvailable(b.destination, routesStr) ?? 0;
   const ticketPrice = typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0 ? b.fare : routePrice;
   const seats = b.seats || 1;
 
@@ -1065,13 +1065,13 @@ const filtered = useMemo(() => {
                                           if (!id) return;
                                           try {
                                             const receiptBooking = {
-                                            ...b,
-                                            fare:
-                                              typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0
-                                                ? b.fare
-                                                : resolveRouteFare(b.destination, settings.routes, 5000),
-                                          };
-                                          const pdfBlob = generateReceiptPdfBlob(receiptBooking);
+                                              ...b,
+                                              fare:
+                                                typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0
+                                                  ? b.fare
+                                                  : resolveRouteFareIfAvailable(b.destination, settings.routes),
+                                            };
+                                            const pdfBlob = generateReceiptPdfBlob(receiptBooking);
                                             const url = URL.createObjectURL(pdfBlob);
                                             const anchor = document.createElement("a");
                                             anchor.href = url;
