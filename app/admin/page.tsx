@@ -65,10 +65,7 @@ type FairRatesEditorProps = {
 
 function FairRatesEditor({ routesStr, onChange }: FairRatesEditorProps) {
   const priceMap = useMemo(() => parseRoutePrices(routesStr), [routesStr]);
-  const destinations = useMemo(
-    () => Array.from(priceMap.keys()).sort((a, b) => a.localeCompare(b)),
-    [priceMap]
-  );
+  const destinations = useMemo(() => Object.keys(priceMap).sort((a, b) => a.localeCompare(b)), [priceMap]);
 
   const [selected, setSelected] = useState<string>(destinations[0] || "");
   const [fairValue, setFairValue] = useState<string>("0");
@@ -82,7 +79,7 @@ function FairRatesEditor({ routesStr, onChange }: FairRatesEditorProps) {
     const nextFair = parseInt(fairValue, 10);
     if (!selected || isNaN(nextFair) || nextFair < 0) return;
 
-    const updated = new Map(priceMap);
+    const updated = new Map<string, number>(Object.entries(priceMap));
     updated.set(selected, nextFair);
 
     const lines = Array.from(updated.entries())
@@ -103,7 +100,7 @@ function FairRatesEditor({ routesStr, onChange }: FairRatesEditorProps) {
     const nextFair = parseInt(fairValue, 10);
     const v = isNaN(nextFair) ? 0 : nextFair;
 
-    const updated = new Map(priceMap);
+const updated = new Map<string, number>(Object.entries(priceMap));
     updated.set(trimmed, v);
 
     const lines = Array.from(updated.entries())

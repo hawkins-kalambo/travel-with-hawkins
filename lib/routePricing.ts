@@ -34,34 +34,34 @@ export function parseRoutePrices(routesText: string): Record<string, number> {
 }
 
 export function resolveRouteFare(destination: string | undefined, routesText: string | undefined, fallback = 5000): number {
+  return resolveRouteFareIfAvailable(destination, routesText) ?? fallback;
+}
+
+export function resolveRouteFareIfAvailable(destination: string | undefined, routesText: string | undefined): number | undefined {
   const prices = parseRoutePrices(routesText || "");
   const normalizedDestination = normalizeRouteText(destination);
 
-  if (!normalizedDestination) return fallback;
+  if (!normalizedDestination) return undefined;
 
-  // Exact match first
   if (prices[normalizedDestination] != null) return prices[normalizedDestination];
 
-  // Try exact on cleaned keys and token overlap matching
   const destTokens = normalizedDestination.split(/\s|->|-/).filter(Boolean);
 
   for (const [route, price] of Object.entries(prices)) {
     if (route === normalizedDestination) return price;
   }
 
-  // Token overlap: if all destination tokens appear in route key (order-insensitive)
   for (const [route, price] of Object.entries(prices)) {
     const routeTokens = route.split(/\s|->|-/).filter(Boolean);
     const allMatch = destTokens.every((t) => routeTokens.includes(t));
     if (allMatch) return price;
   }
 
-  // Partial match: any route that contains the destination string or vice versa
   for (const [route, price] of Object.entries(prices)) {
     if (route.includes(normalizedDestination) || normalizedDestination.includes(route)) return price;
   }
 
-  return fallback;
+  return undefined;
 }
 
 export function formatMwk(value: number | string | undefined): string {

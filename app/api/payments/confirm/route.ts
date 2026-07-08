@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
-import { resolveRouteFare } from "@/lib/routePricing";
+import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { logError } from "@/lib/logger";
 
 
@@ -103,8 +103,8 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
 
         const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-        const resolvedFare = resolveRouteFare(record.destination, routesText, 5000);
-        if (Number.isFinite(resolvedFare) && resolvedFare > 0) fareToStore = resolvedFare;
+        const resolvedFare = resolveRouteFareIfAvailable(record.destination, routesText);
+        if (typeof resolvedFare === "number" && Number.isFinite(resolvedFare) && resolvedFare > 0) fareToStore = resolvedFare;
       }
     } catch {
       // ignore - fare will remain whatever is already stored

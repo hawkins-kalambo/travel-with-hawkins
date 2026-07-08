@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { sendEmail } from "@/lib/resend";
 import { generateReceiptPdfBase64 } from "@/lib/receiptGenerator";
-import { resolveRouteFare } from "@/lib/routePricing";
+import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -58,7 +58,14 @@ export async function POST(request: NextRequest) {
     const booking = normalizeBookingRecord(data as Record<string, unknown>);
     const { data: settingsData } = await supabaseAdmin.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-    const bookingWithFare = { ...booking, fare: resolveRouteFare(booking.destination, routesText, 5000) };
+    const resolvedRouteFare = resolveRouteFareIfAvailable(booking.destination, routesText);
+    const bookingWithFare = {
+      ...booking,
+      fare:
+        typeof booking.fare === "number" && Number.isFinite(booking.fare) && booking.fare > 0
+          ? booking.fare
+          : resolvedRouteFare,
+    };
 
     if (booking.paymentStatus !== "Payment Confirmed") {
       return jsonError("Receipt can only be sent after payment is confirmed", 400);

@@ -4,7 +4,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
-import { resolveRouteFare } from "@/lib/routePricing";
+import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import {
   generateBookingId,
   generateTripId,
@@ -56,10 +56,10 @@ async function sendAdminNotification(payload: BookingRecord, bookingId: string, 
     if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
       const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
       const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-      const resolved = resolveRouteFare(payload.destination, routesText, 5000);
-      if (Number.isFinite(resolved) && resolved > 0) fare = resolved;
+      const resolved = resolveRouteFareIfAvailable(payload.destination, routesText);
+      if (typeof resolved === "number" && Number.isFinite(resolved) && resolved > 0) fare = resolved;
     }
-  } catch (e) {
+  } catch {
     // fallback to whatever was passed in; this should never block notification sending
   }
   const result = await sendEmail({
@@ -111,10 +111,10 @@ async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: stri
     if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
       const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
       const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-      const resolved = resolveRouteFare(payload.destination, routesText, 5000);
-      if (Number.isFinite(resolved) && resolved > 0) fare = resolved;
+      const resolved = resolveRouteFareIfAvailable(payload.destination, routesText);
+      if (typeof resolved === "number" && Number.isFinite(resolved) && resolved > 0) fare = resolved;
     }
-  } catch (e) {
+  } catch {
     // ignore and proceed with whatever fare is available
   }
 
@@ -156,7 +156,7 @@ export async function GET(req: Request) {
     const bookings = (data ?? []).map((row) => {
       const booking = normalizeBookingRecord(row as Record<string, unknown>);
       if (typeof booking.fare !== "number" || !Number.isFinite(booking.fare) || booking.fare <= 0) {
-        booking.fare = resolveRouteFare(booking.destination, routesText, 5000);
+        booking.fare = resolveRouteFareIfAvailable(booking.destination, routesText);
       }
       return booking;
     });
@@ -196,7 +196,8 @@ export async function POST(req: Request) {
     const tripId = generateTripId(destination, travelDate);
     const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-    const fare = getPositiveNumber(payload.fare) ?? resolveRouteFare(destination, routesText, 5000);
+    const routeFare = resolveRouteFareIfAvailable(destination, routesText);
+    const fare = getPositiveNumber(payload.fare) ?? routeFare;
     const normalizedPayload = {
       ...payload,
       bookingId,
@@ -239,7 +240,7 @@ export async function POST(req: Request) {
     }
 
     const record = normalizeBookingRecord(data ?? {});
-    const responseBooking = { ...record, fare };
+    const responseBooking = { ...record, fare: fare ?? record.fare };
     delete (responseBooking as Record<string, unknown>).tripId;
 
     try {
