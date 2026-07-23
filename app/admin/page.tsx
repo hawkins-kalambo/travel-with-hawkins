@@ -336,6 +336,7 @@ export default function AdminPage() {
   const [togglingAmbassador, setTogglingAmbassador] = useState<string | null>(null);
   const [updatingCommission, setUpdatingCommission] = useState<string | null>(null);
   const [expandedAmbassadorId, setExpandedAmbassadorId] = useState<string | null>(null);
+  const [deletingReferral, setDeletingReferral] = useState<string | null>(null);
 
   const loadReferralsData = useCallback(async () => {
     try {
@@ -870,6 +871,35 @@ const filtered = useMemo(() => {
     }
   };
 
+  const deleteReferral = async (referralId: string) => {
+    if (!confirm("Are you sure you want to delete this referral entry? This action cannot be undone.")) {
+      return;
+    }
+    setDeletingReferral(referralId);
+    try {
+      console.log("[deleteReferral] Deleting referral:", referralId);
+      const res = await authFetch("/api/referrals", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralId }),
+      });
+      console.log("[deleteReferral] API response status:", res.status);
+      const result = await res.json();
+      console.log("[deleteReferral] API response body:", result);
+      if (!res.ok || !result?.success) {
+        throw new Error(result?.error || "Unable to delete referral");
+      }
+      console.log("[deleteReferral] Delete successful, reloading referral data...");
+      await loadReferralsData();
+      setAmbassadorMessage("Referral entry deleted successfully.");
+    } catch (error) {
+      console.error("[deleteReferral] Error:", error);
+      setAmbassadorMessage(error instanceof Error ? error.message : "Unable to delete referral.");
+    } finally {
+      setDeletingReferral(null);
+    }
+  };
+
   const saveSettings = async () => {
     try {
       const res = await authFetch("/api/settings", {
@@ -928,7 +958,7 @@ const filtered = useMemo(() => {
             </div>
           </div>
 
-          <div className="flex lg:hidden gap-1 overflow-x-auto pb-2">
+          <div className="flex lg:hidden gap-1 overflow-x-auto pb-2 flex-wrap">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -947,6 +977,18 @@ const filtered = useMemo(() => {
               className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
             >
               Reports
+            </Link>
+            <Link
+              href="/admin/business-configuration"
+              className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
+            >
+              Config
+            </Link>
+            <Link
+              href="/admin/commission-rates"
+              className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
+            >
+              Rates
             </Link>
           </div>
 
@@ -1730,6 +1772,9 @@ const filtered = useMemo(() => {
                                 </button>
                                 <button onClick={() => void updateCommissionStatus(String(referral.id), "paid")} disabled={updatingCommission === String(referral.id)} className="rounded border border-primary-200 bg-primary-50 px-2.5 py-1 text-[11px] font-semibold text-primary-700 disabled:opacity-50">
                                   {updatingCommission === String(referral.id) ? "Updating..." : "Mark Paid"}
+                                </button>
+                                <button onClick={() => void deleteReferral(String(referral.id))} disabled={deletingReferral === String(referral.id)} className="rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 disabled:opacity-50">
+                                  {deletingReferral === String(referral.id) ? "Deleting..." : "Delete"}
                                 </button>
                               </div>
                             </div>
