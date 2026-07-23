@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
@@ -13,10 +13,7 @@ import {
   type BookingRecord,
 } from "@/lib/bookingUtils";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = supabaseAdmin;
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -42,6 +39,79 @@ function getNonEmptyString(value: unknown): string | undefined {
     return trimmed ? trimmed : undefined;
   }
   return undefined;
+}
+
+function normalizeRouteName(route: string | undefined): string {
+  return (route || "").trim().toLowerCase();
+}
+
+async function resolveCommissionAmount(routeName: string, fare: number | undefined, routesText: string): Promise<number> {
+  const normalizedRoute = normalizeRouteName(routeName);
+  if (!normalizedRoute) return 0;
+
+  const { data, error } = await supabase
+    .from("commission_rules")
+    .select("route_name, commission_amount, commission_type, status")
+    .eq("status", "active");
+
+  if (error) {
+    const missingTypeColumn =
+      typeof error.message === "string" &&
+      error.message.includes("commission_type");
+
+    if (missingTypeColumn) {
+      const fallback = await supabase
+        .from("commission_rules")
+        .select("route_name, commission_amount, status")
+        .eq("status", "active");
+
+      if (fallback.error) {
+        logWarn("Unable to load commission rules fallback", { error: fallback.error.message });
+        return 0;
+      }
+
+      const fallbackRule = (fallback.data ?? []).find((rule) => normalizeRouteName(String(rule?.route_name ?? "")) === normalizedRoute);
+      const amount = Number(fallbackRule?.commission_amount ?? 0);
+      return Number.isFinite(amount) ? amount : 0;
+    }
+
+    logWarn("Unable to load commission rules", { error: error.message });
+    return 0;
+  }
+
+  const matchingRule = (data ?? []).find((rule) => normalizeRouteName(String(rule?.route_name ?? "")) === normalizedRoute);
+  const amount = Number(matchingRule?.commission_amount ?? 0);
+  const type = typeof matchingRule?.commission_type === "string" ? matchingRule?.commission_type : "fixed";
+
+  if (type === "percentage") {
+    const resolvedFare = typeof fare === "number" && Number.isFinite(fare) && fare > 0 ? fare : resolveRouteFareIfAvailable(routeName, routesText);
+    if (typeof resolvedFare !== "number" || !Number.isFinite(resolvedFare) || resolvedFare <= 0) return 0;
+    return Math.round((resolvedFare * amount) / 100);
+  }
+
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function routeObjectsToRoutesText(routeObjects: unknown): string {
+  if (!Array.isArray(routeObjects)) return "";
+  return routeObjects
+    .map((item) => {
+      if (!item || typeof item !== "object") return "";
+      const record = item as Record<string, unknown>;
+      const routeName = String(record.route_name ?? "").trim();
+      const fare = Number(record.fare ?? 0);
+      if (!routeName || !Number.isFinite(fare) || fare <= 0) return "";
+      return `${routeName}: ${fare}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function extractRouteSettingsData(settingsData: Record<string, unknown> | null | undefined): string {
+  const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+  const routeObjects = settingsData?.route_objects;
+  const routeObjectText = routeObjectsToRoutesText(routeObjects);
+  return routeObjectText || routesText;
 }
 
 async function sendAdminNotification(payload: BookingRecord, bookingId: string, tripId: string, fare?: number) {
@@ -150,8 +220,8 @@ export async function GET(req: Request) {
     const { data, error } = await query;
     if (error) throw error;
 
-    const settings = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    const routesText = typeof settings.data?.routes === "string" ? settings.data.routes : "";
+    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const routesText = extractRouteSettingsData(settingsData ?? null);
 
     const bookings = (data ?? []).map((row) => {
       const booking = normalizeBookingRecord(row as Record<string, unknown>);
@@ -187,6 +257,7 @@ export async function POST(req: Request) {
     const travelDate = getNonEmptyString(payload.travelDate);
     const studentId = getNonEmptyString(payload.studentId);
     const seats = getPositiveNumber(payload.seats);
+    const referralCode = getNonEmptyString(payload.referralCode) ?? getNonEmptyString((payload as Record<string, unknown>).referral_code);
 
     if (!name || !phone || !destination || !travelDate || !studentId || !seats) {
       return jsonError("name, phone, destination, travelDate, studentId, and seats are required", 400);
@@ -194,11 +265,35 @@ export async function POST(req: Request) {
 
     const bookingId = generateBookingId();
     const tripId = generateTripId(destination, travelDate);
-    const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
+    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const routesText = extractRouteSettingsData(settingsData ?? null);
     const routeFare = resolveRouteFareIfAvailable(destination, routesText);
     const payloadFare = getPositiveNumber(payload.fare);
     const fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : payloadFare;
+    let ambassadorId: string | undefined;
+    let referralSource: string | undefined;
+    let commissionAmount = 0;
+
+    if (referralCode) {
+      const { data: ambassadorData, error: ambassadorError } = await supabase
+        .from("ambassadors")
+        .select("id, referral_code, status")
+        .eq("referral_code", referralCode.toUpperCase())
+        .maybeSingle();
+
+      if (ambassadorError) {
+        throw ambassadorError;
+      }
+
+      if (!ambassadorData || ambassadorData.status !== "active") {
+        return jsonError("Invalid referral code", 400);
+      }
+
+      ambassadorId = ambassadorData.id;
+      referralSource = `referral:${ambassadorData.referral_code}`;
+      commissionAmount = await resolveCommissionAmount(destination, fare, routesText);
+    }
+
     const normalizedPayload = {
       ...payload,
       bookingId,
@@ -211,6 +306,11 @@ export async function POST(req: Request) {
       seats,
       bookingType: getNonEmptyString(payload.bookingType) || "Online",
       fare,
+      referralCode,
+      ambassadorId,
+      referralSource,
+      commissionAmount,
+      referralStatus: referralCode ? "pending" : undefined,
     };
 
     const bookingPayload = toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked");
@@ -238,6 +338,25 @@ export async function POST(req: Request) {
         { success: false, error: "Booking could not be saved right now", details: error },
         { status: 500 }
       );
+    }
+
+    if (referralCode && ambassadorId) {
+      try {
+        await supabase.from("referrals").insert([
+          {
+            ambassador_id: ambassadorId,
+            booking_id: bookingId,
+            customer_name: name,
+            customer_phone: phone,
+            route: destination,
+            travel_date: travelDate,
+            commission_amount: commissionAmount,
+            commission_status: "pending",
+          },
+        ]);
+      } catch (referralError) {
+        logWarn("Referral record creation failed", { error: referralError instanceof Error ? referralError.message : String(referralError) });
+      }
     }
 
     const record = normalizeBookingRecord(data ?? {});

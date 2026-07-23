@@ -27,6 +27,11 @@ export type BookingRecord = {
   location?: string;
   bookingType?: string;
   fare?: number;
+  referralCode?: string;
+  ambassadorId?: string;
+  referralSource?: string;
+  commissionAmount?: number;
+  referralStatus?: string;
 
   // Journey status only
   status?: JourneyStatus;
@@ -52,6 +57,11 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   created_at: "createdAt",
   updated_at: "updatedAt",
   fare: "fare",
+  referral_code: "referralCode",
+  ambassador_id: "ambassadorId",
+  referral_source: "referralSource",
+  commission_amount: "commissionAmount",
+  referral_status: "referralStatus",
   payment_status: "paymentStatus",
   payment_confirmed_at: "paymentConfirmedAt",
   receipt_number: "receiptNumber",
@@ -68,6 +78,11 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   createdAt: "created_at",
   updatedAt: "updated_at",
   fare: "fare",
+  referralCode: "referral_code",
+  ambassadorId: "ambassador_id",
+  referralSource: "referral_source",
+  commissionAmount: "commission_amount",
+  referralStatus: "referral_status",
 
   paymentStatus: "payment_status",
   paymentConfirmedAt: "payment_confirmed_at",
@@ -167,6 +182,17 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
     } else if (key === "fare") {
       const parsedFare = Number(value);
       if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
+    } else if (key === "referral_code") {
+      normalized.referralCode = toSafeString(value);
+    } else if (key === "ambassador_id") {
+      normalized.ambassadorId = toSafeString(value);
+    } else if (key === "referral_source") {
+      normalized.referralSource = toSafeString(value);
+    } else if (key === "commission_amount") {
+      const parsedCommission = Number(value);
+      if (Number.isFinite(parsedCommission)) normalized.commissionAmount = parsedCommission;
+    } else if (key === "referral_status") {
+      normalized.referralStatus = toSafeString(value);
     } else if (key === "status") {
       const rawStatus = toSafeString(value)?.toLowerCase();
       if (rawStatus === "pending") {
@@ -234,6 +260,11 @@ export function toSupabaseBookingPayload(
 
     fare: toSafePositiveNumber(input.fare),
     booking_type: toSafeString(input.bookingType) ?? "Online",
+    referral_code: toSafeString(input.referralCode),
+    ambassador_id: toSafeString(input.ambassadorId),
+    referral_source: toSafeString(input.referralSource),
+    commission_amount: toSafePositiveNumber(input.commissionAmount),
+    referral_status: toSafeString(input.referralStatus) ?? "pending",
   };
 }
 

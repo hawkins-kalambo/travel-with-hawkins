@@ -16,7 +16,7 @@ if (!supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
-    autoRefreshToken: false,
+    autoRefreshToken: true,
     detectSessionInUrl: false,
   },
 });
@@ -70,5 +70,43 @@ export async function logout() {
     }
   } catch (error) {
     console.warn("logout failed", error);
+  }
+}
+
+export async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const doFetch = async (token?: string) => {
+    const headers = new Headers(init?.headers as HeadersInit | undefined);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers, credentials: "same-origin" });
+  };
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    let token = session?.access_token;
+    if (!token) {
+      const refreshResult = await supabase.auth.refreshSession();
+      token = refreshResult.data?.session?.access_token ?? undefined;
+    }
+
+    let res = await doFetch(token);
+
+    if (res.status === 401) {
+      const refreshResult = await supabase.auth.refreshSession();
+      token = refreshResult.data?.session?.access_token ?? undefined;
+      if (token) {
+        res = await doFetch(token);
+      }
+    }
+
+    if (res.status === 401) {
+      res = await doFetch();
+    }
+
+    return res;
+  } catch {
+    return doFetch();
   }
 }

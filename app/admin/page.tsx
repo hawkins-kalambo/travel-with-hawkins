@@ -26,7 +26,7 @@ type EnrichedBooking = BookingRecord & {
   paymentStatus: PaymentStatus;
 };
 
-type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "settings";
+type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "referrals" | "settings";
 
 // ================= PRICING HELPERS =================
 // Use centralized pricing helpers from lib/routePricing
@@ -177,19 +177,41 @@ const API_BASE = "/api/bookings";
 // Bearer Authorization header when available. This allows server-side
 // auth helpers to accept the token when cookies are not present.
 async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const doFetch = async (token?: string) => {
+    const headers = new Headers(init?.headers as HeadersInit | undefined);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers, credentials: "same-origin" });
+  };
+
   try {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
-    const token = session?.access_token;
+    let token = session?.access_token;
+    if (!token) {
+      const refreshResult = await supabase.auth.refreshSession();
+      token = refreshResult.data?.session?.access_token ?? undefined;
+    }
 
-    const headers = new Headers(init?.headers as HeadersInit | undefined);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    let res = await doFetch(token);
 
-    return fetch(input, { ...init, headers, credentials: "same-origin" });
+    if (res.status === 401) {
+      const refreshResult = await supabase.auth.refreshSession();
+      token = refreshResult.data?.session?.access_token ?? undefined;
+      if (token) {
+        res = await doFetch(token);
+      }
+    }
+
+    if (res.status === 401) {
+      // Fall back to cookie-based auth if header-based auth failed.
+      res = await doFetch();
+    }
+
+    return res;
   } catch {
-    return fetch(input, { ...init, credentials: "same-origin" });
+    return doFetch();
   }
 }
 
@@ -199,6 +221,7 @@ const TABS: { key: TabName; label: string; icon: string }[] = [
   { key: "bookings", label: "Bookings", icon: "" },
   { key: "students", label: "Students CRM", icon: "" },
   { key: "whatsapp", label: "WhatsApp Broadcast", icon: "" },
+  { key: "referrals", label: "Referrals", icon: "" },
   { key: "settings", label: "Settings", icon: "" },
 ];
 
@@ -298,10 +321,68 @@ export default function AdminPage() {
 
   const [whatsappMsg, setWhatsappMsg] = useState("");
   const [whatsappCopied, setWhatsappCopied] = useState(false);
+  const [ambassadors, setAmbassadors] = useState<Array<Record<string, unknown>>>([]);
+  const [referrals, setReferrals] = useState<Array<Record<string, unknown>>>([]);
+  const [ambassadorForm, setAmbassadorForm] = useState({ fullName: "", phone: "", email: "", university: "Mzuzu University", faculty: "", program: "", referralCode: "" });
+  const [ambassadorMessage, setAmbassadorMessage] = useState("");
+  const [createdAmbassadorCredentials, setCreatedAmbassadorCredentials] = useState<{
+    fullName: string;
+    email: string;
+    referralCode: string;
+    temporaryPassword: string;
+  } | null>(null);
+  const [creatingAmbassador, setCreatingAmbassador] = useState(false);
+  const [referralFilters, setReferralFilters] = useState({ ambassador: "all", route: "all", status: "all", date: "" });
+  const [togglingAmbassador, setTogglingAmbassador] = useState<string | null>(null);
+  const [updatingCommission, setUpdatingCommission] = useState<string | null>(null);
+  const [expandedAmbassadorId, setExpandedAmbassadorId] = useState<string | null>(null);
+
+  const loadReferralsData = useCallback(async () => {
+    try {
+      const [ambassadorsRes, referralsRes] = await Promise.all([
+        authFetch("/api/ambassadors", { method: "GET" }),
+        authFetch("/api/referrals", { method: "GET" }),
+      ]);
+
+      if (ambassadorsRes.status === 401 || referralsRes.status === 401) {
+        await supabase.auth.signOut();
+        router.push("/login");
+        return;
+      }
+
+      let ambassadorsData: { ambassadors?: Record<string, unknown>[] } | null = null;
+      if (ambassadorsRes.ok) {
+        ambassadorsData = await ambassadorsRes.json();
+        setAmbassadors(Array.isArray(ambassadorsData?.ambassadors) ? ambassadorsData.ambassadors : []);
+      }
+
+      if (referralsRes.ok) {
+        const referralsData = await referralsRes.json();
+        const rows = Array.isArray(referralsData?.referrals) ? referralsData.referrals : [];
+        setReferrals(rows);
+
+        // Debug: log counts so we can see where data disappears
+        try {
+          console.log("admin: loaded ambassadors count", Array.isArray(ambassadorsData?.ambassadors) ? ambassadorsData.ambassadors.length : (Array.isArray(ambassadors) ? ambassadors.length : 0));
+        } catch {}
+        try {
+          console.log("admin: loaded referrals count", rows.length);
+        } catch {}
+      }
+    } catch (error) {
+      console.error("Failed to load referral data", error);
+    }
+  }, [router]);
 
   const refreshBookings = useCallback(async () => {
     try {
       const res = await authFetch(`${API_BASE}`, { method: "GET", cache: "no-store" });
+      if (res.status === 401) {
+        console.error("Unauthorized refresh bookings: redirecting to login.");
+        await supabase.auth.signOut();
+        router.push("/login");
+        return;
+      }
       if (!res.ok) {
         console.error("Failed to refresh bookings: HTTP", res.status);
         return;
@@ -337,6 +418,11 @@ export default function AdminPage() {
   const loadSettings = useCallback(async () => {
     try {
       const res = await authFetch("/api/settings", { method: "GET" });
+      if (res.status === 401) {
+        await supabase.auth.signOut();
+        router.push("/login");
+        return;
+      }
       const data: unknown = await res.json();
       const payload = (data as { settings?: Record<string, unknown> } | null | undefined)?.settings;
 
@@ -364,12 +450,12 @@ export default function AdminPage() {
         return;
       }
 
-      await Promise.all([refreshBookings(), loadSettings()]);
+      await Promise.all([refreshBookings(), loadSettings(), loadReferralsData()]);
       setLoading(false);
     };
 
     void checkSession();
-  }, [router, refreshBookings, loadSettings]);
+  }, [router, refreshBookings, loadSettings, loadReferralsData]);
 
   useEffect(() => {
     const idleMs = 15 * 60 * 1000;
@@ -394,9 +480,12 @@ export default function AdminPage() {
   }, [router]);
 
   useEffect(() => {
-    const id = setInterval(() => void refreshBookings(), 15000);
+    const id = setInterval(() => {
+      void refreshBookings();
+      void loadReferralsData();
+    }, 15000);
     return () => clearInterval(id);
-  }, [refreshBookings]);
+  }, [refreshBookings, loadReferralsData]);
 
   const handleLogout = async () => {
   await supabase.auth.signOut();
@@ -486,6 +575,57 @@ const filtered = useMemo(() => {
       routeRevenueBreakdown,
     };
   }, [bookings, settings.routes, settings.bookingFee]);
+
+  const referralOverview = useMemo(() => {
+    const ambassadorRows = Array.isArray(ambassadors) ? ambassadors : [];
+    const referralRows = Array.isArray(referrals) ? referrals : [];
+
+    const totalAmbassadors = ambassadorRows.length;
+    const activeAmbassadors = ambassadorRows.filter((item) => String(item.status || "active").toLowerCase() === "active").length;
+    const totalReferralCustomers = referralRows.length;
+    const totalReferralRevenue = referralRows.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+    const totalCommissionGenerated = referralRows.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+    const pendingCommission = referralRows.filter((row) => String(row.commission_status || row.status || "").toLowerCase() === "pending").reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+    const paidCommission = referralRows.filter((row) => String(row.commission_status || row.status || "").toLowerCase() === "paid").reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+
+    const performance = ambassadorRows.map((ambassador) => {
+      const ambassadorId = String(ambassador.id || "");
+      const ambassadorReferrals = referralRows.filter((row) => String(row.ambassador_id) === ambassadorId);
+      const revenue = ambassadorReferrals.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+      const commission = revenue;
+      return {
+        id: ambassadorId,
+        name: String(ambassador.full_name || ambassador.name || "—"),
+        referralCode: String(ambassador.referral_code || "—"),
+        faculty: String(ambassador.faculty || ambassador.university || "—"),
+        status: String(ambassador.status || "active"),
+        customers: ambassadorReferrals.length,
+        bookings: ambassadorReferrals.length,
+        revenue,
+        commission,
+        rows: ambassadorReferrals,
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    const facultyBreakdown = performance.reduce<Record<string, { label: string; customers: number }>>((acc, item) => {
+      const key = item.faculty || "Unspecified";
+      if (!acc[key]) acc[key] = { label: key, customers: 0 };
+      acc[key].customers += item.customers;
+      return acc;
+    }, {});
+
+    return {
+      totalAmbassadors,
+      activeAmbassadors,
+      totalReferralCustomers,
+      totalReferralRevenue,
+      totalCommissionGenerated,
+      pendingCommission,
+      paidCommission,
+      performance,
+      facultyBreakdown: Object.values(facultyBreakdown).sort((a, b) => b.customers - a.customers),
+    };
+  }, [ambassadors, referrals]);
 
   const tripGroups = useMemo(() => {
     // Single source of truth: group using the real bookings.trip_id.
@@ -642,6 +782,94 @@ const filtered = useMemo(() => {
     }
   };
 
+  const createAmbassador = async () => {
+    setCreatingAmbassador(true);
+    setAmbassadorMessage("");
+    try {
+      const res = await authFetch("/api/ambassadors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: ambassadorForm.fullName,
+          phone: ambassadorForm.phone,
+          email: ambassadorForm.email,
+          university: ambassadorForm.university,
+          faculty: ambassadorForm.faculty,
+          program: ambassadorForm.program,
+          referralCode: ambassadorForm.referralCode,
+        }),
+      });
+
+      const result = await res.json();
+      if (!res.ok || !result?.success) {
+        throw new Error(result?.error || "Unable to create ambassador");
+      }
+
+      setAmbassadorMessage("Ambassador created successfully.");
+      setCreatedAmbassadorCredentials({
+        fullName: result.ambassador?.full_name ?? ambassadorForm.fullName,
+        email: result.credentials?.email ?? ambassadorForm.email,
+        referralCode: result.credentials?.referralCode ?? ambassadorForm.referralCode,
+        temporaryPassword: result.credentials?.temporaryPassword ?? "",
+      });
+      setAmbassadorForm({ fullName: "", phone: "", email: "", university: "Mzuzu University", faculty: "", program: "", referralCode: "" });
+      await loadReferralsData();
+    } catch (error) {
+      setAmbassadorMessage(error instanceof Error ? error.message : "Unable to create ambassador.");
+      setCreatedAmbassadorCredentials(null);
+    } finally {
+      setCreatingAmbassador(false);
+    }
+  };
+
+  const toggleAmbassadorStatus = async (ambassadorId: string, nextStatus: string) => {
+    setTogglingAmbassador(ambassadorId);
+    try {
+      const res = await authFetch("/api/ambassadors", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ambassadorId, status: nextStatus }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result?.success) {
+        throw new Error(result?.error || "Unable to update ambassador status");
+      }
+      await loadReferralsData();
+      setAmbassadorMessage(`Ambassador marked ${nextStatus}.`);
+    } catch (error) {
+      setAmbassadorMessage(error instanceof Error ? error.message : "Unable to update ambassador status.");
+    } finally {
+      setTogglingAmbassador(null);
+    }
+  };
+
+  const updateCommissionStatus = async (referralId: string, commissionStatus: string) => {
+    console.log("[updateCommissionStatus] Button clicked:", { referralId, commissionStatus });
+    setUpdatingCommission(referralId);
+    try {
+      console.log("[updateCommissionStatus] Sending API request...");
+      const res = await authFetch("/api/commissions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralId, commissionStatus }),
+      });
+      console.log("[updateCommissionStatus] API response status:", res.status);
+      const result = await res.json();
+      console.log("[updateCommissionStatus] API response body:", result);
+      if (!res.ok || !result?.success) {
+        throw new Error(result?.error || "Unable to update commission status");
+      }
+      console.log("[updateCommissionStatus] Update successful, reloading referral data...");
+      await loadReferralsData();
+      setAmbassadorMessage(`Commission marked ${commissionStatus}.`);
+    } catch (error) {
+      console.error("[updateCommissionStatus] Error:", error);
+      setAmbassadorMessage(error instanceof Error ? error.message : "Unable to update commission status.");
+    } finally {
+      setUpdatingCommission(null);
+    }
+  };
+
   const saveSettings = async () => {
     try {
       const res = await authFetch("/api/settings", {
@@ -742,6 +970,18 @@ const filtered = useMemo(() => {
             >
                Reports & Manifests
             </Link>
+            <Link
+              href="/admin/business-configuration"
+              className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100"
+            >
+               Business Configuration
+            </Link>
+            <Link
+              href="/admin/commission-rates"
+              className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100"
+            >
+               Commission Rates
+            </Link>
             <hr className="my-3 border-primary-200/60" />
             <button
               onClick={handleLogout}
@@ -795,7 +1035,7 @@ const filtered = useMemo(() => {
               </button>
               <button
                 onClick={handleLogout}
-                className="lg:hidden bg-[color:var(--danger)] hover:bg-[color:var(--danger)]/90 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition shrink-0"
+                className="lg:hidden bg-danger hover:bg-danger/90 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition shrink-0"
               >
                 Logout
               </button>
@@ -841,10 +1081,10 @@ const filtered = useMemo(() => {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                    <div className="rounded-xl border border-[color:var(--warning)]/20 bg-[color:var(--warning)]/10 p-4">
-                      <p className="text-xs text-[color:var(--warning)]">Pending</p>
-                      <h3 className="text-xl font-bold text-[color:var(--warning)]">{overviewStats.pending}</h3>
-                      <p className="text-[10px] text-[color:var(--warning)]/80">MWK {overviewStats.pendingRevenue.toLocaleString()}</p>
+                    <div className="rounded-xl border border-warning/20 bg-warning/10 p-4">
+                      <p className="text-xs text-warning">Pending</p>
+                      <h3 className="text-xl font-bold text-warning">{overviewStats.pending}</h3>
+                      <p className="text-[10px] text-warning/80">MWK {overviewStats.pendingRevenue.toLocaleString()}</p>
                     </div>
                     <div className="rounded-xl border border-primary-200 bg-primary-100 p-4">
                       <p className="text-xs text-primary-700">Confirmed</p>
@@ -855,9 +1095,9 @@ const filtered = useMemo(() => {
                       <p className="text-xs text-primary-700">Completed</p>
                       <h3 className="text-xl font-bold text-primary-800">{overviewStats.completed}</h3>
                     </div>
-                    <div className="rounded-xl border border-[color:var(--danger)]/20 bg-[color:var(--danger)]/10 p-4">
-                      <p className="text-xs text-[color:var(--danger)]">Cancelled</p>
-                      <h3 className="text-xl font-bold text-[color:var(--danger)]">{overviewStats.cancelled}</h3>
+                    <div className="rounded-xl border border-danger/20 bg-danger/10 p-4">
+                      <p className="text-xs text-danger">Cancelled</p>
+                      <h3 className="text-xl font-bold text-danger">{overviewStats.cancelled}</h3>
                     </div>
                   </div>
                 </div>
@@ -1129,7 +1369,7 @@ const filtered = useMemo(() => {
                                   <button
                                     onClick={() => void deleteBooking(b.bookingId || "")}
                                     disabled={deleting === b.bookingId}
-                                    className="rounded-lg bg-[color:var(--danger)] px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-[color:var(--danger)]/90 disabled:opacity-50"
+                                    className="rounded-lg bg-danger px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
                                   >
                                     {deleting === b.bookingId ? "..." : "✕"}
                                   </button>
@@ -1255,6 +1495,252 @@ const filtered = useMemo(() => {
                 </div>
               )}
 
+              {/* ================= REFERRALS TAB ================= */}
+              {activeTab === "referrals" && (
+                <div className="space-y-6">
+                  <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
+                    <h3 className="mb-2 font-bold text-primary-900">🎯 Referral Management</h3>
+                    <p className="text-sm text-slate-500 mb-4">Create ambassadors, manage their status, and track referral performance from one place.</p>
+                    {ambassadorMessage && <div className="mb-4 rounded-lg border border-primary-200 bg-primary-100 p-3 text-sm text-primary-700">{ambassadorMessage}</div>}
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input className="input-field" placeholder="Full name" value={ambassadorForm.fullName} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, fullName: e.target.value })} />
+                      <input className="input-field" placeholder="Phone" value={ambassadorForm.phone} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, phone: e.target.value })} />
+                      <input className="input-field" placeholder="Email" type="email" value={ambassadorForm.email} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, email: e.target.value })} />
+                      <input className="input-field" placeholder="Referral code" value={ambassadorForm.referralCode} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, referralCode: e.target.value })} />
+                      <input className="input-field" placeholder="University" value={ambassadorForm.university} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, university: e.target.value })} />
+                      <input className="input-field" placeholder="Faculty" value={ambassadorForm.faculty} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, faculty: e.target.value })} />
+                      <input className="input-field" placeholder="Program" value={ambassadorForm.program} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, program: e.target.value })} />
+                    </div>
+                    <button onClick={() => void createAmbassador()} disabled={creatingAmbassador} className="mt-4 rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      {creatingAmbassador ? "Creating..." : "Create Ambassador"}
+                    </button>
+
+                    {createdAmbassadorCredentials && (
+                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                        <h4 className="mb-2 font-semibold">Ambassador credentials</h4>
+                        <p className="text-xs text-slate-600">Share these details securely with the new ambassador.</p>
+                        <div className="mt-3 space-y-2">
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Name</p>
+                            <p className="font-medium text-slate-900">{createdAmbassadorCredentials.fullName}</p>
+                          </div>
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Email</p>
+                            <p className="font-medium text-slate-900">{createdAmbassadorCredentials.email}</p>
+                          </div>
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Referral code</p>
+                            <p className="font-medium text-slate-900">{createdAmbassadorCredentials.referralCode}</p>
+                          </div>
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Temporary password</p>
+                            <p className="font-medium text-slate-900 break-all">{createdAmbassadorCredentials.temporaryPassword}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Total ambassadors</p>
+                      <p className="mt-2 text-2xl font-black text-slate-900">{referralOverview.totalAmbassadors}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Active ambassadors</p>
+                      <p className="mt-2 text-2xl font-black text-slate-900">{referralOverview.activeAmbassadors}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Referral customers</p>
+                      <p className="mt-2 text-2xl font-black text-slate-900">{referralOverview.totalReferralCustomers}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Pending commission</p>
+                      <p className="mt-2 text-2xl font-black text-slate-900">MWK {referralOverview.pendingCommission.toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-primary-900">Referral Overview</h4>
+                        <span className="text-xs text-slate-500">Partner performance</span>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Referral revenue</p>
+                          <p className="mt-1 text-xl font-black text-slate-900">MWK {referralOverview.totalReferralRevenue.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Commission generated</p>
+                          <p className="mt-1 text-xl font-black text-slate-900">MWK {referralOverview.totalCommissionGenerated.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Paid commission</p>
+                          <p className="mt-1 text-xl font-black text-slate-900">MWK {referralOverview.paidCommission.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Booked referrals</p>
+                          <p className="mt-1 text-xl font-black text-slate-900">{referralOverview.totalReferralCustomers}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <h4 className="font-bold text-primary-900">Top ambassadors</h4>
+                      <div className="mt-4 space-y-2">
+                        {referralOverview.performance.slice(0, 5).map((item) => (
+                          <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                              <p className="text-xs text-slate-500">{item.referralCode}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-semibold text-primary-900">{item.bookings} bookings</p>
+                              <p className="text-xs text-slate-500">MWK {item.revenue.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-6 xl:grid-cols-2">
+                    <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
+                      <h4 className="font-bold text-primary-900">Ambassadors</h4>
+                      <div className="mt-4 space-y-3">
+                        {ambassadors.length === 0 ? (
+                          <p className="text-sm text-slate-500">No ambassadors yet.</p>
+                        ) : ambassadors.map((ambassador) => {
+                          const ambassadorId = String(ambassador.id || "");
+                          const performanceItem = referralOverview.performance.find((item) => item.id === ambassadorId);
+                          const isExpanded = expandedAmbassadorId === ambassadorId;
+                          return (
+                            <div key={ambassadorId} className="rounded-lg border border-slate-200 p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-semibold text-slate-900">{String(ambassador.full_name || ambassador.name || "—")}</p>
+                                  <p className="text-xs text-slate-500">Code: {String(ambassador.referral_code || "—")}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{String(ambassador.email || "—")}</p>
+                                </div>
+                                <div className="text-right">
+                                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${String(ambassador.status || "active").toLowerCase() === "active" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{String(ambassador.status || "active")}</span>
+                                  <div className="mt-2 flex gap-2">
+                                    <button onClick={() => setExpandedAmbassadorId(isExpanded ? null : ambassadorId)} className="rounded border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                      {isExpanded ? "Hide details" : "View details"}
+                                    </button>
+                                    <button onClick={() => void toggleAmbassadorStatus(ambassadorId, String(ambassador.status || "active").toLowerCase() === "active" ? "inactive" : "active")} disabled={togglingAmbassador === ambassadorId} className="rounded border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 disabled:opacity-50">
+                                      {togglingAmbassador === ambassadorId ? "Updating..." : String(ambassador.status || "active").toLowerCase() === "active" ? "Deactivate" : "Activate"}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                              {isExpanded && performanceItem && (
+                                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ambassador profile</p>
+                                  <div className="mt-2 grid gap-3 md:grid-cols-2">
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900">{String(ambassador.full_name || ambassador.name || "—")}</p>
+                                      <p className="text-xs text-slate-500">Phone: {String(ambassador.phone || "—")}</p>
+                                      <p className="text-xs text-slate-500">Faculty: {String(ambassador.faculty || "—")}</p>
+                                      <p className="text-xs text-slate-500">University: {String(ambassador.university || "—")}</p>
+                                    </div>
+                                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                      <p className="text-xs text-slate-500">Students referred</p>
+                                      <p className="text-lg font-black text-slate-900">{performanceItem.customers}</p>
+                                      <p className="mt-1 text-xs text-slate-500">Bookings: {performanceItem.bookings}</p>
+                                      <p className="text-xs text-slate-500">Revenue: MWK {performanceItem.revenue.toLocaleString()}</p>
+                                      <p className="text-xs text-slate-500">Commission: MWK {performanceItem.commission.toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3">
+                                    <p className="text-sm font-semibold text-slate-900">These are the students brought by this ambassador.</p>
+                                    <div className="mt-2 space-y-2">
+                                      {performanceItem.rows.length === 0 ? (
+                                        <p className="text-sm text-slate-500">No referral customers yet.</p>
+                                      ) : performanceItem.rows.map((row) => (
+                                        <div key={String(row.id)} className="flex items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+                                          <div>
+                                            <p className="font-semibold text-slate-900">{String(row.customer_name || "—")}</p>
+                                            <p className="text-xs text-slate-500">{String(row.route || "—")} • {String(row.travel_date || "—")}</p>
+                                          </div>
+                                          <div className="text-right">
+                                            <p className="font-semibold text-primary-900">MWK {Number(row.commission_amount || 0).toLocaleString()}</p>
+                                            <p className="text-xs text-slate-500">{String(row.commission_status || row.status || "pending")}</p>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
+                      <h4 className="font-bold text-primary-900">Referral Bookings</h4>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        <select value={referralFilters.ambassador} onChange={(e) => setReferralFilters({ ...referralFilters, ambassador: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                          <option value="all">All ambassadors</option>
+                          {ambassadors.map((ambassador) => <option key={String(ambassador.id)} value={String(ambassador.id)}>{String(ambassador.full_name || ambassador.name || "—")}</option>)}
+                        </select>
+                        <input value={referralFilters.date} onChange={(e) => setReferralFilters({ ...referralFilters, date: e.target.value })} type="date" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                        <select value={referralFilters.route} onChange={(e) => setReferralFilters({ ...referralFilters, route: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                          <option value="all">All routes</option>
+                          {[...new Set(referrals.map((row) => String((row as Record<string, unknown>).route || "")))] .filter(Boolean).map((route) => <option key={route} value={route}>{route}</option>)}
+                        </select>
+                        <select value={referralFilters.status} onChange={(e) => setReferralFilters({ ...referralFilters, status: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                          <option value="all">All statuses</option>
+                          <option value="pending">Pending</option>
+                          <option value="approved">Approved</option>
+                          <option value="paid">Paid</option>
+                        </select>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {(() => {
+                          const filteredRows = referrals.filter((referral) => {
+                            const ambassadorOk = referralFilters.ambassador === "all" || String(referral.ambassador_id) === referralFilters.ambassador;
+                            const routeOk = referralFilters.route === "all" || String((referral as Record<string, unknown>).route || "") === referralFilters.route;
+                            const statusOk = referralFilters.status === "all" || String(referral.commission_status || referral.status || "").toLowerCase() === referralFilters.status;
+                            const dateOk = !referralFilters.date || String(referral.created_at || "").slice(0, 10) === referralFilters.date;
+                            return ambassadorOk && routeOk && statusOk && dateOk;
+                          });
+
+                          if (filteredRows.length === 0) {
+                            return <p className="text-sm text-slate-500">No referral bookings match the selected filters.</p>;
+                          }
+
+                          return filteredRows.slice(0, 8).map((referral) => (
+                            <div key={String(referral.id)} className="rounded-lg border border-slate-200 p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-semibold text-slate-900">{String(referral.customer_name || "—")}</p>
+                                  <p className="text-xs text-slate-500">{String((referral as Record<string, unknown>).route || "—")} • {String(referral.created_at || "—")}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm font-semibold text-primary-900">MWK {Number(referral.commission_amount || 0).toLocaleString()}</p>
+                                  <p className="text-xs text-slate-500">{String(referral.commission_status || referral.status || "pending")}</p>
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button onClick={() => void updateCommissionStatus(String(referral.id), "approved")} disabled={updatingCommission === String(referral.id)} className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 disabled:opacity-50">
+                                  {updatingCommission === String(referral.id) ? "Updating..." : "Approve"}
+                                </button>
+                                <button onClick={() => void updateCommissionStatus(String(referral.id), "paid")} disabled={updatingCommission === String(referral.id)} className="rounded border border-primary-200 bg-primary-50 px-2.5 py-1 text-[11px] font-semibold text-primary-700 disabled:opacity-50">
+                                  {updatingCommission === String(referral.id) ? "Updating..." : "Mark Paid"}
+                                </button>
+                              </div>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ================= SETTINGS TAB ================= */}
               {activeTab === "settings" && (
                 <div className="max-w-2xl space-y-6">
@@ -1263,7 +1749,7 @@ const filtered = useMemo(() => {
                     <p className="text-sm text-slate-500 mb-4">Adjust ticket parameters, routes, and vehicle settings for the current dashboard session.</p>
 
                     {settingsMsg && (
-                      <div className={`mb-4 rounded-lg border p-3 text-sm ${settingsStatus === "success" ? "border-primary-200 bg-primary-100 text-primary-700" : settingsStatus === "error" ? "border-[color:var(--danger)]/20 bg-[color:var(--danger)]/10 text-[color:var(--danger)]" : "border-[color:var(--warning)]/20 bg-[color:var(--warning)]/10 text-[color:var(--warning)]"}`}>
+                      <div className={`mb-4 rounded-lg border p-3 text-sm ${settingsStatus === "success" ? "border-primary-200 bg-primary-100 text-primary-700" : settingsStatus === "error" ? "border-danger/20 bg-danger/10 text-danger" : "border-warning/20 bg-warning/10 text-warning"}`}>
                         {settingsMsg}
                       </div>
                     )}

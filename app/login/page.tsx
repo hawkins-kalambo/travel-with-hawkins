@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { supabase } from "@/lib/auth";
+import { authFetch, supabase } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,6 +34,17 @@ export default function LoginPage() {
         setErrorMsg("No session returned. Please try again.");
         setLoading(false);
         return;
+      }
+
+      const profileRes = await authFetch("/api/profile", { method: "GET" });
+
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        const role = profileData?.profile?.role;
+        if (role === "ambassador") {
+          router.replace("/ambassador/dashboard");
+          return;
+        }
       }
 
       router.replace("/admin");

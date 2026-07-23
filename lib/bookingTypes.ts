@@ -27,6 +27,11 @@ export type BookingRecord = {
   location?: string;
   bookingType?: string;
   fare?: number;
+  referralCode?: string;
+  ambassadorId?: string;
+  referralSource?: string;
+  commissionAmount?: number;
+  referralStatus?: string;
 
   // Journey status only
   status?: JourneyStatus;

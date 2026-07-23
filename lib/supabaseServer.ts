@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -83,11 +84,27 @@ export async function requireAdminUser(request: NextRequest, response: NextRespo
     return { authorized: false, user: null, error: "Authentication required" };
   }
 
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    console.warn("Failed to load profile for admin check", profileError);
+  }
+
+  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
+  const isAdminRole = profile?.role === "admin" || metadataRole === "admin";
   const allowedAdminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL;
   const userEmail = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
   const normalizedAllowed = typeof allowedAdminEmail === "string" ? allowedAdminEmail.trim().toLowerCase() : "";
 
-  if (normalizedAllowed && userEmail && userEmail !== normalizedAllowed) {
+  if (!isAdminRole && normalizedAllowed && userEmail && userEmail !== normalizedAllowed) {
+    return { authorized: false, user: null, error: "Admin access required" };
+  }
+
+  if (!isAdminRole && !normalizedAllowed) {
     return { authorized: false, user: null, error: "Admin access required" };
   }
 

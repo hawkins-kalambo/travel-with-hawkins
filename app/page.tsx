@@ -232,6 +232,7 @@ export default function Home() {
   const [routePrices, setRoutePrices] = useState<Record<string, number>>({});
   const [settingsText, setSettingsText] = useState("");
   const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; travelDate: string; bookingId: string; seats: number; fare?: number } | null>(null);
+  const [referralValidation, setReferralValidation] = useState<{ state: "idle" | "checking" | "valid" | "invalid"; message?: string }>({ state: "idle" });
   const [form, setForm] = useState(() => {
     const base = {
       name: "",
@@ -239,6 +240,7 @@ export default function Home() {
       phone: "",
       email: "",
       seats: 1,
+      referralCode: "",
       travelDate: new Date().toISOString().split("T")[0],
     };
     try {
@@ -319,17 +321,47 @@ export default function Home() {
     setError("");
   };
 
+  const validateReferralCode = async (code: string) => {
+    if (!code.trim()) {
+      setReferralValidation({ state: "idle" });
+      return true;
+    }
+
+    setReferralValidation({ state: "checking", message: "Checking referral code..." });
+    try {
+      const res = await fetch("/api/referrals/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralCode: code.trim() }),
+      });
+      const result = await res.json();
+      if (result?.success && result?.valid) {
+        const ambassadorName = result?.ambassador?.full_name || "the ambassador";
+        setReferralValidation({ state: "valid", message: `✓ Valid referral code. Referred by ${ambassadorName}.` });
+        return true;
+      }
+      setReferralValidation({ state: "invalid", message: result?.message || "Invalid referral code." });
+      return false;
+    } catch {
+      setReferralValidation({ state: "invalid", message: "Unable to verify referral code right now." });
+      return false;
+    }
+  };
+
   const handleBooking = async () => {
     setError("");
     if (!isFormValid()) return setError("Please fill all required fields.");
     if (bookingType === "custom" && !customDestination.trim()) return setError("Please enter your destination.");
+    if (!(await validateReferralCode(form.referralCode || ""))) {
+      return setError("Please use a valid referral code or leave the field empty.");
+    }
     setLoading(true);
     const destination = bookingType === "custom" ? customDestination.trim() : selectedRoute;
     const fare = getFareForDestination(destination);
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType }),
+        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType, referralCode: form.referralCode?.trim() || undefined }),
       });
       const result = await res.json();
       if (result?.success) {
@@ -747,6 +779,12 @@ export default function Home() {
                 <input className="template-input" placeholder="Student ID" value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value })} />
                 <input className="template-input" placeholder="Phone Number" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                 <input className="template-input" placeholder="Email Address (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <input className="template-input" placeholder="Referral Code (optional)" value={form.referralCode} onChange={(e) => setForm({ ...form, referralCode: e.target.value })} />
+                {referralValidation.state !== "idle" && (
+                  <p className={`text-sm ${referralValidation.state === "valid" ? "text-emerald-600" : referralValidation.state === "checking" ? "text-slate-500" : "text-red-600"}`}>
+                    {referralValidation.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-4 border-t border-slate-100 pt-4">
                 {bookingType === "custom" && <input className="template-input" placeholder="Destination (e.g. Mzuzu - Rumphi)" value={customDestination} onChange={(e) => setCustomDestination(e.target.value)} />}
