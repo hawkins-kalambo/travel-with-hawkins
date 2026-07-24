@@ -36,8 +36,7 @@ export default function AdminReferralBookingsPage() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) {
-        router.push("/login");
-        return;
+          router.push("/admin/login");
       }
 
       try {

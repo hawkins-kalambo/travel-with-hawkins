@@ -3,8 +3,33 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getConfiguredAdminEmails, requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
 import { normalizeAdminRole } from "@/lib/adminAuth";
+
+async function logAmbassadorActivityFallback({ profileId }: { profileId?: string | null }) {
+  if (!profileId) return null;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("ambassadors")
+      .select("id")
+      .eq("profile_id", profileId)
+      .maybeSingle();
+
+    if (error || !data?.id) return null;
+
+    await supabaseAdmin.from("ambassador_activity_logs").insert([
+      {
+        ambassador_id: data.id,
+        activity_type: "profile_updated",
+        description: "Profile updated",
+      },
+    ]);
+
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -194,11 +219,8 @@ export async function PATCH(req: NextRequest) {
         .single();
 
       if (ambassadorError) throw ambassadorError;
-      await logAmbassadorActivity({
-        ambassadorId: ambassadorRow.id,
+      await logAmbassadorActivityFallback({
         profileId: user.id,
-        activityType: shouldUpdateLastLogin ? "login" : "profile_updated",
-        description: shouldUpdateLastLogin ? "Ambassador logged in successfully" : "Ambassador updated profile information",
       });
       const profileData = data as Record<string, unknown>;
       const mergedProfile = {

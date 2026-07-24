@@ -13,7 +13,7 @@ export default function NotFound() {
           <Link href="/" className="btn-primary">
             Go Home
           </Link>
-          <Link href="/login" className="btn-secondary">
+          <Link href="/admin/login" className="btn-secondary">
             Admin Login
           </Link>
         </div>

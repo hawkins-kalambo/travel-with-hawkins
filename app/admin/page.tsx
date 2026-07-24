@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -291,6 +291,14 @@ function PaymentBadge({ status }: { status: PaymentStatus }) {
 
 // ================= MAIN ADMIN PAGE =================
 export default function AdminPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f4f8fd]" />}>
+      <AdminPageContent />
+    </Suspense>
+  );
+}
+
+function AdminPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { authFetch, supabase } from "@/lib/auth";
 
@@ -9,6 +10,7 @@ export default function AmbassadorDashboardPage() {
   const [profile, setProfile] = useState<Record<string, unknown> | null>(null);
   const [referrals, setReferrals] = useState<Array<Record<string, unknown>>>([]);
   const [stats, setStats] = useState({ totalReferrals: 0, confirmedBookings: 0, cancelledBookings: 0, totalEarnings: 0, pendingCommissions: 0, paidCommissions: 0, upcomingTrips: 0 });
+  const referralLink = profile?.referral_code ? `${typeof window !== "undefined" ? window.location.origin : ""}/book?ref=${encodeURIComponent(String(profile.referral_code))}` : "—";
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -49,7 +51,7 @@ export default function AmbassadorDashboardPage() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    window.location.href = "/login";
+    window.location.href = "/ambassador/login";
   };
 
   if (loading) {
@@ -68,6 +70,29 @@ export default function AmbassadorDashboardPage() {
           <div className="flex gap-2">
             <Link href="/" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Home</Link>
             <button onClick={() => void handleLogout()} className="rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white">Logout</button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-16 w-16 overflow-hidden rounded-full bg-slate-100">
+                {profile?.profile_image_url ? (
+                  <Image src={String(profile.profile_image_url)} alt={String(profile.full_name || "Ambassador profile")} width={64} height={64} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">TW</div>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#0f3f78]">Your ambassador profile</p>
+                <h2 className="text-xl font-black text-slate-900">{String(profile?.full_name || profile?.email || "Ambassador")}</h2>
+                <p className="text-sm text-slate-500">{String(profile?.referral_code || "—")}</p>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              <p className="font-semibold text-slate-900">Referral link</p>
+              <p className="mt-1 break-all">{referralLink}</p>
+            </div>
           </div>
         </div>
 

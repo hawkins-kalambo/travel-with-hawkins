@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { publishCommunicationEvent } from "@/lib/communicationEngine";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(req, response);
+  const { authorized, user, error } = await requireAdminUser(req, response);
   if (!authorized) return jsonError(error || "Unauthorized", 401);
 
   try {
@@ -53,6 +54,38 @@ export async function PATCH(req: NextRequest) {
     }
 
     console.log("[PATCH /api/commissions] Update successful. Updated referral:", data);
+
+    // Create notification for the ambassador about commission status change
+    const referral = data as Record<string, unknown> | null;
+    if (referral && referral.ambassador_id) {
+      const ambassadorId = String(referral.ambassador_id);
+      const commissionAmount = Number(referral.commission_amount ?? 0);
+
+      if (commissionStatus === "approved") {
+        await publishCommunicationEvent({
+          type: "commission_approved",
+          actor_id: user?.id ?? undefined,
+          payload: {
+            ambassador_id: ambassadorId,
+            commission_amount: commissionAmount,
+            referral_id: referralId,
+            booking_id: String(referral.booking_id || ""),
+          },
+        });
+      } else if (commissionStatus === "paid") {
+        await publishCommunicationEvent({
+          type: "commission_paid",
+          actor_id: user?.id ?? undefined,
+          payload: {
+            ambassador_id: ambassadorId,
+            commission_amount: commissionAmount,
+            referral_id: referralId,
+            booking_id: String(referral.booking_id || ""),
+          },
+        });
+      }
+    }
+
     return NextResponse.json({ success: true, referral: data });
   } catch (error) {
     console.error("[PATCH /api/commissions] Caught error:", error);

@@ -437,6 +437,9 @@ export default function Home() {
                 <span className="hidden sm:inline">Book Trip</span>
                 <span className="inline sm:hidden">Book</span>
               </button>
+              <a href="/ambassador/apply" className="hidden rounded-md border border-[#0f3f78] bg-white/90 px-3 py-2 text-sm font-bold text-[#0f3f78] transition hover:bg-[#0f3f78] hover:text-white sm:inline-flex">
+                Apply as Ambassador
+              </a>
               <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-md lg:hidden" aria-label="Menu">
                 <span className="flex w-5 flex-col gap-1">
                   <span className="h-0.5 rounded bg-[#101815]" />
@@ -455,6 +458,7 @@ export default function Home() {
               ["How It Works", "#how-it-works"],
               ["Help Center", "#help-center"],
               ["Contact", "#contact"],
+              ["Apply", "/ambassador/apply"],
             ].map(([item, href]) => (
               <a key={item} href={href} onClick={() => setMenuOpen(false)} className="block rounded-md px-3 py-2 text-sm font-bold hover:bg-blue-50">{item}</a>
             ))}
@@ -483,7 +487,8 @@ export default function Home() {
             <p className="mt-5 max-w-lg text-lg font-medium text-white/90">Connecting university students with trusted bus operators across Malawi.</p>
             <div className="mt-7 flex flex-wrap gap-4">
               <button onClick={() => openBooking()} className="rounded-md bg-[#0f3f78] px-10 py-4 text-sm font-black text-white hover:bg-[#0a2d56]">Book Now</button>
-              <a href="#routes" className="rounded-md border border-white px-10 py-4 text-sm font-black text-white hover:bg-white/10">Explore Routes</a>
+              <a href="/ambassador/apply" className="rounded-md border border-white px-10 py-4 text-sm font-black text-white hover:bg-white/10">Apply as Ambassador</a>
+              <a href="#routes" className="rounded-md border border-white/70 px-10 py-4 text-sm font-black text-white/90 transition hover:bg-white/10">Explore Routes</a>
             </div>
             <div className="mt-6 flex items-center gap-3">
               <div className="flex -space-x-2">
