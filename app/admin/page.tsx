@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/auth";
+import { isViewerAllowedTab, normalizeAdminRole } from "@/lib/adminAuth";
 import { type BookingRecord } from "@/lib/bookingTypes";
 import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
@@ -291,8 +292,11 @@ function PaymentBadge({ status }: { status: PaymentStatus }) {
 // ================= MAIN ADMIN PAGE =================
 export default function AdminPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<"super_admin" | "viewer" | "unknown">("unknown");
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [search, setSearch] = useState("");
@@ -338,6 +342,11 @@ export default function AdminPage() {
   const [expandedAmbassadorId, setExpandedAmbassadorId] = useState<string | null>(null);
   const [deletingReferral, setDeletingReferral] = useState<string | null>(null);
 
+  const isViewer = userRole === "viewer";
+  const visibleTabs = useMemo(() => (isViewer ? TABS.filter((tab) => isViewerAllowedTab(tab.key)) : TABS), [isViewer]);
+  const accessDenied = searchParams.get("accessDenied") === "1";
+  const effectiveActiveTab = isViewer && !isViewerAllowedTab(activeTab) ? "overview" : activeTab;
+
   const loadReferralsData = useCallback(async () => {
     try {
       const [ambassadorsRes, referralsRes] = await Promise.all([
@@ -347,7 +356,7 @@ export default function AdminPage() {
 
       if (ambassadorsRes.status === 401 || referralsRes.status === 401) {
         await supabase.auth.signOut();
-        router.push("/login");
+        router.push("/admin/login");
         return;
       }
 
@@ -362,9 +371,8 @@ export default function AdminPage() {
         const rows = Array.isArray(referralsData?.referrals) ? referralsData.referrals : [];
         setReferrals(rows);
 
-        // Debug: log counts so we can see where data disappears
         try {
-          console.log("admin: loaded ambassadors count", Array.isArray(ambassadorsData?.ambassadors) ? ambassadorsData.ambassadors.length : (Array.isArray(ambassadors) ? ambassadors.length : 0));
+          console.log("admin: loaded ambassadors count", Array.isArray(ambassadorsData?.ambassadors) ? ambassadorsData.ambassadors.length : 0);
         } catch {}
         try {
           console.log("admin: loaded referrals count", rows.length);
@@ -381,7 +389,7 @@ export default function AdminPage() {
       if (res.status === 401) {
         console.error("Unauthorized refresh bookings: redirecting to login.");
         await supabase.auth.signOut();
-        router.push("/login");
+        router.push("/admin/login");
         return;
       }
       if (!res.ok) {
@@ -413,7 +421,7 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Failed to refresh bookings:", error);
     }
-  }, []);
+  }, [router]);
 
 
   const loadSettings = useCallback(async () => {
@@ -421,7 +429,7 @@ export default function AdminPage() {
       const res = await authFetch("/api/settings", { method: "GET" });
       if (res.status === 401) {
         await supabase.auth.signOut();
-        router.push("/login");
+        router.push("/admin/login");
         return;
       }
       const data: unknown = await res.json();
@@ -438,7 +446,7 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Failed to load settings:", error);
     }
-  }, [defaultSettings]);
+  }, [defaultSettings, router]);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -447,8 +455,22 @@ export default function AdminPage() {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        router.push("/login");
+        router.push("/admin/login");
         return;
+      }
+
+      const profileRes = await authFetch("/api/profile", { method: "GET" });
+      if (profileRes.ok) {
+        const profilePayload = await profileRes.json();
+        const resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
+        if (resolvedRole === "unknown") {
+          await supabase.auth.signOut();
+          router.push("/admin/login");
+          return;
+        }
+        setUserRole(resolvedRole);
+      } else {
+        setUserRole("unknown");
       }
 
       await Promise.all([refreshBookings(), loadSettings(), loadReferralsData()]);
@@ -466,7 +488,7 @@ export default function AdminPage() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         void supabase.auth.signOut();
-        router.push("/login");
+        router.push("/admin/login");
       }, idleMs);
     };
 
@@ -490,7 +512,7 @@ export default function AdminPage() {
 
   const handleLogout = async () => {
   await supabase.auth.signOut();
-  router.push("/login");
+  router.push("/admin/login");
 };
 
 const filtered = useMemo(() => {
@@ -900,6 +922,9 @@ const filtered = useMemo(() => {
     }
   };
 
+  const isPathActive = (href: string) => pathname === href || (href !== "/admin" && pathname.startsWith(href));
+  const currentTabLabel = visibleTabs.find((tab) => tab.key === effectiveActiveTab)?.label || "Dashboard";
+
   const saveSettings = async () => {
     try {
       const res = await authFetch("/api/settings", {
@@ -959,72 +984,121 @@ const filtered = useMemo(() => {
           </div>
 
           <div className="flex lg:hidden gap-1 overflow-x-auto pb-2 flex-wrap">
-            {TABS.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition ${
-                  activeTab === tab.key
-                    ? "bg-primary-600/10 border border-primary-600/30"
-                    : "opacity-70 hover:opacity-100"
-                }`}
-              >
-                {tab.icon} {tab.label}
-              </button>
-            ))}
-            <Link
-              href="/admin/reports"
-              className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
-            >
-              Reports
-            </Link>
-            <Link
-              href="/admin/business-configuration"
-              className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
-            >
-              Config
-            </Link>
-            <Link
-              href="/admin/commission-rates"
-              className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900"
-            >
-              Rates
-            </Link>
+            {visibleTabs.flatMap((tab) => {
+              const items: Array<ReactNode> = [];
+              if (tab.key === "whatsapp") {
+                items.push(
+                  <Link
+                    key="applications-mobile"
+                    href="/admin/applications"
+                    className={`shrink-0 rounded-lg border border-primary-600/30 px-3 py-2 text-xs font-semibold transition ${isPathActive("/admin/applications") ? "bg-primary-600/20 text-primary-950" : "bg-primary-100/80 text-primary-900"}`}
+                  >
+                    Applications
+                  </Link>,
+                  <Link
+                    key="ambassadors-mobile"
+                    href="/admin/ambassadors"
+                    className={`shrink-0 rounded-lg border border-primary-600/30 px-3 py-2 text-xs font-semibold transition ${isPathActive("/admin/ambassadors") ? "bg-primary-600/20 text-primary-950" : "bg-primary-100/80 text-primary-900"}`}
+                  >
+                    Ambassadors
+                  </Link>
+                );
+              }
+              items.push(
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition ${
+                    effectiveActiveTab === tab.key
+                      ? "bg-primary-600/10 border border-primary-600/30"
+                      : "opacity-70 hover:opacity-100"
+                  }`}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              );
+              if (tab.key === "referrals") {
+                items.push(
+                  <Link key="reports-mobile" href="/admin/reports" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
+                    Reports
+                  </Link>,
+                  <Link key="config-mobile" href="/admin/business-configuration" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
+                    Config
+                  </Link>,
+                  <Link key="rates-mobile" href="/admin/commission-rates" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
+                    Rates
+                  </Link>
+                );
+              }
+              return items;
+            })}
           </div>
 
           <nav className="hidden lg:block space-y-1 text-sm">
-            {TABS.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`w-full text-left px-3 py-2.5 rounded-lg transition ${
-                  activeTab === tab.key
-                    ? "bg-primary-600/10 border border-primary-600/20 font-semibold"
-                    : "opacity-70 hover:opacity-100 hover:bg-primary-100"
-                }`}
-              >
-                {tab.icon} {tab.label}
-              </button>
-            ))}
-            <Link
-              href="/admin/reports"
-              className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100"
-            >
-               Reports & Manifests
-            </Link>
-            <Link
-              href="/admin/business-configuration"
-              className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100"
-            >
-               Business Configuration
-            </Link>
-            <Link
-              href="/admin/commission-rates"
-              className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100"
-            >
-               Commission Rates
-            </Link>
-            <hr className="my-3 border-primary-200/60" />
+            {visibleTabs.flatMap((tab) => {
+              const items: Array<ReactNode> = [];
+              if (tab.key === "whatsapp") {
+                items.push(
+                  <Link
+                    key="applications-desktop"
+                    href="/admin/applications"
+                    className={`block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition ${isPathActive("/admin/applications") ? "bg-primary-600/10 border border-primary-600/20 font-semibold" : "opacity-70 hover:opacity-100 hover:bg-primary-100"}`}
+                  >
+                    <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary-100/70 text-primary-800">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="4" width="18" height="16" rx="2" />
+                        <path d="M3 10h18" />
+                        <path d="M8 2v4" />
+                        <path d="M16 2v4" />
+                      </svg>
+                    </span>
+                    Applications
+                  </Link>,
+                  <Link
+                    key="ambassadors-desktop"
+                    href="/admin/ambassadors"
+                    className={`block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition ${isPathActive("/admin/ambassadors") ? "bg-primary-600/10 border border-primary-600/20 font-semibold" : "opacity-70 hover:opacity-100 hover:bg-primary-100"}`}
+                  >
+                    <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary-100/70 text-primary-800">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+                        <circle cx="9.5" cy="7" r="3" />
+                        <path d="M17 8v5" />
+                        <path d="M14.5 10.5h5" />
+                      </svg>
+                    </span>
+                    Ambassadors
+                  </Link>
+                );
+              }
+              items.push(
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition ${
+                    effectiveActiveTab === tab.key
+                      ? "bg-primary-600/10 border border-primary-600/20 font-semibold"
+                      : "opacity-70 hover:opacity-100 hover:bg-primary-100"
+                  }`}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              );
+              if (tab.key === "referrals") {
+                items.push(
+                  <Link key="reports-desktop" href="/admin/reports" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
+                    Reports & Manifests
+                  </Link>,
+                  <Link key="config-desktop" href="/admin/business-configuration" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
+                    Business Configuration
+                  </Link>,
+                  <Link key="rates-desktop" href="/admin/commission-rates" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
+                    Commission Rates
+                  </Link>
+                );
+              }
+              return items;
+            })}
             <button
               onClick={handleLogout}
               className="w-full text-left px-3 py-2.5 rounded-lg text-red-300 hover:bg-red-900/30 transition"
@@ -1038,7 +1112,7 @@ const filtered = useMemo(() => {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-primary-900">
-                {TABS.find((t) => t.key === activeTab)?.icon} {TABS.find((t) => t.key === activeTab)?.label || "Dashboard"}
+                {visibleTabs.find((t) => t.key === activeTab)?.icon} {currentTabLabel}
               </h2>
               <p className="text-sm text-slate-500 mt-1">{formatDate(new Date())}</p>
             </div>
@@ -1084,6 +1158,12 @@ const filtered = useMemo(() => {
             </div>
           </div>
 
+          {accessDenied ? (
+            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Access denied. You can only view Overview, Trips, and Bookings.
+            </div>
+          ) : null}
+
           {loading ? (
             <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-8">
               <div className="flex items-center gap-3">
@@ -1093,7 +1173,7 @@ const filtered = useMemo(() => {
             </div>
           ) : (
             <>
-              {activeTab === "overview" && (
+              {effectiveActiveTab === "overview" && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -1145,7 +1225,7 @@ const filtered = useMemo(() => {
                 </div>
               )}
 
-              {activeTab === "trips" && (
+              {effectiveActiveTab === "trips" && (
                 <div>
                   {Object.keys(tripGroups).length === 0 ? (
                     <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-8 text-center">
@@ -1209,16 +1289,20 @@ const filtered = useMemo(() => {
                                 ["Boarding", "Boarding"],
                                 ["Departed", "Departed"],
                                 ["Cancel", "Cancelled"],
-                              ].map(([label, s]) => (
-                                <button
-                                  key={s}
-                                  onClick={() => void updateStatus(tripId, s)}
-                                  disabled={isUpdating}
-                                  className={`${(JOURNEY_STATUS_COLORS[s] || JOURNEY_STATUS_COLORS.Confirmed).button} rounded-lg px-2 py-1.5 text-[11px] font-semibold text-white transition disabled:opacity-50`}
-                                >
-                                  {isUpdating ? "..." : label}
-                                </button>
-                              ))}
+                              ].map((option) => {
+                                const [label, statusValue] = option as [string, string];
+                                if (isViewer) return null;
+                                return (
+                                  <button
+                                    key={statusValue}
+                                    onClick={() => void updateStatus(tripId, statusValue)}
+                                    disabled={isUpdating}
+                                    className={`${(JOURNEY_STATUS_COLORS[statusValue] || JOURNEY_STATUS_COLORS.Confirmed).button} rounded-lg px-2 py-1.5 text-[11px] font-semibold text-white transition disabled:opacity-50`}
+                                  >
+                                    {isUpdating ? "..." : label}
+                                  </button>
+                                );
+                              })}
                             </div>
 
                             <details className="text-xs">
@@ -1248,7 +1332,7 @@ const filtered = useMemo(() => {
               )}
 
               {/* ================= BOOKINGS TAB ================= */}
-              {activeTab === "bookings" && (
+              {effectiveActiveTab === "bookings" && (
                 <div className="bg-[#eef6ff] border border-[#d7ebff] rounded-xl shadow-sm overflow-hidden">
                   {filtered.length === 0 ? (
                     <div className="p-8 text-center">
@@ -1297,49 +1381,53 @@ const filtered = useMemo(() => {
                                     ["Departed", "Departed"],
                                     ["Cancel", "Cancelled"],
                                   ].map(([label, s]) => (
-                                    <button
-                                      key={s}
-                                      onClick={() => void updateStatus(b.bookingId || "", s, false)}
-                                      disabled={statusUpdating === b.bookingId}
-                                      className={`${(JOURNEY_STATUS_COLORS[s] || JOURNEY_STATUS_COLORS.Confirmed).button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
-                                    >
-                                      {statusUpdating === b.bookingId ? "..." : label}
-                                    </button>
+                                    !isViewer ? (
+                                      <button
+                                        key={s}
+                                        onClick={() => void updateStatus(b.bookingId || "", s, false)}
+                                        disabled={statusUpdating === b.bookingId}
+                                        className={`${(JOURNEY_STATUS_COLORS[s] || JOURNEY_STATUS_COLORS.Confirmed).button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
+                                      >
+                                        {statusUpdating === b.bookingId ? "..." : label}
+                                      </button>
+                                    ) : null
                                   ))}
 
                                   {/* Payment confirmation shortcut */}
-                                  <button
-                                    onClick={async () => {
-                                      const id = b.bookingId || "";
-                                      if (!id) return;
-                                      setPaymentUpdating(id);
-                                      try {
-                                        const res = await authFetch("/api/payments/confirm", {
-                                          method: "POST",
-                                          headers: {
-                                            "Content-Type": "application/json",
-                                          },
-                                          body: JSON.stringify({ bookingId: id }),
-                                        });
-                                        const result = await res.json();
-                                        if (!result?.success) {
-                                          alert(result?.error || "Failed to confirm payment");
+                                  {!isViewer ? (
+                                    <button
+                                      onClick={async () => {
+                                        const id = b.bookingId || "";
+                                        if (!id) return;
+                                        setPaymentUpdating(id);
+                                        try {
+                                          const res = await authFetch("/api/payments/confirm", {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                            },
+                                            body: JSON.stringify({ bookingId: id }),
+                                          });
+                                          const result = await res.json();
+                                          if (!result?.success) {
+                                            alert(result?.error || "Failed to confirm payment");
+                                          }
+                                        } catch (e) {
+                                          console.error(e);
+                                          alert("Network error confirming payment");
+                                        } finally {
+                                          await refreshBookings();
+                                          setPaymentUpdating(null);
                                         }
-                                      } catch (e) {
-                                        console.error(e);
-                                        alert("Network error confirming payment");
-                                      } finally {
-                                        await refreshBookings();
-                                        setPaymentUpdating(null);
-                                      }
-                                    }}
-                                    disabled={paymentUpdating === b.bookingId || b.paymentStatus === "Payment Confirmed"}
-                                    className={`${PAYMENT_STATUS_COLORS["Payment Confirmed"].button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
-                                  >
-                                    {paymentUpdating === b.bookingId ? "..." : b.paymentStatus === "Payment Confirmed" ? "Paid" : "Confirm Payment"}
-                                  </button>
+                                      }}
+                                      disabled={paymentUpdating === b.bookingId || b.paymentStatus === "Payment Confirmed"}
+                                      className={`${PAYMENT_STATUS_COLORS["Payment Confirmed"].button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
+                                    >
+                                      {paymentUpdating === b.bookingId ? "..." : b.paymentStatus === "Payment Confirmed" ? "Paid" : "Confirm Payment"}
+                                    </button>
+                                  ) : null}
 
-                                  {b.paymentStatus === "Payment Confirmed" ? (
+                                  {!isViewer && b.paymentStatus === "Payment Confirmed" ? (
                                     <>
                                       <button
                                         onClick={() => {
@@ -1408,13 +1496,15 @@ const filtered = useMemo(() => {
                                     </>
                                   ) : null}
 
-                                  <button
-                                    onClick={() => void deleteBooking(b.bookingId || "")}
-                                    disabled={deleting === b.bookingId}
-                                    className="rounded-lg bg-danger px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
-                                  >
-                                    {deleting === b.bookingId ? "..." : "✕"}
-                                  </button>
+                                  {!isViewer ? (
+                                    <button
+                                      onClick={() => void deleteBooking(b.bookingId || "")}
+                                      disabled={deleting === b.bookingId}
+                                      className="rounded-lg bg-danger px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
+                                    >
+                                      {deleting === b.bookingId ? "..." : "✕"}
+                                    </button>
+                                  ) : null}
                                 </div>
                               </td>
                             </tr>
@@ -1427,7 +1517,7 @@ const filtered = useMemo(() => {
               )}
 
               {/* ================= STUDENTS CRM TAB ================= */}
-              {activeTab === "students" && (
+              {!isViewer && effectiveActiveTab === "students" && (
                 <div className="space-y-4">
                   {studentGroups.length === 0 ? (
                     <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-8 text-center">
@@ -1492,7 +1582,7 @@ const filtered = useMemo(() => {
               )}
 
               {/* ================= WHATSAPP BROADCAST TAB ================= */}
-              {activeTab === "whatsapp" && (
+              {!isViewer && effectiveActiveTab === "whatsapp" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
                     <h3 className="mb-2 font-bold text-primary-900">📢 WhatsApp Broadcast Studio</h3>
@@ -1538,7 +1628,7 @@ const filtered = useMemo(() => {
               )}
 
               {/* ================= REFERRALS TAB ================= */}
-              {activeTab === "referrals" && (
+              {!isViewer && effectiveActiveTab === "referrals" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
                     <h3 className="mb-2 font-bold text-primary-900">🎯 Referral Management</h3>
@@ -1553,9 +1643,11 @@ const filtered = useMemo(() => {
                       <input className="input-field" placeholder="Faculty" value={ambassadorForm.faculty} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, faculty: e.target.value })} />
                       <input className="input-field" placeholder="Program" value={ambassadorForm.program} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, program: e.target.value })} />
                     </div>
-                    <button onClick={() => void createAmbassador()} disabled={creatingAmbassador} className="mt-4 rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                      {creatingAmbassador ? "Creating..." : "Create Ambassador"}
-                    </button>
+                    {!isViewer ? (
+                      <button onClick={() => void createAmbassador()} disabled={creatingAmbassador} className="mt-4 rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                        {creatingAmbassador ? "Creating..." : "Create Ambassador"}
+                      </button>
+                    ) : null}
 
                     {createdAmbassadorCredentials && (
                       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
@@ -1766,17 +1858,19 @@ const filtered = useMemo(() => {
                                   <p className="text-xs text-slate-500">{String(referral.commission_status || referral.status || "pending")}</p>
                                 </div>
                               </div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <button onClick={() => void updateCommissionStatus(String(referral.id), "approved")} disabled={updatingCommission === String(referral.id)} className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 disabled:opacity-50">
-                                  {updatingCommission === String(referral.id) ? "Updating..." : "Approve"}
-                                </button>
-                                <button onClick={() => void updateCommissionStatus(String(referral.id), "paid")} disabled={updatingCommission === String(referral.id)} className="rounded border border-primary-200 bg-primary-50 px-2.5 py-1 text-[11px] font-semibold text-primary-700 disabled:opacity-50">
-                                  {updatingCommission === String(referral.id) ? "Updating..." : "Mark Paid"}
-                                </button>
-                                <button onClick={() => void deleteReferral(String(referral.id))} disabled={deletingReferral === String(referral.id)} className="rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 disabled:opacity-50">
-                                  {deletingReferral === String(referral.id) ? "Deleting..." : "Delete"}
-                                </button>
-                              </div>
+                              {!isViewer ? (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <button onClick={() => void updateCommissionStatus(String(referral.id), "approved")} disabled={updatingCommission === String(referral.id)} className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 disabled:opacity-50">
+                                    {updatingCommission === String(referral.id) ? "Updating..." : "Approve"}
+                                  </button>
+                                  <button onClick={() => void updateCommissionStatus(String(referral.id), "paid")} disabled={updatingCommission === String(referral.id)} className="rounded border border-primary-200 bg-primary-50 px-2.5 py-1 text-[11px] font-semibold text-primary-700 disabled:opacity-50">
+                                    {updatingCommission === String(referral.id) ? "Updating..." : "Mark Paid"}
+                                  </button>
+                                  <button onClick={() => void deleteReferral(String(referral.id))} disabled={deletingReferral === String(referral.id)} className="rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 disabled:opacity-50">
+                                    {deletingReferral === String(referral.id) ? "Deleting..." : "Delete"}
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                           ));
                         })()}
@@ -1787,7 +1881,7 @@ const filtered = useMemo(() => {
               )}
 
               {/* ================= SETTINGS TAB ================= */}
-              {activeTab === "settings" && (
+              {!isViewer && effectiveActiveTab === "settings" && (
                 <div className="max-w-2xl space-y-6">
                   <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
                     <h3 className="mb-2 font-bold text-primary-900">⚙️ System Configuration</h3>
@@ -1852,12 +1946,14 @@ const filtered = useMemo(() => {
                       </div>
 
 
-                      <button
-                        onClick={saveSettings}
-                        className="rounded-lg bg-primary-900 px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-primary-800"
-                      >
-                         Save Settings
-                      </button>
+                      {!isViewer ? (
+                        <button
+                          onClick={saveSettings}
+                          className="rounded-lg bg-primary-900 px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-primary-800"
+                        >
+                           Save Settings
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 

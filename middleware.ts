@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { canAccessAdminRoute, requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { isRateLimited } from "@/lib/rateLimit";
+
+async function getUserRole(user: { id: string; user_metadata?: Record<string, unknown> } | null) {
+  if (!user) return null;
+  return resolveAdminRole(user);
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -9,8 +14,25 @@ export async function middleware(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for") || "local";
   const rateLimitKey = `${method}:${pathname}:${ip}`;
 
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
+  const isUiRoute = isAdminRoute || isAmbassadorRoute;
+
   const isSettingsRoute = pathname.startsWith("/api/settings");
   const isBookingsRoute = pathname.startsWith("/api/bookings");
+  const isAdminApiRoute =
+    pathname.startsWith("/api/settings") ||
+    pathname.startsWith("/api/reports") ||
+    pathname.startsWith("/api/referrals") ||
+    pathname.startsWith("/api/applications") ||
+    pathname.startsWith("/api/ambassadors") ||
+    pathname.startsWith("/api/communications") ||
+    pathname.startsWith("/api/communication") ||
+    pathname.startsWith("/api/payments") ||
+    pathname.startsWith("/api/commissions") ||
+    pathname.startsWith("/api/commission-rules") ||
+    pathname.startsWith("/api/admin/") ||
+    (isBookingsRoute && !pathname.startsWith("/api/bookings/lookup") && !pathname.startsWith("/api/bookings/"));
 
   const isPublicBookingCreate = isBookingsRoute && method === "POST";
   const isPublicBookingLookup =
@@ -18,10 +40,9 @@ export async function middleware(request: NextRequest) {
     method === "GET" &&
     request.nextUrl.searchParams.has("trackingId");
 
-  // Only protect admin/settings/reporting routes.
-  // Booking creation and public booking lookup should remain public.
-  const isProtected =
+  const isProtectedApiRoute =
     isSettingsRoute ||
+    isAdminApiRoute ||
     (isBookingsRoute && !isPublicBookingLookup && !isPublicBookingCreate);
 
   if (pathname.startsWith("/api/bookings") && method === "POST") {
@@ -30,45 +51,60 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (isProtected) {
+  if (isProtectedApiRoute) {
     if (isRateLimited(rateLimitKey)) {
       return NextResponse.json({ success: false, error: "Too many requests" }, { status: 429 });
     }
   }
 
-  // ✅ PUBLIC ROUTES
-  if (!isProtected) {
+  if (!isProtectedApiRoute && !isUiRoute) {
     return NextResponse.next();
   }
 
-  // ❗ IMPORTANT FIX: NEVER continue without auth check result
   const authResponse = NextResponse.next();
-  const { user, error } = await requireAuthenticatedUser(
-    request,
-    authResponse
-  );
+  const { user, error } = await requireAuthenticatedUser(request, authResponse);
 
   if (error || !user) {
-    // 🔥 CRITICAL FIX: API must NEVER redirect (only JSON)
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized",
-        },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // UI routes can redirect
-    const redirectUrl = new URL("/login", request.url);
+    const redirectTarget = isAdminRoute ? "/admin/login" : "/ambassador/login";
+    const redirectUrl = new URL(redirectTarget, request.url);
     redirectUrl.searchParams.set("redirectedFrom", pathname);
     return NextResponse.redirect(redirectUrl);
+  }
+
+  const role = await getUserRole(user);
+
+  if (isAdminRoute) {
+    const isAllowed = canAccessAdminRoute(role, pathname);
+    if (!isAllowed) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ success: false, error: "Access denied" }, { status: 403 });
+      }
+      const redirectUrl = new URL("/admin/dashboard", request.url);
+      redirectUrl.searchParams.set("redirectedFrom", pathname);
+      redirectUrl.searchParams.set("accessDenied", "1");
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
+  if (isAmbassadorRoute) {
+    const isAmbassador = role === "ambassador";
+    if (!isAmbassador) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ success: false, error: "Ambassador access required" }, { status: 403 });
+      }
+      const redirectUrl = new URL("/ambassador/login", request.url);
+      redirectUrl.searchParams.set("redirectedFrom", pathname);
+      return NextResponse.redirect(redirectUrl);
+    }
   }
 
   return authResponse;
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: ["/api/:path*", "/admin/:path*", "/ambassador/:path*"],
 };

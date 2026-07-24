@@ -1,9 +1,96 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isSuperAdminRole, isViewerRole, normalizeAdminRole } from "@/lib/adminAuth";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+function normalizeRole(role: unknown): string {
+  return typeof role === "string" ? role.trim().toLowerCase() : "";
+}
+
+export function getConfiguredAdminEmails(): string[] {
+  const configuredValues = [
+    process.env.ADMIN_NOTIFICATION_EMAIL,
+    process.env.ADMIN_EMAIL,
+    "hgkalambo@gmail.com",
+  ];
+
+  return Array.from(
+    new Set(
+      configuredValues
+        .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+        .map((value) => value.trim().toLowerCase())
+    )
+  );
+}
+
+export function isAdminAccessAllowed(user: { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined, profileRole?: unknown) {
+  const normalizedProfileRole = normalizeRole(profileRole);
+  const normalizedMetadataRole = normalizeRole(user?.user_metadata?.role);
+  if (["admin", "super_admin"].includes(normalizedProfileRole) || ["admin", "super_admin"].includes(normalizedMetadataRole)) {
+    return true;
+  }
+
+  const allowedAdminEmails = getConfiguredAdminEmails();
+  const userEmail = typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
+  const metadataEmail = typeof user?.user_metadata?.email === "string" ? user.user_metadata.email.trim().toLowerCase() : "";
+  return Boolean((userEmail && allowedAdminEmails.includes(userEmail)) || (metadataEmail && allowedAdminEmails.includes(metadataEmail)));
+}
+
+export async function getAdminRoleFromDatabase(userId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.from("admins").select("role").eq("id", userId).maybeSingle();
+
+  if (error) {
+    console.warn("Failed to load admin role from admins table", error.message);
+    return null;
+  }
+
+  return typeof data?.role === "string" ? data.role : null;
+}
+
+export async function resolveAdminRole(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined): Promise<string> {
+  if (!user?.id) {
+    return "unknown";
+  }
+
+  const dbRole = await getAdminRoleFromDatabase(user.id);
+  if (dbRole) {
+    return normalizeAdminRole(dbRole);
+  }
+
+  const roleFromProfile = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const fallbackRole = typeof roleFromProfile.data?.role === "string" ? roleFromProfile.data.role : null;
+  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : null;
+  const resolved = fallbackRole ?? metadataRole ?? "unknown";
+
+  if (isAdminAccessAllowed(user, resolved)) {
+    return "super_admin";
+  }
+
+  return normalizeAdminRole(resolved);
+}
+
+export function isViewerAuthorizedRoute(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/admin";
+  if (normalizedPath === "/admin") return true;
+  if (normalizedPath === "/admin/dashboard") return true;
+  if (normalizedPath === "/admin/overview") return true;
+  if (normalizedPath === "/admin") return true;
+  return ["/admin/overview", "/admin/trips", "/admin/bookings", "/admin/dashboard"].includes(normalizedPath);
+}
+
+export function canAccessAdminRoute(role: unknown, pathname: string): boolean {
+  if (isSuperAdminRole(role)) return true;
+  if (isViewerRole(role)) return isViewerAuthorizedRoute(pathname);
+  return false;
+}
 
 export function createSupabaseServerClient(request: NextRequest, response: NextResponse) {
   return createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -84,31 +171,14 @@ export async function requireAdminUser(request: NextRequest, response: NextRespo
     return { authorized: false, user: null, error: "Authentication required" };
   }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
+  const role = await resolveAdminRole(user);
+  const isAdminRole = isSuperAdminRole(role) || isAdminAccessAllowed(user, role);
 
-  if (profileError) {
-    console.warn("Failed to load profile for admin check", profileError);
-  }
-
-  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
-  const isAdminRole = profile?.role === "admin" || metadataRole === "admin";
-  const allowedAdminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL;
-  const userEmail = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
-  const normalizedAllowed = typeof allowedAdminEmail === "string" ? allowedAdminEmail.trim().toLowerCase() : "";
-
-  if (!isAdminRole && normalizedAllowed && userEmail && userEmail !== normalizedAllowed) {
+  if (!isAdminRole) {
     return { authorized: false, user: null, error: "Admin access required" };
   }
 
-  if (!isAdminRole && !normalizedAllowed) {
-    return { authorized: false, user: null, error: "Admin access required" };
-  }
-
-  return { authorized: true, user, error: null };
+  return { authorized: true, user, role, error: null };
 }
 
 
