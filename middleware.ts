@@ -17,6 +17,13 @@ export async function middleware(request: NextRequest) {
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
   const isUiRoute = isAdminRoute || isAmbassadorRoute;
+  const isAdminLoginRoute = pathname === "/admin/login";
+  const isAmbassadorPublicRoute =
+    pathname === "/ambassador/login" ||
+    pathname === "/ambassador/apply" ||
+    pathname === "/ambassador/forgot-password" ||
+    pathname === "/ambassador/settings/security";
+  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute;
 
   const isSettingsRoute = pathname.startsWith("/api/settings");
   const isBookingsRoute = pathname.startsWith("/api/bookings");
@@ -58,6 +65,10 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!isProtectedApiRoute && !isUiRoute) {
+    return NextResponse.next();
+  }
+
+  if (isPublicEntryRoute) {
     return NextResponse.next();
   }
 
