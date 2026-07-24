@@ -380,7 +380,7 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Failed to load referral data", error);
     }
-  }, [router]);
+  }, []);
 
   const refreshBookings = useCallback(async () => {
     try {
@@ -418,7 +418,7 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Failed to refresh bookings:", error);
     }
-  }, [router]);
+  }, []);
 
 
   const loadSettings = useCallback(async () => {
@@ -442,17 +442,25 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Failed to load settings:", error);
     }
-  }, [defaultSettings, router]);
+  }, [defaultSettings]);
 
   useEffect(() => {
     const checkSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      let session = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const { data } = await supabase.auth.getSession();
+        session = data.session;
+        if (session) break;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
 
       if (!session) {
-        router.push("/admin/login");
-        return;
+        const { data: userData } = await supabase.auth.getUser();
+        if (!userData.user) {
+          setLoading(false);
+          router.replace("/admin/login");
+          return;
+        }
       }
 
       const profileRes = await authFetch("/api/profile", { method: "GET" });
