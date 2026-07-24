@@ -31,19 +31,19 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/payments") ||
     pathname.startsWith("/api/commissions") ||
     pathname.startsWith("/api/commission-rules") ||
-    pathname.startsWith("/api/admin/") ||
-    (isBookingsRoute && !pathname.startsWith("/api/bookings/lookup") && !pathname.startsWith("/api/bookings/"));
+    pathname.startsWith("/api/admin/");
 
   const isPublicBookingCreate = isBookingsRoute && method === "POST";
   const isPublicBookingLookup =
     isBookingsRoute &&
     method === "GET" &&
     request.nextUrl.searchParams.has("trackingId");
+  const isAdminBookingRoute = isBookingsRoute && !isPublicBookingLookup && !isPublicBookingCreate;
 
   const isProtectedApiRoute =
     isSettingsRoute ||
     isAdminApiRoute ||
-    (isBookingsRoute && !isPublicBookingLookup && !isPublicBookingCreate);
+    isAdminBookingRoute;
 
   if (pathname.startsWith("/api/bookings") && method === "POST") {
     if (isRateLimited(rateLimitKey)) {
