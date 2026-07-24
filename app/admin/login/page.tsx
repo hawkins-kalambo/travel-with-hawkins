@@ -73,9 +73,7 @@ export default function AdminLoginPage() {
       const role = normalizeAdminRole(profileData?.profile?.role ?? profileData?.role);
 
       if (role === "unknown" && !isConfiguredAdmin) {
-        await supabase.auth.signOut();
-        setErrorMsg("You do not have administrator access.");
-        setLoading(false);
+        window.location.assign("/admin/dashboard?accessDenied=1");
         return;
       }
 

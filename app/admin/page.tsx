@@ -355,8 +355,7 @@ export default function AdminPage() {
       ]);
 
       if (ambassadorsRes.status === 401 || referralsRes.status === 401) {
-        await supabase.auth.signOut();
-        router.push("/admin/login");
+        console.warn("Skipping admin data load because the session is not yet authorized.");
         return;
       }
 
@@ -387,9 +386,7 @@ export default function AdminPage() {
     try {
       const res = await authFetch(`${API_BASE}`, { method: "GET", cache: "no-store" });
       if (res.status === 401) {
-        console.error("Unauthorized refresh bookings: redirecting to login.");
-        await supabase.auth.signOut();
-        router.push("/admin/login");
+        console.warn("Skipping bookings refresh because the session is not yet authorized.");
         return;
       }
       if (!res.ok) {
@@ -428,8 +425,7 @@ export default function AdminPage() {
     try {
       const res = await authFetch("/api/settings", { method: "GET" });
       if (res.status === 401) {
-        await supabase.auth.signOut();
-        router.push("/admin/login");
+        console.warn("Skipping settings load because the session is not yet authorized.");
         return;
       }
       const data: unknown = await res.json();
@@ -463,11 +459,6 @@ export default function AdminPage() {
       if (profileRes.ok) {
         const profilePayload = await profileRes.json();
         const resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
-        if (resolvedRole === "unknown") {
-          await supabase.auth.signOut();
-          router.push("/admin/login");
-          return;
-        }
         setUserRole(resolvedRole);
       } else {
         setUserRole("unknown");
