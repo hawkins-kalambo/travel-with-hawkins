@@ -25,8 +25,9 @@ export async function POST(req: NextRequest) {
     if (!email) return jsonError("Email is required", 400);
 
     if (mode === "send-reset") {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
       const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/ambassador/settings/security`,
+        redirectTo: `${appUrl.replace(/\/$/, "")}/reset-password`,
       });
 
       if (resetError) throw resetError;

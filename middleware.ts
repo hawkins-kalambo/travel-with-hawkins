@@ -18,12 +18,13 @@ export async function middleware(request: NextRequest) {
   const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
   const isUiRoute = isAdminRoute || isAmbassadorRoute;
   const isAdminLoginRoute = pathname === "/admin/login";
+  const isAdminResetRoute = pathname === "/reset-password";
   const isAmbassadorPublicRoute =
     pathname === "/ambassador/login" ||
     pathname === "/ambassador/apply" ||
     pathname === "/ambassador/forgot-password" ||
     pathname === "/ambassador/settings/security";
-  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute;
+  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isAdminResetRoute;
 
   const isSettingsRoute = pathname.startsWith("/api/settings");
   const isBookingsRoute = pathname.startsWith("/api/bookings");
