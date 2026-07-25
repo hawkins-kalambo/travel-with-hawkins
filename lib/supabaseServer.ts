@@ -12,11 +12,33 @@ export function isAdminAccessAllowed(user: { email?: string | null; user_metadat
   return normalizedProfileRole === "admin" || normalizedProfileRole === "super_admin" || normalizedMetadataRole === "admin" || normalizedMetadataRole === "super_admin";
 }
 
+function normalizeAdminTableRole(value: unknown): string | null {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "super_admin" || normalized === "superadmin" || normalized === "true" || normalized === "yes" || normalized === "1") {
+      return "super_admin";
+    }
+    if (normalized === "admin" || normalized === "staff" || normalized === "moderator" || normalized === "false" || normalized === "0") {
+      return "admin";
+    }
+    if (normalized === "viewer") {
+      return "viewer";
+    }
+    return normalized;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "super_admin" : "admin";
+  }
+
+  return null;
+}
+
 export async function getAdminRoleFromDatabase(userId: string, email?: string | null): Promise<string | null> {
   const candidateColumns = ["id", "user_id", "auth_user_id"];
 
   for (const column of candidateColumns) {
-    const { data, error } = await supabaseAdmin.from("admins").select("role").eq(column, userId).maybeSingle();
+    const { data, error } = await supabaseAdmin.from("admins").select("super_admin, role").eq(column, userId).maybeSingle();
 
     if (error) {
       const isMissingColumnError =
@@ -29,13 +51,14 @@ export async function getAdminRoleFromDatabase(userId: string, email?: string | 
       continue;
     }
 
-    if (typeof data?.role === "string" && data.role.trim()) {
-      return data.role;
+    const normalizedRole = normalizeAdminTableRole(data?.super_admin ?? data?.role);
+    if (normalizedRole) {
+      return normalizedRole;
     }
   }
 
   if (email) {
-    const { data, error } = await supabaseAdmin.from("admins").select("role").eq("email", email).maybeSingle();
+    const { data, error } = await supabaseAdmin.from("admins").select("super_admin, role").eq("email", email).maybeSingle();
 
     if (error) {
       const isMissingColumnError =
@@ -45,8 +68,11 @@ export async function getAdminRoleFromDatabase(userId: string, email?: string | 
       if (!isMissingColumnError) {
         console.warn("Failed to load admin role from admins table by email", error.message);
       }
-    } else if (typeof data?.role === "string" && data.role.trim()) {
-      return data.role;
+    } else {
+      const normalizedRole = normalizeAdminTableRole(data?.super_admin ?? data?.role);
+      if (normalizedRole) {
+        return normalizedRole;
+      }
     }
   }
 

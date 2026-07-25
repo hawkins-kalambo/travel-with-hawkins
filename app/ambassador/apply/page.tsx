@@ -725,7 +725,7 @@ export default function AmbassadorApplyPage() {
               <div className="space-y-4 text-sm text-slate-700">
                 <div>
                   <p className="font-semibold text-slate-900">Email</p>
-                  <a href="mailto:smoothridemw@gmail.com" className="mt-1 block text-[#0A4D8C] hover:underline">smoothridemw@gmail.com</a>
+                  <a href="mailto:travelwithhawkins@gmail.com" className="mt-1 block text-[#0A4D8C] hover:underline">travelwithhawkins@gmail.com</a>
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Phone</p>

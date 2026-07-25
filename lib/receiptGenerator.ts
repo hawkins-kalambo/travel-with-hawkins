@@ -172,7 +172,7 @@ function buildReceiptDocument(booking: BookingRecord) {
   doc.setTextColor("#6B7280");
   doc.text("This receipt confirms your payment and should be kept for your records.", margin, y);
   y += 10;
-  doc.text("Support: +265 989 127 308 | smoothridemw@gmail.com", margin, y);
+  doc.text("Support: +265 989 127 308 | travelwithhawkins@gmail.com", margin, y);
 
   return doc;
 }
