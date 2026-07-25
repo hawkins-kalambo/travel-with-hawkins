@@ -1,13 +1,11 @@
-export type AdminRole = "super_admin" | "viewer" | "unknown";
+import { normalizeAppRole, type AppRole } from "@/lib/permissions";
+
+export type AdminRole = AppRole;
 
 export const VIEWER_ALLOWED_TABS = ["overview", "trips", "bookings"] as const;
 
 export function normalizeAdminRole(role: unknown): AdminRole {
-  if (typeof role !== "string") return "unknown";
-  const normalized = role.trim().toLowerCase();
-  if (normalized === "super_admin" || normalized === "admin") return "super_admin";
-  if (normalized === "viewer") return "viewer";
-  return "unknown";
+  return normalizeAppRole(role);
 }
 
 export function isSuperAdminRole(role: unknown): boolean {

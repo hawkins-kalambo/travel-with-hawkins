@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getConfiguredAdminEmails, requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeAdminRole } from "@/lib/adminAuth";
 
@@ -122,13 +122,10 @@ export async function GET(req: NextRequest) {
   }
 
   const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
-  const configuredAdminEmails = getConfiguredAdminEmails();
-  const normalizedEmail = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
-  const isConfiguredAdmin = Boolean(normalizedEmail && configuredAdminEmails.includes(normalizedEmail));
   const resolvedRole = normalizeAdminRole(
     typeof adminRow?.role === "string" && adminRow.role.trim()
       ? adminRow.role
-      : (isConfiguredAdmin ? "super_admin" : (data?.role ?? metadataRole ?? "customer"))
+      : (data?.role ?? metadataRole ?? "customer")
   );
 
   const mergedProfile = {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { authFetch } from "@/lib/auth";
 
 type NotificationItem = {
@@ -36,6 +37,11 @@ export default function AmbassadorCommunicationPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [tickets, setTickets] = useState<TicketItem[]>([]);
+  const [subject, setSubject] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("general");
+  const [creatingTicket, setCreatingTicket] = useState(false);
+  const [ticketMessage, setTicketMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,7 +90,7 @@ export default function AmbassadorCommunicationPage() {
       ) : error ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 p-6 text-sm text-red-700">{error}</div>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-3">
           <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">Notifications</h2>
@@ -110,11 +116,45 @@ export default function AmbassadorCommunicationPage() {
 
           <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">Conversations</h2>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600">
+                {conversations.length}
+              </span>
+            </div>
+            {conversations.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                No conversations yet.
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {conversations.map((conversation) => (
+                  <li key={conversation.conversation_id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{conversation.communication_conversations?.title || "Conversation"}</p>
+                        <p className="mt-1 text-sm text-slate-600">{conversation.communication_conversations?.conversation_type || "System conversation"}</p>
+                      </div>
+                      <Link
+                        href={`/communication/conversations/${conversation.conversation_id}`}
+                        className="rounded-full bg-[#0a4d8c] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white hover:bg-[#083a6b]"
+                      >
+                        View
+                      </Link>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">Support tickets</h2>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600">
                 {tickets.length}
               </span>
             </div>
+
             {tickets.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                 You have no support tickets yet.
@@ -123,12 +163,88 @@ export default function AmbassadorCommunicationPage() {
               <ul className="space-y-3">
                 {tickets.map((ticket) => (
                   <li key={ticket.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="font-semibold text-slate-900">{ticket.subject}</p>
-                    <p className="mt-1 text-sm text-slate-600">{ticket.category}</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{ticket.subject}</p>
+                        <p className="mt-1 text-sm text-slate-600">{ticket.category}</p>
+                      </div>
+                      <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-700">
+                        {ticket.status}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
             )}
+          </section>
+
+          <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">Create a support ticket</h2>
+              <span className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-600">Fast response</span>
+            </div>
+            {ticketMessage ? (
+              <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                {ticketMessage}
+              </div>
+            ) : null}
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Ticket subject"
+                className="input-field w-full"
+              />
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                placeholder="Describe the issue or request"
+                className="input-field w-full"
+              />
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="input-field w-full">
+                <option value="general">General</option>
+                <option value="booking">Booking</option>
+                <option value="commissions">Commissions</option>
+                <option value="technical">Technical</option>
+              </select>
+              <button
+                type="button"
+                onClick={async () => {
+                  setCreatingTicket(true);
+                  setTicketMessage(null);
+                  try {
+                    const res = await authFetch("/api/communication/tickets", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ subject, description, category }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data?.success) {
+                      throw new Error(data?.error || "Failed to create ticket");
+                    }
+                    setSubject("");
+                    setDescription("");
+                    setCategory("general");
+                    setTicketMessage("Support ticket created successfully.");
+                    const refreshed = await authFetch("/api/communications");
+                    const refreshedBody = await refreshed.json();
+                    if (refreshed.ok && refreshedBody?.success) {
+                      setTickets(Array.isArray(refreshedBody.tickets) ? refreshedBody.tickets : []);
+                    }
+                  } catch (err) {
+                    setTicketMessage(err instanceof Error ? err.message : "Failed to create ticket");
+                  } finally {
+                    setCreatingTicket(false);
+                  }
+                }}
+                disabled={creatingTicket || !subject.trim() || !description.trim()}
+                className="btn-primary disabled:opacity-50"
+              >
+                {creatingTicket ? "Creating ticket..." : "Submit ticket"}
+              </button>
+            </div>
           </section>
         </div>
       )}

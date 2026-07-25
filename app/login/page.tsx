@@ -52,17 +52,6 @@ export default function LoginPage() {
         return;
       }
 
-      const normalizedEmail = (data.user?.email || username).trim().toLowerCase();
-      const configuredAdminEmails = [process.env.ADMIN_NOTIFICATION_EMAIL, process.env.ADMIN_EMAIL, "hgkalambo@gmail.com"]
-        .filter((value): value is string => typeof value === "string" && value.trim() !== "")
-        .map((value) => value.trim().toLowerCase());
-      const isConfiguredAdmin = configuredAdminEmails.includes(normalizedEmail);
-
-      if (isConfiguredAdmin) {
-        window.location.assign("/admin/dashboard");
-        return;
-      }
-
       const profileRes = await authFetch("/api/profile", { method: "GET" });
 
       if (profileRes.ok) {

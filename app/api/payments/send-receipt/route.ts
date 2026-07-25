@@ -6,6 +6,7 @@ import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { sendEmail } from "@/lib/resend";
 import { generateReceiptPdfBase64 } from "@/lib/receiptGenerator";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -24,11 +25,8 @@ export async function POST(request: NextRequest) {
     return jsonError("Authentication required", 401);
   }
 
-  const allowedAdminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL;
-  const userEmail = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
-  const normalizedAllowed = typeof allowedAdminEmail === "string" ? allowedAdminEmail.trim().toLowerCase() : "";
-
-  if (normalizedAllowed && userEmail && userEmail !== normalizedAllowed) {
+  const profileRole = normalizeAppRole((await supabaseAdmin.from("profiles").select("role").eq("id", user.id).maybeSingle()).data?.role);
+  if (!hasPermission(profileRole, "manageBookings")) {
     return jsonError("Admin access required", 403);
   }
 

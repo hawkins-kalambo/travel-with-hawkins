@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { authFetch } from "@/lib/auth";
 
 type NotificationItem = {
@@ -52,7 +53,7 @@ export default function CommunicationPage() {
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "announcements" | "tickets">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "announcements" | "tickets" | "conversations">("overview");
 
   useEffect(() => {
     const loadCommunications = async () => {
@@ -112,6 +113,7 @@ export default function CommunicationPage() {
             { key: "notifications", label: "Notifications" },
             { key: "announcements", label: "Announcements" },
             { key: "tickets", label: "Tickets" },
+            { key: "conversations", label: "Conversations" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -236,6 +238,37 @@ export default function CommunicationPage() {
                           <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-700">
                             {ticket.status}
                           </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {activeTab === "conversations" && (
+                <div className="space-y-3">
+                  {conversations.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                      No conversations found. Open a support ticket or ask a question to start a new conversation.
+                    </div>
+                  ) : (
+                    conversations.map((conversation) => (
+                      <div key={conversation.conversation_id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-slate-900">
+                              {conversation.communication_conversations?.title || "Conversation"}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {conversation.communication_conversations?.conversation_type || "System conversation"}
+                            </p>
+                          </div>
+                          <Link
+                            href={`/communication/conversations/${conversation.conversation_id}`}
+                            className="rounded-full bg-[#0a4d8c] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white hover:bg-[#083a6b]"
+                          >
+                            View
+                          </Link>
                         </div>
                       </div>
                     ))

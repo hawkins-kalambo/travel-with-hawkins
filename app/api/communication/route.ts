@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser, requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -32,8 +33,8 @@ export async function GET(req: NextRequest) {
       console.warn("Unable to load profile for communications summary", profileError);
     }
 
-    const role = normalizeRole(profileData?.role || authUser.user.user_metadata?.role);
-    const isAdmin = authorized || role === "admin" || role === "super_admin";
+    const role = normalizeAppRole(profileData?.role || authUser.user.user_metadata?.role);
+    const isAdmin = authorized || hasPermission(role, "manageReports");
 
     const [notificationsResult, conversationsResult, ticketsResult, announcementsResult] = await Promise.allSettled([
       supabaseAdmin

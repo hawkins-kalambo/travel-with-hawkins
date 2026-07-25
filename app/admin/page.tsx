@@ -304,7 +304,7 @@ function AdminPageContent() {
   const searchParams = useSearchParams();
 
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<"super_admin" | "viewer" | "unknown">("unknown");
+  const [userRole, setUserRole] = useState<"super_admin" | "admin" | "viewer" | "ambassador" | "customer" | "unknown">("unknown");
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [search, setSearch] = useState("");
@@ -1034,6 +1034,9 @@ const filtered = useMemo(() => {
                   </Link>,
                   <Link key="rates-mobile" href="/admin/commission-rates" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
                     Rates
+                  </Link>,
+                  <Link key="communication-mobile" href="/admin/communication" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
+                    Communication
                   </Link>
                 );
               }
@@ -1101,6 +1104,9 @@ const filtered = useMemo(() => {
                   </Link>,
                   <Link key="rates-desktop" href="/admin/commission-rates" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
                     Commission Rates
+                  </Link>,
+                  <Link key="communication-desktop" href="/admin/communication" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
+                    Communication Center
                   </Link>
                 );
               }

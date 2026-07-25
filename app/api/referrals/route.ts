@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -37,10 +38,8 @@ export async function GET(req: NextRequest) {
     profileData = data;
   }
 
-  // Determine whether this request should be treated as an admin view.
-  const allowedAdminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL;
-  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
-  const isAdmin = profileData?.role === "admin" || metadataRole === "admin" || (allowedAdminEmail && emailLower && emailLower === String(allowedAdminEmail).trim().toLowerCase());
+  const normalizedRole = normalizeAppRole(profileData?.role ?? user.user_metadata?.role);
+  const isAdmin = hasPermission(normalizedRole, "manageReferrals");
 
   const query = supabaseAdmin.from("referrals").select("*, ambassadors(id, full_name, referral_code)").order("created_at", { ascending: false });
 
@@ -114,10 +113,8 @@ export async function DELETE(req: NextRequest) {
     profileData = data;
   }
 
-  // Determine whether this request should be treated as an admin operation
-  const allowedAdminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL;
-  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
-  const isAdmin = profileData?.role === "admin" || metadataRole === "admin" || (allowedAdminEmail && emailLower && emailLower === String(allowedAdminEmail).trim().toLowerCase());
+  const normalizedRole = normalizeAppRole(profileData?.role ?? user.user_metadata?.role);
+  const isAdmin = hasPermission(normalizedRole, "manageReferrals");
 
   if (!isAdmin) {
     return jsonError("Only admins can delete referrals", 403);

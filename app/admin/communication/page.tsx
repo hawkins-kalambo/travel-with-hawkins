@@ -15,11 +15,25 @@ type NotificationItem = {
   read_at?: string | null;
 };
 
+type ConversationItem = {
+  conversation_id: string;
+  starred?: boolean;
+  archived?: boolean;
+  last_read_at?: string | null;
+  communication_conversations?: {
+    id: string;
+    title?: string | null;
+    conversation_type?: string | null;
+    updated_at?: string | null;
+  } | null;
+};
+
 export default function AdminCommunicationPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "announcements" | "tickets">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "announcements" | "tickets" | "conversations">("overview");
 
   useEffect(() => {
     const load = async () => {
@@ -32,6 +46,7 @@ export default function AdminCommunicationPage() {
           throw new Error(body?.error || "Unable to load communication center");
         }
         setNotifications(Array.isArray(body.notifications) ? body.notifications : []);
+        setConversations(Array.isArray(body.conversations) ? body.conversations : []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load communication center");
       } finally {
@@ -65,6 +80,7 @@ export default function AdminCommunicationPage() {
             { key: "overview", label: "Overview" },
             { key: "announcements", label: "Announcements" },
             { key: "tickets", label: "Support Tickets" },
+            { key: "conversations", label: "Conversations" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -146,6 +162,68 @@ export default function AdminCommunicationPage() {
           {activeTab === "announcements" && <AnnouncementsSection />}
 
           {activeTab === "tickets" && <SupportTicketsSection />}
+
+          {activeTab === "conversations" && (
+            <div className="space-y-3">
+              {conversations.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  No conversations available yet.
+                </div>
+              ) : (
+                conversations.map((conversation) => (
+                  <div key={conversation.conversation_id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {conversation.communication_conversations?.title || "Conversation"}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {conversation.communication_conversations?.conversation_type || "System conversation"}
+                        </p>
+                      </div>
+                      <a
+                        href={`/communication/conversations/${conversation.conversation_id}`}
+                        className="rounded-full bg-[#0a4d8c] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white hover:bg-[#083a6b]"
+                      >
+                        View
+                      </a>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {activeTab === "conversations" && (
+            <div className="space-y-3">
+              {conversations.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  No conversations available yet.
+                </div>
+              ) : (
+                conversations.map((conversation) => (
+                  <div key={conversation.conversation_id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {conversation.communication_conversations?.title || "Conversation"}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {conversation.communication_conversations?.conversation_type || "System conversation"}
+                        </p>
+                      </div>
+                      <a
+                        href={`/communication/conversations/${conversation.conversation_id}`}
+                        className="rounded-full bg-[#0a4d8c] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white hover:bg-[#083a6b]"
+                      >
+                        View
+                      </a>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
     </main>

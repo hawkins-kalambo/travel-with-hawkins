@@ -10,9 +10,14 @@ async function handleForgotPassword(email: string) {
     return { success: false, message: "Please enter your email address first." };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
+  const appUrl =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
+
+  const redirectTo = `${appUrl.replace(/\/$/, "")}/reset-password`;
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-    redirectTo: `${appUrl.replace(/\/$/, "")}/reset-password`,
+    redirectTo,
   });
 
   if (error) {
@@ -26,6 +31,7 @@ export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [resetMessage, setResetMessage] = useState("");
 
@@ -52,17 +58,6 @@ export default function AdminLoginPage() {
         return;
       }
 
-      const normalizedEmail = (data.user?.email || email).trim().toLowerCase();
-      const configuredAdminEmails = [process.env.ADMIN_NOTIFICATION_EMAIL, process.env.ADMIN_EMAIL, "hgkalambo@gmail.com"]
-        .filter((value): value is string => typeof value === "string" && value.trim() !== "")
-        .map((value) => value.trim().toLowerCase());
-      const isConfiguredAdmin = configuredAdminEmails.includes(normalizedEmail);
-
-      if (isConfiguredAdmin) {
-        window.location.assign("/admin/dashboard");
-        return;
-      }
-
       const profileRes = await authFetch("/api/profile", { method: "GET" });
       if (!profileRes.ok) {
         setErrorMsg("Unable to load user profile. Please try again.");
@@ -73,7 +68,7 @@ export default function AdminLoginPage() {
       const profileData = await profileRes.json();
       const role = normalizeAdminRole(profileData?.profile?.role ?? profileData?.role);
 
-      if (role === "unknown" && !isConfiguredAdmin) {
+      if (role === "unknown") {
         window.location.assign("/admin/dashboard?accessDenied=1");
         return;
       }
@@ -151,12 +146,16 @@ export default function AdminLoginPage() {
                 <button
                   type="button"
                   onClick={async () => {
+                    setResetLoading(true);
+                    setResetMessage("");
                     const result = await handleForgotPassword(email);
                     setResetMessage(result.message);
+                    setResetLoading(false);
                   }}
-                  className="text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]"
+                  disabled={resetLoading}
+                  className="text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Forgot Password?
+                  {resetLoading ? "Sending..." : "Forgot Password?"}
                 </button>
               </div>
 

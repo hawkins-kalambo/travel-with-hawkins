@@ -6,37 +6,10 @@ import { isSuperAdminRole, isViewerRole, normalizeAdminRole } from "@/lib/adminA
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-function normalizeRole(role: unknown): string {
-  return typeof role === "string" ? role.trim().toLowerCase() : "";
-}
-
-export function getConfiguredAdminEmails(): string[] {
-  const configuredValues = [
-    process.env.ADMIN_NOTIFICATION_EMAIL,
-    process.env.ADMIN_EMAIL,
-    "hgkalambo@gmail.com",
-  ];
-
-  return Array.from(
-    new Set(
-      configuredValues
-        .filter((value): value is string => typeof value === "string" && value.trim() !== "")
-        .map((value) => value.trim().toLowerCase())
-    )
-  );
-}
-
 export function isAdminAccessAllowed(user: { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined, profileRole?: unknown) {
-  const normalizedProfileRole = normalizeRole(profileRole);
-  const normalizedMetadataRole = normalizeRole(user?.user_metadata?.role);
-  if (["admin", "super_admin"].includes(normalizedProfileRole) || ["admin", "super_admin"].includes(normalizedMetadataRole)) {
-    return true;
-  }
-
-  const allowedAdminEmails = getConfiguredAdminEmails();
-  const userEmail = typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
-  const metadataEmail = typeof user?.user_metadata?.email === "string" ? user.user_metadata.email.trim().toLowerCase() : "";
-  return Boolean((userEmail && allowedAdminEmails.includes(userEmail)) || (metadataEmail && allowedAdminEmails.includes(metadataEmail)));
+  const normalizedProfileRole = normalizeAdminRole(profileRole);
+  const normalizedMetadataRole = normalizeAdminRole(user?.user_metadata?.role);
+  return normalizedProfileRole === "admin" || normalizedProfileRole === "super_admin" || normalizedMetadataRole === "admin" || normalizedMetadataRole === "super_admin";
 }
 
 export async function getAdminRoleFromDatabase(userId: string): Promise<string | null> {
