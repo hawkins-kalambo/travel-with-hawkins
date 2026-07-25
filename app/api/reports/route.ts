@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { parseReportFilters, applyReportFilters } from "@/lib/reportUtils";
@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
     return jsonError("Authentication required", 401);
   }
 
-  const profileRole = normalizeAppRole((await supabaseAdmin.from("profiles").select("role").eq("id", user.id).maybeSingle()).data?.role);
+  const resolvedAdminRole = await resolveAdminRole(user);
+  const profileRole = normalizeAppRole(resolvedAdminRole);
   if (!hasPermission(profileRole, "manageReports")) {
     return jsonError("Admin access required", 403);
   }
