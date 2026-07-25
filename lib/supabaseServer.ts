@@ -35,30 +35,11 @@ function normalizeAdminTableRole(value: unknown): string | null {
 }
 
 export async function getAdminRoleFromDatabase(userId: string, email?: string | null): Promise<string | null> {
-  const candidateColumns = ["id", "user_id", "auth_user_id"];
+  const normalizedEmail = email?.trim().toLowerCase();
+  const normalizedUserId = userId?.trim().toLowerCase();
 
-  for (const column of candidateColumns) {
-    const { data, error } = await supabaseAdmin.from("admins").select("super_admin, role").eq(column, userId).maybeSingle();
-
-    if (error) {
-      const isMissingColumnError =
-        typeof error.message === "string" &&
-        (error.message.includes("does not exist") || error.message.includes("Could not find the column") || error.message.includes("Could not find the table"));
-
-      if (!isMissingColumnError) {
-        console.warn(`Failed to load admin role from admins table using ${column}`, error.message);
-      }
-      continue;
-    }
-
-    const normalizedRole = normalizeAdminTableRole(data?.super_admin ?? data?.role);
-    if (normalizedRole) {
-      return normalizedRole;
-    }
-  }
-
-  if (email) {
-    const { data, error } = await supabaseAdmin.from("admins").select("super_admin, role").eq("email", email).maybeSingle();
+  try {
+    const { data, error } = await supabaseAdmin.from("admins").select("id, email, super_admin, role").limit(1000);
 
     if (error) {
       const isMissingColumnError =
@@ -66,14 +47,30 @@ export async function getAdminRoleFromDatabase(userId: string, email?: string | 
         (error.message.includes("does not exist") || error.message.includes("Could not find the column") || error.message.includes("Could not find the table"));
 
       if (!isMissingColumnError) {
-        console.warn("Failed to load admin role from admins table by email", error.message);
+        console.warn("Failed to load admins list for role resolution", error.message);
       }
-    } else {
-      const normalizedRole = normalizeAdminTableRole(data?.super_admin ?? data?.role);
-      if (normalizedRole) {
-        return normalizedRole;
-      }
+      return null;
     }
+
+    const rows = Array.isArray(data) ? data : [];
+
+    const match = rows.find((row: Record<string, unknown>) => {
+      const rowEmail = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
+      const rowId = typeof row.id === "string" ? row.id.trim().toLowerCase() : "";
+      const rowUserId = typeof row.user_id === "string" ? row.user_id.trim().toLowerCase() : "";
+      const rowAuthUserId = typeof row.auth_user_id === "string" ? row.auth_user_id.trim().toLowerCase() : "";
+
+      return Boolean(
+        (normalizedEmail && rowEmail && rowEmail === normalizedEmail) ||
+        (normalizedUserId && (rowId === normalizedUserId || rowUserId === normalizedUserId || rowAuthUserId === normalizedUserId))
+      );
+    });
+
+    if (match) {
+      return normalizeAdminTableRole(match.super_admin ?? match.role);
+    }
+  } catch (error) {
+    console.warn("Admin role lookup failed", error instanceof Error ? error.message : String(error));
   }
 
   return null;
