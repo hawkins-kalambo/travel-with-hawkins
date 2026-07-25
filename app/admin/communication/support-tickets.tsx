@@ -24,6 +24,10 @@ export default function SupportTicketsSection() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [message, setMessage] = useState<string | null>(null);
+  const [subject, setSubject] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("general");
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +63,35 @@ export default function SupportTicketsSection() {
     }
   };
 
+  const handleCreateTicket = async () => {
+    if (!subject.trim() || !description.trim()) {
+      setMessage("Subject and description are required");
+      return;
+    }
+
+    setCreating(true);
+    setMessage(null);
+    try {
+      const res = await authFetch("/api/support-tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, description, category }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || "Failed to create ticket");
+
+      setSubject("");
+      setDescription("");
+      setCategory("general");
+      setMessage("Support ticket created successfully");
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to create ticket");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const statusColors: Record<string, string> = {
     open: "border-blue-200 bg-blue-50 text-blue-700",
     assigned: "border-yellow-200 bg-yellow-50 text-yellow-700",
@@ -69,6 +102,50 @@ export default function SupportTicketsSection() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-900">Create support ticket</h3>
+        <p className="mt-1 text-sm text-slate-600">Open a new support request from the same workspace used to manage existing activity.</p>
+
+        <div className="mt-4 space-y-4">
+          <input
+            value={subject}
+            onChange={(event) => setSubject(event.target.value)}
+            placeholder="Subject"
+            className="input-field"
+          />
+
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Describe the issue or request"
+            rows={4}
+            className="input-field"
+          />
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <select value={category} onChange={(event) => setCategory(event.target.value)} className="input-field md:w-56">
+              <option value="general">General</option>
+              <option value="booking">Booking</option>
+              <option value="payment">Payment</option>
+              <option value="account">Account</option>
+            </select>
+            <button
+              onClick={() => void handleCreateTicket()}
+              disabled={creating || !subject.trim() || !description.trim()}
+              className="btn-primary disabled:opacity-60"
+            >
+              {creating ? "Creating..." : "Create ticket"}
+            </button>
+          </div>
+
+          {message ? (
+            <div className={`rounded-lg p-3 text-sm ${message.includes("success") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+              {message}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900">Support tickets</h3>
