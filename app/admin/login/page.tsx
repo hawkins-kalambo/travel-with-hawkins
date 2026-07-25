@@ -67,9 +67,12 @@ export default function AdminLoginPage() {
 
       const profileData = await profileRes.json();
       const role = normalizeAdminRole(profileData?.profile?.role ?? profileData?.role);
+      const isAdminLikeRole = role === "super_admin" || role === "admin" || role === "viewer";
 
-      if (role === "unknown") {
-        window.location.assign("/admin/dashboard?accessDenied=1");
+      if (!isAdminLikeRole) {
+        await supabase.auth.signOut();
+        setErrorMsg("This account is not authorized for the admin portal.");
+        setLoading(false);
         return;
       }
 

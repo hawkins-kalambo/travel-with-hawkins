@@ -59,17 +59,7 @@ export default function LoginPage() {
         const role = normalizeAdminRole(profileData?.profile?.role ?? profileData?.role);
         const status = String(profileData?.profile?.status || "active").toLowerCase();
 
-        if (role === "unknown") {
-          window.location.assign("/admin/dashboard?accessDenied=1");
-          return;
-        }
-
-        if (role === "viewer") {
-          window.location.assign("/admin/dashboard");
-          return;
-        }
-
-        if (role === "super_admin") {
+        if (role === "super_admin" || role === "admin" || role === "viewer") {
           window.location.assign("/admin/dashboard");
           return;
         }
@@ -81,21 +71,31 @@ export default function LoginPage() {
           return;
         }
 
-        try {
-          await authFetch("/api/profile", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ last_login: true }),
-          });
-        } catch (loginTrackingError) {
-          console.warn("Failed to record ambassador login", loginTrackingError);
+        if (role === "ambassador") {
+          try {
+            await authFetch("/api/profile", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ last_login: true }),
+            });
+          } catch (loginTrackingError) {
+            console.warn("Failed to record ambassador login", loginTrackingError);
+          }
+
+          window.location.assign("/ambassador/dashboard");
+          return;
         }
 
-        window.location.assign("/ambassador/dashboard");
+        await supabase.auth.signOut();
+        setErrorMsg("This account is not authorized for the portal.");
+        setLoading(false);
         return;
       }
 
-      window.location.assign("/admin/dashboard");
+      await supabase.auth.signOut();
+      setErrorMsg("Unable to load your profile right now. Please try again.");
+      setLoading(false);
+      return;
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Login failed. Try again.");
     } finally {

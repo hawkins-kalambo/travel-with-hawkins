@@ -352,7 +352,8 @@ function AdminPageContent() {
 
   const isViewer = userRole === "viewer";
   const visibleTabs = useMemo(() => (isViewer ? TABS.filter((tab) => isViewerAllowedTab(tab.key)) : TABS), [isViewer]);
-  const accessDenied = searchParams.get("accessDenied") === "1";
+  const hasAdminAccess = userRole === "super_admin" || userRole === "admin" || userRole === "viewer";
+  const accessDenied = searchParams.get("accessDenied") === "1" || (!loading && !hasAdminAccess);
   const effectiveActiveTab = isViewer && !isViewerAllowedTab(activeTab) ? "overview" : activeTab;
 
   const loadReferralsData = useCallback(async () => {

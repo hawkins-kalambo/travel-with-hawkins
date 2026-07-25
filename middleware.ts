@@ -96,10 +96,7 @@ export async function middleware(request: NextRequest) {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ success: false, error: "Access denied" }, { status: 403 });
       }
-      const redirectUrl = new URL("/admin/dashboard", request.url);
-      redirectUrl.searchParams.set("redirectedFrom", pathname);
-      redirectUrl.searchParams.set("accessDenied", "1");
-      return NextResponse.redirect(redirectUrl);
+      return authResponse;
     }
   }
 
@@ -109,9 +106,7 @@ export async function middleware(request: NextRequest) {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ success: false, error: "Ambassador access required" }, { status: 403 });
       }
-      const redirectUrl = new URL("/ambassador/login", request.url);
-      redirectUrl.searchParams.set("redirectedFrom", pathname);
-      return NextResponse.redirect(redirectUrl);
+      return authResponse;
     }
   }
 
