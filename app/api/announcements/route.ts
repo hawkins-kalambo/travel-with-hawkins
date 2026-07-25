@@ -73,7 +73,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, announcement: data });
   } catch (error) {
     console.error("POST /api/announcements error", error);
-    return jsonError(error instanceof Error ? error.message : "Unable to create announcement", 500);
+    const errMsg = error instanceof Error ? error.message : String(error ?? "Unable to create announcement");
+    return jsonError(errMsg || "Unable to create announcement", 500);
   }
 }
 
