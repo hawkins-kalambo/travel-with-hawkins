@@ -18,13 +18,14 @@ export async function middleware(request: NextRequest) {
   const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
   const isUiRoute = isAdminRoute || isAmbassadorRoute;
   const isAdminLoginRoute = pathname === "/admin/login";
-  const isAdminResetRoute = pathname === "/reset-password";
+  const isResetRoute = pathname === "/reset-password" || pathname === "/update-password";
+  const isAuthCallbackRoute = pathname.startsWith("/auth/");
   const isAmbassadorPublicRoute =
     pathname === "/ambassador/login" ||
     pathname === "/ambassador/apply" ||
     pathname === "/ambassador/forgot-password" ||
     pathname === "/ambassador/settings/security";
-  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isAdminResetRoute;
+  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isResetRoute || isAuthCallbackRoute;
 
   const isSettingsRoute = pathname.startsWith("/api/settings");
   const isBookingsRoute = pathname.startsWith("/api/bookings");
@@ -118,5 +119,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*", "/admin/:path*", "/ambassador/:path*"],
+  matcher: ["/api/:path*", "/admin/:path*", "/ambassador/:path*", "/reset-password", "/update-password", "/auth/:path*"],
 };
