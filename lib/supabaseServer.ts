@@ -39,7 +39,10 @@ export async function getAdminRoleFromDatabase(userId: string, email?: string | 
   const normalizedUserId = userId?.trim().toLowerCase();
 
   try {
-    const { data, error } = await supabaseAdmin.from("admins").select("id, email, super_admin, role").limit(1000);
+    const { data, error } = await supabaseAdmin
+      .from("admins")
+      .select("id, email, full_name, super_admin, created_at")
+      .limit(1000);
 
     if (error) {
       const isMissingColumnError =
@@ -67,7 +70,8 @@ export async function getAdminRoleFromDatabase(userId: string, email?: string | 
     });
 
     if (match) {
-      return normalizeAdminTableRole(match.super_admin ?? match.role);
+      const normalizedRole = normalizeAdminTableRole(match.super_admin);
+      return normalizedRole ?? null;
     }
   } catch (error) {
     console.warn("Admin role lookup failed", error instanceof Error ? error.message : String(error));
