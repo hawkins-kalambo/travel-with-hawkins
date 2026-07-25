@@ -17,7 +17,7 @@ export async function logAmbassadorActivity({
     const { data, error } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .eq("profile_id", profileId)
+      .eq("user_id", profileId)
       .maybeSingle();
 
     if (!error) {

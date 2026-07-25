@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint --config eslint.config.mjs ."
+    "lint": "eslint --config eslint.config.mjs .",
+    "repair:ambassadors": "node scripts/repair_ambassadors_user_id.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

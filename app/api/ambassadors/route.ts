@@ -23,7 +23,7 @@ function getErrorMessage(error: unknown, fallback = "Unable to create ambassador
 function isMissingAmbassadorProfileIdColumn(error: unknown): boolean {
   if (!error) return false;
   const message = getErrorMessage(error, "");
-  return message.includes("profile_id") && message.includes("schema cache");
+  return (message.includes("profile_id") || message.includes("user_id")) && message.includes("schema cache");
 }
 
 function getString(value: unknown): string | undefined {
@@ -32,6 +32,41 @@ function getString(value: unknown): string | undefined {
     return trimmed ? trimmed : undefined;
   }
   return undefined;
+}
+
+async function findExistingAuthUserIdByEmail(email: string): Promise<string | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const { data: existingProfile, error: profileErr } = await supabaseAdmin
+    .from("profiles")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (!profileErr && existingProfile?.id) {
+    return existingProfile.id;
+  }
+
+  let page = 1;
+  while (page > 0) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 100, page });
+    if (error) {
+      console.warn("Failed to list auth users while looking for email", { error });
+      break;
+    }
+
+    const users = Array.isArray((data as { users?: unknown[] } | null)?.users) ? (data as { users?: unknown[] }).users ?? [] : [];
+    const found = users.find((user) => typeof (user as any).email === "string" && (user as any).email.trim().toLowerCase() === normalizedEmail);
+    if (found?.id) {
+      return (found as any).id;
+    }
+
+    page = Number((data as { nextPage?: number } | null)?.nextPage ?? 0);
+    if (!page) break;
+  }
+
+  return null;
 }
 
 function slugify(value: string): string {
@@ -97,36 +132,46 @@ export async function POST(req: NextRequest) {
     if (existingCodeError) throw existingCodeError;
     if (existingCode) return jsonError("Referral code already exists", 409);
 
-    const temporaryPassword = generateTemporaryPassword();
-
-    const { data: createUserData, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password: temporaryPassword,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-        phone,
-        role: "ambassador",
-      },
-    });
-
-    if (createUserError || !createUserData?.user?.id) {
-      throw createUserError || new Error("Unable to create ambassador user");
+    const existingAuthUserId = await findExistingAuthUserIdByEmail(email);
+    if (existingAuthUserId) {
+      userId = existingAuthUserId;
+      console.debug("/api/ambassadors: found existing auth user by email", { userId, email });
     }
 
-    userId = createUserData.user.id;
+    let temporaryPassword: string | undefined;
+    if (!userId) {
+      temporaryPassword = generateTemporaryPassword();
 
-    const { error: profileError } = await supabaseAdmin
-      .from("profiles")
-      .insert([
-        {
-          id: userId,
+      const { data: createUserData, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: temporaryPassword,
+        email_confirm: true,
+        user_metadata: {
           full_name: fullName,
-          email,
           phone,
           role: "ambassador",
         },
-      ])
+      });
+
+      if (createUserError || !createUserData?.user?.id) {
+        throw createUserError || new Error("Unable to create ambassador user");
+      }
+
+      userId = createUserData.user.id;
+      console.debug("/api/ambassadors: created auth user", { userId, email });
+    }
+
+    const profilePayload = {
+      id: userId,
+      full_name: fullName,
+      email,
+      phone,
+      role: "ambassador",
+    };
+
+    const { error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .upsert([profilePayload], { onConflict: "id" })
       .select()
       .single();
 
@@ -143,7 +188,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ambassadorInsertPayload = {
-      profile_id: userId,
+      user_id: userId,
       full_name: fullName,
       phone,
       email,
@@ -155,38 +200,62 @@ export async function POST(req: NextRequest) {
       status: "active",
     };
 
-    let ambassadorData;
-    let ambassadorError;
-
-    ({ data: ambassadorData, error: ambassadorError } = await supabaseAdmin
+    const { data: existingAmbassadorByEmail, error: existingAmbassadorByEmailError } = await supabaseAdmin
       .from("ambassadors")
-      .insert([ambassadorInsertPayload])
-      .select()
-      .single());
+      .select("id, user_id")
+      .eq("email", email)
+      .maybeSingle();
 
-    if (ambassadorError && isMissingAmbassadorProfileIdColumn(ambassadorError)) {
-      console.warn("Ambassadors table does not include profile_id; retrying insert without it.", ambassadorError);
-      ({ data: ambassadorData, error: ambassadorError } = await supabaseAdmin
+    if (existingAmbassadorByEmailError) throw existingAmbassadorByEmailError;
+
+    let ambassadorData: Record<string, unknown> | null = null;
+    let ambassadorError: unknown = null;
+
+    if (existingAmbassadorByEmail) {
+      if (existingAmbassadorByEmail.user_id && existingAmbassadorByEmail.user_id !== userId) {
+        return jsonError("Ambassador with this email already exists", 409);
+      }
+
+      const { data: updatedAmbassador, error: updateError } = await supabaseAdmin
         .from("ambassadors")
-        .insert([
-          {
-            full_name: fullName,
-            phone,
-            email,
-            university,
-            faculty,
-            program,
-            year_of_study: Number.isFinite(yearOfStudy) ? yearOfStudy : null,
-            referral_code: finalCode,
-            status: "active",
-          },
-        ])
+        .update({ user_id: userId, updated_at: new Date().toISOString() })
+        .eq("id", existingAmbassadorByEmail.id)
         .select()
-        .single());
-    }
+        .single();
 
-    if (ambassadorError) {
-      throw ambassadorError;
+      if (updateError) throw updateError;
+      ambassadorData = updatedAmbassador;
+    } else {
+      const insertResponse = await supabaseAdmin.from("ambassadors").insert([ambassadorInsertPayload]).select().single();
+      ambassadorData = insertResponse.data as Record<string, unknown> | null;
+      ambassadorError = insertResponse.error;
+
+      if (ambassadorError && isMissingAmbassadorProfileIdColumn(ambassadorError)) {
+        console.warn("Ambassadors table does not include profile_id; retrying insert without it.", ambassadorError);
+        const fallbackInsert = await supabaseAdmin
+          .from("ambassadors")
+          .insert([
+            {
+              full_name: fullName,
+              phone,
+              email,
+              university,
+              faculty,
+              program,
+              year_of_study: Number.isFinite(yearOfStudy) ? yearOfStudy : null,
+              referral_code: finalCode,
+              status: "active",
+            },
+          ])
+          .select()
+          .single();
+        ambassadorData = fallbackInsert.data as Record<string, unknown> | null;
+        ambassadorError = fallbackInsert.error;
+      }
+
+      if (ambassadorError) {
+        throw ambassadorError;
+      }
     }
 
     try {

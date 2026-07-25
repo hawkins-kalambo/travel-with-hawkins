@@ -53,18 +53,23 @@ export default function AmbassadorLoginPage() {
         return;
       }
 
+      console.debug("AmbassadorLogin: session", data.session);
       const profileRes = await authFetch("/api/profile", { method: "GET" });
+      console.debug("AmbassadorLogin: /api/profile status", profileRes.status);
       if (!profileRes.ok) {
+        console.error("AmbassadorLogin: /api/profile failed", await profileRes.text());
         setErrorMsg("Unable to load ambassador profile right now.");
         setLoading(false);
         return;
       }
 
       const profileData = await profileRes.json();
+      console.debug("AmbassadorLogin: profileData", profileData);
       const role = profileData?.profile?.role;
       const status = String(profileData?.profile?.status || "active").toLowerCase();
 
       if (role !== "ambassador") {
+        console.warn("AmbassadorLogin: role mismatch", { role, profile: profileData?.profile });
         await supabase.auth.signOut();
         setErrorMsg("This login is not assigned to an ambassador account.");
         setLoading(false);

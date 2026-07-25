@@ -12,7 +12,7 @@ async function logAmbassadorActivityFallback({ profileId }: { profileId?: string
     const { data, error } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .eq("profile_id", profileId)
+      .or(`user_id.eq.${profileId},profile_id.eq.${profileId}`)
       .maybeSingle();
 
     if (error || !data?.id) return null;
@@ -68,8 +68,11 @@ export async function GET(req: NextRequest) {
   const { user, error } = await requireAuthenticatedUser(req, response);
 
   if (error || !user) {
+    console.warn("/api/profile: requireAuthenticatedUser failed", { error });
     return jsonError("Unauthorized", 401);
   }
+
+  console.debug("/api/profile: authenticated user", { id: user.id, email: user.email });
 
   const { data, error: profileError } = await supabaseAdmin
     .from("profiles")
@@ -83,8 +86,8 @@ export async function GET(req: NextRequest) {
   let ambassadorData: Record<string, unknown> | null = null;
   const { data: ambassadorRow, error: ambassadorError } = await supabaseAdmin
     .from("ambassadors")
-    .select("id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
-    .eq("profile_id", user.id)
+    .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
+    .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
     .maybeSingle();
 
   if (!ambassadorError) {
@@ -105,7 +108,7 @@ export async function GET(req: NextRequest) {
           email: user.email,
           full_name: user.user_metadata?.full_name ?? null,
           phone: user.user_metadata?.phone ?? null,
-          role: fallbackRole,
+          role: ambassadorData ? "ambassador" : fallbackRole,
           ...(ambassadorData || {}),
         },
       });
@@ -119,12 +122,14 @@ export async function GET(req: NextRequest) {
     resolvedAdminRole ?? (data?.role ?? metadataRole ?? "customer")
   );
 
+  console.debug("/api/profile: role resolution", { resolvedAdminRole, profileRow: data, metadataRole, resolvedRole, ambassadorDataExists: !!ambassadorData });
+
   const mergedProfile = {
     id: data?.id ?? user.id,
     email: data?.email ?? user.email,
     full_name: data?.full_name ?? ambassadorData?.full_name ?? user.user_metadata?.full_name ?? null,
     phone: data?.phone ?? ambassadorData?.phone ?? user.user_metadata?.phone ?? null,
-    role: resolvedRole,
+    role: ambassadorData ? "ambassador" : resolvedRole,
     ...(ambassadorData || {}),
   };
 
@@ -193,7 +198,7 @@ export async function PATCH(req: NextRequest) {
     const { data: ambassadorRow, error: ambassadorLookupError } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .eq("profile_id", user.id)
+      .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
       .maybeSingle();
 
     if (ambassadorLookupError) throw ambassadorLookupError;

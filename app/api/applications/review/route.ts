@@ -29,7 +29,7 @@ function getErrorMessage(error: unknown, fallback = "Unable to process applicati
 function isMissingAmbassadorProfileIdColumn(error: unknown): boolean {
   if (!error) return false;
   const message = getErrorMessage(error, "");
-  return message.includes("profile_id") && message.includes("schema cache");
+  return (message.includes("profile_id") || message.includes("user_id")) && message.includes("schema cache");
 }
 
 type SupabaseUserRecord = {
@@ -250,11 +250,15 @@ export async function POST(req: NextRequest) {
         const duplicateEmail = createUserErr?.message?.includes("already been registered") || createUserErr?.message?.toLowerCase().includes("duplicate");
         if (duplicateEmail) {
           userId = await findExistingAuthUserIdByEmail(email);
+          console.debug("/api/applications/review: resolved existing auth user", { userId, email });
         }
         if (!userId) {
           console.error("Failed to create auth user", createUserErr);
           return jsonError(createUserErr?.message || "Failed to create ambassador user", 500);
         }
+      } else {
+        userId = createUserData.user.id;
+        console.debug("/api/applications/review: created auth user", { userId, email });
       }
 
       if (!existingUserId && userId) {
@@ -274,7 +278,7 @@ export async function POST(req: NextRequest) {
 
     // insert ambassador record
     const ambassadorPayload: Record<string, unknown> = {
-      profile_id: userId,
+      user_id: userId,
       full_name: fullName,
       phone,
       email,
@@ -300,6 +304,20 @@ export async function POST(req: NextRequest) {
 
     if (existingAmbassador) {
       ambassadorData = existingAmbassador as AmbassadorRecord;
+
+      if (!existingAmbassador.user_id && userId) {
+        const { data: updated, error: updateErr } = await supabaseAdmin
+          .from("ambassadors")
+          .update({ user_id: userId, updated_at: new Date().toISOString() })
+          .eq("id", existingAmbassador.id)
+          .select()
+          .single();
+
+        if (!updateErr && updated) {
+          ambassadorData = updated as AmbassadorRecord;
+        }
+      }
+
       if (existingAmbassador.status !== "active") {
         const { data: updated, error: updateErr } = await supabaseAdmin
           .from("ambassadors")
