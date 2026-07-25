@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { getAdminRoleFromDatabase, requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeAdminRole } from "@/lib/adminAuth";
 
@@ -77,11 +77,8 @@ export async function GET(req: NextRequest) {
     .eq("id", user.id)
     .maybeSingle();
 
-  const { data: adminRow, error: adminRoleError } = await supabaseAdmin
-    .from("admins")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
+  const adminRole = await getAdminRoleFromDatabase(user.id, user.email);
+  const resolvedAdminRole = typeof adminRole === "string" && adminRole.trim() ? adminRole : null;
 
   let ambassadorData: Record<string, unknown> | null = null;
   const { data: ambassadorRow, error: ambassadorError } = await supabaseAdmin
@@ -117,15 +114,9 @@ export async function GET(req: NextRequest) {
     return jsonError(profileError.message || "Unable to load profile", 500);
   }
 
-  if (adminRoleError) {
-    console.warn("Failed to load admin role for profile response", adminRoleError.message);
-  }
-
   const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
   const resolvedRole = normalizeAdminRole(
-    typeof adminRow?.role === "string" && adminRow.role.trim()
-      ? adminRow.role
-      : (data?.role ?? metadataRole ?? "customer")
+    resolvedAdminRole ?? (data?.role ?? metadataRole ?? "customer")
   );
 
   const mergedProfile = {

@@ -12,15 +12,45 @@ export function isAdminAccessAllowed(user: { email?: string | null; user_metadat
   return normalizedProfileRole === "admin" || normalizedProfileRole === "super_admin" || normalizedMetadataRole === "admin" || normalizedMetadataRole === "super_admin";
 }
 
-export async function getAdminRoleFromDatabase(userId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.from("admins").select("role").eq("id", userId).maybeSingle();
+export async function getAdminRoleFromDatabase(userId: string, email?: string | null): Promise<string | null> {
+  const candidateColumns = ["id", "user_id", "auth_user_id"];
 
-  if (error) {
-    console.warn("Failed to load admin role from admins table", error.message);
-    return null;
+  for (const column of candidateColumns) {
+    const { data, error } = await supabaseAdmin.from("admins").select("role").eq(column, userId).maybeSingle();
+
+    if (error) {
+      const isMissingColumnError =
+        typeof error.message === "string" &&
+        (error.message.includes("does not exist") || error.message.includes("Could not find the column") || error.message.includes("Could not find the table"));
+
+      if (!isMissingColumnError) {
+        console.warn(`Failed to load admin role from admins table using ${column}`, error.message);
+      }
+      continue;
+    }
+
+    if (typeof data?.role === "string" && data.role.trim()) {
+      return data.role;
+    }
   }
 
-  return typeof data?.role === "string" ? data.role : null;
+  if (email) {
+    const { data, error } = await supabaseAdmin.from("admins").select("role").eq("email", email).maybeSingle();
+
+    if (error) {
+      const isMissingColumnError =
+        typeof error.message === "string" &&
+        (error.message.includes("does not exist") || error.message.includes("Could not find the column") || error.message.includes("Could not find the table"));
+
+      if (!isMissingColumnError) {
+        console.warn("Failed to load admin role from admins table by email", error.message);
+      }
+    } else if (typeof data?.role === "string" && data.role.trim()) {
+      return data.role;
+    }
+  }
+
+  return null;
 }
 
 export async function resolveAdminRole(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined): Promise<string> {
@@ -28,7 +58,7 @@ export async function resolveAdminRole(user: { id: string; email?: string | null
     return "unknown";
   }
 
-  const dbRole = await getAdminRoleFromDatabase(user.id);
+  const dbRole = await getAdminRoleFromDatabase(user.id, user.email);
   if (dbRole) {
     return normalizeAdminRole(dbRole);
   }
