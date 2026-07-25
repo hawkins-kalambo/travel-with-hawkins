@@ -1,101 +1,136 @@
-# Travel with Hawkins — Phase 2 Audit Report (Initial)
+# Travel with Hawkins Communication Center — Architecture Audit
 
-## Scope
-Next.js 15+/16 App Router + Supabase + Resend + Tailwind.
+Date: 2026-07-25
+Status: Implemented and verified in the current workspace
 
-## Phase 0 — Backup
-- ✅ Created backup branch: `backup/phase1-audit-20260630`
+## Executive summary
+The Communication Center is now present as a working platform module inside the Next.js app router, backed by Supabase and exposed through dedicated API routes for notifications, announcements, conversations, and support tickets. The implementation is a strong first-release foundation: it is structured, route-driven, role-aware, and compiles successfully in production mode.
 
-## Phase 2 — Findings Summary (based on repo reads + lint)
+That said, the current system should be treated as a solid MVP rather than a fully hardened enterprise communication platform. The main gaps are around production security, operational resilience, and richer workflow automation.
 
-### A) Authentication / Admin Access (Critical)
-**Files:**
-- `app/login/page.tsx`
-- `app/admin/page.tsx`
+## Verification evidence
+I verified the current implementation with:
+- Editor diagnostics on the communication routes, engine, and UI files: no errors reported.
+- Production build: `npm run build`
+  - Result: success
+  - Exit code: 0
+  - The build output included the communication routes under `/api/communication`, `/api/communications`, and `/communication/conversations/[id]`.
 
-**Issues:**
-1. Hardcoded admin credentials:
-   - `username === "admin"`
-   - `password === "1234"`
-2. Admin session stored in `localStorage` only.
-3. Admin page is client-gated with `localStorage.getItem("auth")`.
-4. Admin page contains localStorage persistence for settings, including:
-   - `secretPassword: "1234"`
+## Current architecture
+### 1. Service shape
+The communication system is built as a layered module:
+- Domain services in [lib/communicationEngine.ts](../lib/communicationEngine.ts)
+- API routes under [app/api/communication](../app/api/communication)
+- Shared UI entry points under [app/communication/page.tsx](../app/communication/page.tsx), [app/admin/communication/page.tsx](../app/admin/communication/page.tsx), and [app/ambassador/communication/page.tsx](../app/ambassador/communication/page.tsx)
+- Conversation detail experience at [app/communication/conversations/[id]/page.tsx](../app/communication/conversations/[id]/page.tsx)
 
-**Impact:**
-- Anyone can access `/admin` by manipulating `localStorage`.
+### 2. Core responsibilities
+The implementation currently covers four primary communication capabilities:
+- Notifications: automated in-app notifications for approvals, bookings, commissions, referrals, support tickets, and profile updates.
+- Conversations: participant-based conversation lists and per-thread message sending.
+- Announcements: admin-managed announcements surfaced to the UI.
+- Support tickets: ambassador-side ticket creation and admin-side ticket assignment/status updates.
 
-### B) API Security / Supabase Service Role (Critical)
-**Files:**
-- `app/api/bookings/routes.ts`
+### 3. Data model
+The schema is defined in [db/migrations/communication_center_2026_07_24.sql](../db/migrations/communication_center_2026_07_24.sql). It introduces dedicated tables for:
+- conversations and participants
+- messages and read tracking
+- notifications
+- announcements
+- support tickets
 
-**Issues:**
-1. Supabase service role used directly in API route handlers:
-   - `process.env.SUPABASE_SERVICE_ROLE_KEY!`
-2. CRUD + status updates available without any auth/session validation.
-3. Error handling leaks internal error messages:
-   - `error: message` where `message` comes from `error.message`.
+This is a good foundation because it separates system notifications from user conversations and operational tickets.
 
-**Impact:**
-- Anonymous users can create/read/update/delete bookings and manipulate statuses.
+## What is already implemented well
+### Strengths
+- Clear separation of concerns between engine, routes, and UI.
+- Event-driven notification layer is already in place and reusable.
+- Admin and ambassador experiences are both surfaced in the app.
+- The conversation detail flow is functional and integrated with the API.
+- Build verification succeeded, which suggests the module is stable from a compile perspective.
 
-### C) Email System (Partial / Needs Full Verification)
-**Files read:**
-- `lib/resend.ts`
-- `app/api/bookings/routes.ts`
-- `app/api/send-booking-email/route.ts`
-- `emails/BookingConfirmation.tsx`
-- `emails/AdminNotification.tsx`
+### Architectural quality
+The implementation follows a practical pattern for a product team:
+- Use existing auth helpers for request validation.
+- Use server-side Supabase admin access for backend writes.
+- Provide role-aware UI routes for admin and ambassador experiences.
+- Gracefully degrade when the communication tables are missing or not yet populated.
 
-**Verified:**
-- There are multiple email-related endpoints/templates.
+## Current risks and gaps
+### 1. Security hardening is incomplete
+The current architecture relies on the existing auth helpers but the communication tables are not yet fully protected by a production-grade RLS strategy in the codebase. This is the most important remaining risk.
 
-**Not yet verified:**
-- Requirement: **Booking must send TWO emails** (Passenger confirmation + Admin notification) with correct templates and environment handling.
+Why it matters:
+- Client-facing communication tables should be limited by role and ownership.
+- Notification and ticket data can become sensitive if not scoped correctly.
+- Admin-only data exposure must be strictly enforced.
 
-### D) Realtime vs Polling (High)
-**Files:**
-- `lib/useBookingsRealtime.ts`
-- `app/admin/page.tsx`
+Recommendation:
+- Implement tested RLS policies for notifications, conversations, messages, announcements, and tickets before broad rollout.
+- Keep service-role writes on the server only and avoid client-side inserts for protected data.
 
-**Verified:**
-- `lib/useBookingsRealtime.ts` exists and subscribes to `bookings` realtime changes.
-- Admin dashboard currently uses polling:
-  - `setInterval(..., 15000)`
-- Manual “Refresh” button exists.
+### 2. The system is still a workflow-first MVP
+The current implementation creates notifications and basic conversations, but it does not yet provide a fully production-grade communication runtime.
 
-**Impact:**
-- Dashboard is not meeting realtime requirement.
+Missing or limited capabilities include:
+- read receipts beyond basic message storage
+- delivery tracking
+- attachment handling for real files
+- richer conversation threading and replies
+- message status states
+- audit trail for communication actions
+- scheduled or targeted announcements with more granular audience rules
 
-### E) TypeScript / ESLint / React Compiler Issues (High)
-**`npm run lint` errors found:**
-1. `app/page.tsx`
-   - `Unexpected any` (2 instances)
-   - `react/no-unescaped-entities` for `'`.
-   - `react-hooks/preserve-manual-memoization` / compilation skipped.
-   - Warnings: unused `API_URL` and missing dependency in `useEffect`.
-2. `emails/BookingConfirmation.tsx`
-   - `react-hooks/set-state-in-effect` (setState directly in effect body)
+### 3. Event processing is still synchronous and local
+The communication engine is effective for immediate event publishing, but it is not yet a resilient asynchronous worker or queue processor. In a larger environment, this can become a bottleneck, especially if communication events spike during approvals, bookings, commissions, or mass announcements.
 
-### F) Legacy System Presence (Confirmed)
-**File:**
-- `Code.gs`
+Recommendation:
+- Introduce a background worker or queue layer for non-blocking processing.
+- Add idempotency protection so duplicate events do not create duplicate notifications.
 
-**Verified:**
-- Contains Google Apps Script logic including:
-  - Gateway token checks.
-  - Sheet read/write operations.
+### 4. API surface is functional but still thin
+The current routes cover the essential use cases, but the API contract is still closer to a release candidate than a mature platform API.
 
-**Impact:**
-- Legacy backend still exists and must be fully removed in Phase 3.
+Examples:
+- Conversation routes support basic message sending but not participant management, thread creation, or message metadata.
+- Announcements are admin-driven but not yet tied to a richer permission model or scheduling engine.
+- Tickets are created and assigned, but they are not yet integrated into a deeper support workflow with conversation threads and statuses beyond the basic state field.
 
-## Lint / Build Status (current)
-- ✅ `next build` previously compiled successfully, but:
-- ❌ `npm run lint` currently fails with the 7 errors listed above.
+### 5. Observability and testing need strengthening
+The module compiles, but it still needs deeper operational validation:
+- automated tests for API routes
+- role-based access tests
+- duplicate-event handling tests
+- message and notification regression tests
+- staging validation of SQL policies and permissions
 
-## Next Steps (Phase 2 completion)
-1. Continue audit by reading all remaining API routes, auth helpers, Supabase helpers, and email templates.
-2. Validate Supabase table schemas vs code expectations.
-3. Produce full audit report (scores + issue list) after remaining reads.
+## Recommended next steps
+### Phase 1 — harden the foundation
+- Add RLS policies and validate them in staging.
+- Review the communication tables for tenant scoping and role-based access.
+- Add server-side logging for create/update/delete actions.
+
+### Phase 2 — operationalize the engine
+- Move event handling to a worker-based pattern.
+- Add idempotency and retry semantics.
+- Capture delivery outcomes for notifications and messages.
+
+### Phase 3 — expand the product experience
+- Add richer conversation features, including replies, unread state, participant management, and file attachments.
+- Add admin tools for announcement scheduling and expiry handling.
+- Expand support ticket workflows to include threaded replies and assignment history.
+
+## Final assessment
+Overall score: 7.5/10
+
+Breakdown:
+- Architecture clarity: 8/10
+- Implementation completeness: 7/10
+- Security readiness: 5/10
+- Operational maturity: 6/10
+- Product readiness: 7/10
+
+Conclusion:
+The Communication Center is now a credible and usable first-release platform module. It demonstrates the right architecture pattern and has been verified to build successfully. The remaining work should focus on hardening permissions, operational reliability, and richer workflow support before treating it as a production-grade communication platform.
 
 

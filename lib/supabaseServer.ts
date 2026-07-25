@@ -80,6 +80,45 @@ export async function getAdminRoleFromDatabase(userId: string, email?: string | 
   return null;
 }
 
+async function getAmbassadorRoleFromDatabase(user: { id: string; email?: string | null } | null | undefined): Promise<string | null> {
+  if (!user?.id) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("ambassadors")
+      .select("id")
+      .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data?.id) {
+      return "ambassador";
+    }
+
+    const normalizedEmail = typeof user.email === "string" ? user.email.trim().toLowerCase() : null;
+    if (!normalizedEmail) {
+      return null;
+    }
+
+    const { data: emailRow, error: emailError } = await supabaseAdmin
+      .from("ambassadors")
+      .select("id")
+      .ilike("email", normalizedEmail)
+      .limit(1)
+      .maybeSingle();
+
+    if (!emailError && emailRow?.id) {
+      return "ambassador";
+    }
+  } catch (error) {
+    console.warn("Failed to resolve ambassador role from database", error instanceof Error ? error.message : String(error));
+  }
+
+  return null;
+}
+
 export async function resolveAdminRole(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined): Promise<string> {
   if (!user?.id) {
     return "unknown";
@@ -88,6 +127,11 @@ export async function resolveAdminRole(user: { id: string; email?: string | null
   const dbRole = await getAdminRoleFromDatabase(user.id, user.email);
   if (dbRole) {
     return normalizeAdminRole(dbRole);
+  }
+
+  const ambassadorRole = await getAmbassadorRoleFromDatabase(user);
+  if (ambassadorRole) {
+    return "ambassador";
   }
 
   const roleFromProfile = await supabaseAdmin

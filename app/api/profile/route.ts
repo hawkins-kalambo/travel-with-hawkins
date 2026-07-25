@@ -88,10 +88,40 @@ export async function GET(req: NextRequest) {
     .from("ambassadors")
     .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
     .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+    .limit(1)
     .maybeSingle();
 
-  if (!ambassadorError) {
+  if (ambassadorError) {
+    console.warn("/api/profile: ambassador lookup failed", { userId: user.id, error: ambassadorError });
+  } else {
     ambassadorData = ambassadorRow as Record<string, unknown> | null;
+  }
+
+  if (!ambassadorData && typeof user.email === "string") {
+    const normalizedEmail = user.email.trim().toLowerCase();
+    if (normalizedEmail) {
+      const { data: emailAmbassador, error: emailAmbassadorError } = await supabaseAdmin
+        .from("ambassadors")
+        .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
+        .ilike("email", normalizedEmail)
+        .limit(1)
+        .maybeSingle();
+
+      if (!emailAmbassadorError && emailAmbassador) {
+        console.warn("/api/profile: ambassador fallback email lookup succeeded", { userId: user.id, email: normalizedEmail, ambassadorId: emailAmbassador.id });
+        ambassadorData = emailAmbassador as Record<string, unknown>;
+
+        if (!emailAmbassador.user_id) {
+          await supabaseAdmin
+            .from("ambassadors")
+            .update({ user_id: user.id })
+            .eq("id", emailAmbassador.id)
+            .limit(1);
+        }
+      } else if (emailAmbassadorError) {
+        console.warn("/api/profile: ambassador fallback email lookup failed", { userId: user.id, email: normalizedEmail, error: emailAmbassadorError });
+      }
+    }
   }
 
   if (profileError) {
