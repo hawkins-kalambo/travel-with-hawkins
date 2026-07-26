@@ -9,6 +9,8 @@ import { isViewerAllowedTab, normalizeAdminRole } from "@/lib/adminAuth";
 import { type BookingRecord } from "@/lib/bookingTypes";
 import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import AmbassadorCreationSuccess from "@/app/admin/components/AmbassadorCreationSuccess";
+import AmbassadorCreationWizard from "@/app/admin/components/AmbassadorCreationWizard";
 
 // ================= TYPES =================
 type JourneyStatus =
@@ -21,6 +23,30 @@ type JourneyStatus =
   | string;
 
 type PaymentStatus = "Pending" | "Payment Confirmed" | "Failed" | string;
+
+type AmbassadorCreationPayload = {
+  fullName: string;
+  studentId?: string;
+  email: string;
+  phone: string;
+  whatsappNumber?: string;
+  faculty?: string;
+  program?: string;
+  yearOfStudy?: string;
+  profileImageBase64?: string;
+  referralCode?: string;
+  routeAssignment?: string;
+  university?: string;
+  status?: string;
+  temporaryPassword: string;
+};
+
+type CreatedAmbassadorCredentials = {
+  fullName: string;
+  email: string;
+  referralCode: string;
+  temporaryPassword?: string;
+};
 
 type EnrichedBooking = BookingRecord & {
   status: JourneyStatus;
@@ -335,15 +361,8 @@ function AdminPageContent() {
   const [whatsappCopied, setWhatsappCopied] = useState(false);
   const [ambassadors, setAmbassadors] = useState<Array<Record<string, unknown>>>([]);
   const [referrals, setReferrals] = useState<Array<Record<string, unknown>>>([]);
-  const [ambassadorForm, setAmbassadorForm] = useState({ fullName: "", phone: "", email: "", university: "Mzuzu University", faculty: "", program: "", referralCode: "" });
   const [ambassadorMessage, setAmbassadorMessage] = useState("");
-  const [createdAmbassadorCredentials, setCreatedAmbassadorCredentials] = useState<{
-    fullName: string;
-    email: string;
-    referralCode: string;
-    temporaryPassword: string;
-  } | null>(null);
-  const [creatingAmbassador, setCreatingAmbassador] = useState(false);
+  const [createdAmbassadorCredentials, setCreatedAmbassadorCredentials] = useState<CreatedAmbassadorCredentials | null>(null);
   const [referralFilters, setReferralFilters] = useState({ ambassador: "all", route: "all", status: "all", date: "" });
   const [togglingAmbassador, setTogglingAmbassador] = useState<string | null>(null);
   const [updatingCommission, setUpdatingCommission] = useState<string | null>(null);
@@ -813,21 +832,25 @@ const filtered = useMemo(() => {
     }
   };
 
-  const createAmbassador = async () => {
-    setCreatingAmbassador(true);
+  const createAmbassador = async (payload: AmbassadorCreationPayload) => {
     setAmbassadorMessage("");
     try {
       const res = await authFetch("/api/ambassadors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fullName: ambassadorForm.fullName,
-          phone: ambassadorForm.phone,
-          email: ambassadorForm.email,
-          university: ambassadorForm.university,
-          faculty: ambassadorForm.faculty,
-          program: ambassadorForm.program,
-          referralCode: ambassadorForm.referralCode,
+          fullName: payload.fullName,
+          phone: payload.phone,
+          email: payload.email,
+          university: payload.university || "Mzuzu University",
+          faculty: payload.faculty || "",
+          program: payload.program || "",
+          yearOfStudy: payload.yearOfStudy ? Number(payload.yearOfStudy) : undefined,
+          referralCode: payload.referralCode,
+          studentId: payload.studentId,
+          whatsappNumber: payload.whatsappNumber,
+          status: payload.status,
+          temporaryPassword: payload.temporaryPassword,
         }),
       });
 
@@ -836,20 +859,18 @@ const filtered = useMemo(() => {
         throw new Error(result?.error || "Unable to create ambassador");
       }
 
+      const credentials = result.credentials || {};
       setAmbassadorMessage("Ambassador created successfully.");
       setCreatedAmbassadorCredentials({
-        fullName: result.ambassador?.full_name ?? ambassadorForm.fullName,
-        email: result.credentials?.email ?? ambassadorForm.email,
-        referralCode: result.credentials?.referralCode ?? ambassadorForm.referralCode,
-        temporaryPassword: result.credentials?.temporaryPassword ?? "",
+        fullName: String(credentials.fullName ?? payload.fullName),
+        email: String(credentials.email ?? payload.email),
+        referralCode: String(credentials.referralCode ?? payload.referralCode ?? ""),
+        temporaryPassword: credentials.temporaryPassword ? String(credentials.temporaryPassword) : undefined,
       });
-      setAmbassadorForm({ fullName: "", phone: "", email: "", university: "Mzuzu University", faculty: "", program: "", referralCode: "" });
       await loadReferralsData();
     } catch (error) {
       setAmbassadorMessage(error instanceof Error ? error.message : "Unable to create ambassador.");
       setCreatedAmbassadorCredentials(null);
-    } finally {
-      setCreatingAmbassador(false);
     }
   };
 
@@ -1648,45 +1669,46 @@ const filtered = useMemo(() => {
                     <h3 className="mb-2 font-bold text-primary-900">🎯 Referral Management</h3>
                     <p className="text-sm text-slate-500 mb-4">Create ambassadors, manage their status, and track referral performance from one place.</p>
                     {ambassadorMessage && <div className="mb-4 rounded-lg border border-primary-200 bg-primary-100 p-3 text-sm text-primary-700">{ambassadorMessage}</div>}
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <input className="input-field" placeholder="Full name" value={ambassadorForm.fullName} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, fullName: e.target.value })} />
-                      <input className="input-field" placeholder="Phone" value={ambassadorForm.phone} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, phone: e.target.value })} />
-                      <input className="input-field" placeholder="Email" type="email" value={ambassadorForm.email} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, email: e.target.value })} />
-                      <input className="input-field" placeholder="Referral code" value={ambassadorForm.referralCode} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, referralCode: e.target.value })} />
-                      <input className="input-field" placeholder="University" value={ambassadorForm.university} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, university: e.target.value })} />
-                      <input className="input-field" placeholder="Faculty" value={ambassadorForm.faculty} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, faculty: e.target.value })} />
-                      <input className="input-field" placeholder="Program" value={ambassadorForm.program} onChange={(e) => setAmbassadorForm({ ...ambassadorForm, program: e.target.value })} />
+                    <div>
+                      {createdAmbassadorCredentials ? (
+                        <AmbassadorCreationSuccess
+                          ambassadorName={createdAmbassadorCredentials.fullName}
+                          email={createdAmbassadorCredentials.email}
+                          temporaryPassword={createdAmbassadorCredentials.temporaryPassword}
+                          referralCode={createdAmbassadorCredentials.referralCode}
+                          referralLink={`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app"}/book?ref=${encodeURIComponent(createdAmbassadorCredentials.referralCode)}`}
+                          loginUrl={typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app"}
+                          onClose={() => setCreatedAmbassadorCredentials(null)}
+                          onResendEmail={async () => {
+                            if (!createdAmbassadorCredentials) return;
+                            const res = await authFetch("/api/ambassadors/resend", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email: createdAmbassadorCredentials.email }),
+                            });
+                            const result = await res.json();
+                            if (!res.ok || !result?.success) {
+                              throw new Error(result?.error || "Unable to resend welcome email");
+                            }
+                          }}
+                          onGenerateNewPassword={async () => {
+                            if (!createdAmbassadorCredentials) throw new Error("Missing ambassador email");
+                            const res = await authFetch("/api/ambassadors/password", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email: createdAmbassadorCredentials.email, mode: "temporary-password" }),
+                            });
+                            const result = await res.json();
+                            if (!res.ok || !result?.success) {
+                              throw new Error(result?.error || "Unable to generate temporary password");
+                            }
+                            return String(result.temporaryPassword);
+                          }}
+                        />
+                      ) : (
+                        <AmbassadorCreationWizard onSubmit={createAmbassador} />
+                      )}
                     </div>
-                    {!isViewer ? (
-                      <button onClick={() => void createAmbassador()} disabled={creatingAmbassador} className="mt-4 rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                        {creatingAmbassador ? "Creating..." : "Create Ambassador"}
-                      </button>
-                    ) : null}
-
-                    {createdAmbassadorCredentials && (
-                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-                        <h4 className="mb-2 font-semibold">Ambassador credentials</h4>
-                        <p className="text-xs text-slate-600">Share these details securely with the new ambassador.</p>
-                        <div className="mt-3 space-y-2">
-                          <div className="rounded-lg bg-white p-3 shadow-sm">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Name</p>
-                            <p className="font-medium text-slate-900">{createdAmbassadorCredentials.fullName}</p>
-                          </div>
-                          <div className="rounded-lg bg-white p-3 shadow-sm">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Email</p>
-                            <p className="font-medium text-slate-900">{createdAmbassadorCredentials.email}</p>
-                          </div>
-                          <div className="rounded-lg bg-white p-3 shadow-sm">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Referral code</p>
-                            <p className="font-medium text-slate-900">{createdAmbassadorCredentials.referralCode}</p>
-                          </div>
-                          <div className="rounded-lg bg-white p-3 shadow-sm">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Temporary password</p>
-                            <p className="font-medium text-slate-900 break-all">{createdAmbassadorCredentials.temporaryPassword}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

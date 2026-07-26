@@ -16,7 +16,8 @@ export async function middleware(request: NextRequest) {
 
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
-  const isUiRoute = isAdminRoute || isAmbassadorRoute;
+  const isCustomerRoute = pathname === "/customer" || pathname.startsWith("/customer/");
+  const isUiRoute = isAdminRoute || isAmbassadorRoute || isCustomerRoute;
   const isAdminLoginRoute = pathname === "/admin/login";
   const isResetRoute = pathname === "/reset-password" || pathname === "/update-password";
   const isAuthCallbackRoute = pathname.startsWith("/auth/");
@@ -25,10 +26,15 @@ export async function middleware(request: NextRequest) {
     pathname === "/ambassador/apply" ||
     pathname === "/ambassador/forgot-password" ||
     pathname === "/ambassador/settings/security";
-  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isResetRoute || isAuthCallbackRoute;
+  const isCustomerPublicRoute =
+    pathname === "/customer/login" ||
+    pathname === "/customer/register" ||
+    pathname === "/customer/forgot-password";
+  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isCustomerPublicRoute || isResetRoute || isAuthCallbackRoute;
 
   const isSettingsRoute = pathname.startsWith("/api/settings");
   const isBookingsRoute = pathname.startsWith("/api/bookings");
+  const isCustomerApiRoute = pathname.startsWith("/api/customers");
   const isAdminApiRoute =
     pathname.startsWith("/api/settings") ||
     pathname.startsWith("/api/reports") ||
@@ -47,12 +53,14 @@ export async function middleware(request: NextRequest) {
     isBookingsRoute &&
     method === "GET" &&
     request.nextUrl.searchParams.has("trackingId");
+  const isPublicCustomerRoute = isCustomerApiRoute && (pathname === "/api/customers/register" || pathname === "/api/customers/login" || pathname === "/api/customers/forgot-password");
   const isAdminBookingRoute = isBookingsRoute && !isPublicBookingLookup && !isPublicBookingCreate;
 
   const isProtectedApiRoute =
     isSettingsRoute ||
     isAdminApiRoute ||
-    isAdminBookingRoute;
+    isAdminBookingRoute ||
+    (isCustomerApiRoute && !isPublicCustomerRoute);
 
   if (pathname.startsWith("/api/bookings") && method === "POST") {
     if (isRateLimited(rateLimitKey)) {
@@ -82,7 +90,13 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const redirectTarget = isAdminRoute ? "/admin/login" : "/ambassador/login";
+    let redirectTarget = "/admin/login";
+    if (isCustomerRoute) {
+      redirectTarget = "/customer/login";
+    } else if (isAmbassadorRoute) {
+      redirectTarget = "/ambassador/login";
+    }
+
     const redirectUrl = new URL(redirectTarget, request.url);
     redirectUrl.searchParams.set("redirectedFrom", pathname);
     return NextResponse.redirect(redirectUrl);
@@ -110,9 +124,21 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (isCustomerRoute) {
+    const isCustomer = role === "customer" || role === "unknown"; // Allow 'unknown' for newly registered customers
+    if (!isCustomer && role !== "super_admin" && role !== "admin") {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ success: false, error: "Customer access required" }, { status: 403 });
+      }
+      // Redirect admin/ambassador to their respective dashboards
+      const redirectTarget = role === "ambassador" ? "/ambassador" : "/admin";
+      return NextResponse.redirect(new URL(redirectTarget, request.url));
+    }
+  }
+
   return authResponse;
 }
 
 export const config = {
-  matcher: ["/api/:path*", "/admin/:path*", "/ambassador/:path*", "/reset-password", "/update-password", "/auth/:path*"],
+  matcher: ["/api/:path*", "/admin/:path*", "/ambassador/:path*", "/customer/:path*", "/reset-password", "/update-password", "/auth/:path*"],
 };

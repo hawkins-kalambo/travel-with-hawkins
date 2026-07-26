@@ -1,9 +1,10 @@
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendEmail } from "@/lib/resend";
+import { buildAmbassadorWelcomeEmailHtml } from "@/lib/ambassadorEmail";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -69,6 +70,30 @@ async function findExistingAuthUserIdByEmail(email: string): Promise<string | nu
   return null;
 }
 
+async function uploadProfileImage(base64: string) {
+  const matches = base64.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/);
+  if (!matches) return null;
+
+  const mime = matches[1];
+  const ext = matches[2] === "png" ? "png" : matches[2] === "webp" ? "webp" : "jpg";
+  const path = `ambassadors/${randomUUID()}/profile.${ext}`;
+  const buffer = Buffer.from(matches[3], "base64");
+
+  try {
+    const { error } = await supabaseAdmin.storage.from("ambassador-profiles").upload(path, buffer, { contentType: mime, upsert: false });
+    if (error) {
+      console.warn("Profile image upload skipped", error.message);
+      return null;
+    }
+
+    const { data: urlData } = await supabaseAdmin.storage.from("ambassador-profiles").getPublicUrl(path);
+    return urlData?.publicUrl ?? null;
+  } catch (error) {
+    console.warn("Profile image upload failed", error);
+    return null;
+  }
+}
+
 function slugify(value: string): string {
   return value
     .toUpperCase()
@@ -116,6 +141,8 @@ export async function POST(req: NextRequest) {
     const program = getString(body.program);
     const yearOfStudy = typeof body.yearOfStudy === "number" ? body.yearOfStudy : parseInt(String(body.yearOfStudy ?? ""), 10);
     const referralCode = getString(body.referralCode ?? body.referral_code);
+    const profileImageBase64 = typeof body.profileImageBase64 === "string" ? body.profileImageBase64 : undefined;
+    const requestedTemporaryPassword = getString(body.temporaryPassword);
 
     if (!fullName || !phone || !email) {
       return jsonError("fullName, phone, and email are required", 400);
@@ -138,9 +165,9 @@ export async function POST(req: NextRequest) {
       console.debug("/api/ambassadors: found existing auth user by email", { userId, email });
     }
 
-    let temporaryPassword: string | undefined;
+    let temporaryPassword: string | undefined = requestedTemporaryPassword;
     if (!userId) {
-      temporaryPassword = generateTemporaryPassword();
+      temporaryPassword = temporaryPassword || generateTemporaryPassword();
 
       const { data: createUserData, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
         email,
@@ -161,13 +188,20 @@ export async function POST(req: NextRequest) {
       console.debug("/api/ambassadors: created auth user", { userId, email });
     }
 
-    const profilePayload = {
+    const profilePayload: Record<string, unknown> = {
       id: userId,
       full_name: fullName,
       email,
       phone,
       role: "ambassador",
     };
+
+    if (profileImageBase64) {
+      const profileImageUrl = await uploadProfileImage(profileImageBase64);
+      if (profileImageUrl) {
+        profilePayload.profile_image_url = profileImageUrl;
+      }
+    }
 
     const { error: profileError } = await supabaseAdmin
       .from("profiles")
@@ -187,7 +221,7 @@ export async function POST(req: NextRequest) {
       console.warn("Skipping profile insert because public.profiles is not available", profileError);
     }
 
-    const ambassadorInsertPayload = {
+    const ambassadorInsertPayload: Record<string, unknown> = {
       user_id: userId,
       full_name: fullName,
       phone,
@@ -198,7 +232,15 @@ export async function POST(req: NextRequest) {
       year_of_study: Number.isFinite(yearOfStudy) ? yearOfStudy : null,
       referral_code: finalCode,
       status: "active",
+      created_by_admin: true,
     };
+
+    if (profileImageBase64) {
+      const profileImageUrl = await uploadProfileImage(profileImageBase64);
+      if (profileImageUrl) {
+        ambassadorInsertPayload.profile_image_url = profileImageUrl;
+      }
+    }
 
     const { data: existingAmbassadorByEmail, error: existingAmbassadorByEmailError } = await supabaseAdmin
       .from("ambassadors")
@@ -259,23 +301,20 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app";
+      const html = buildAmbassadorWelcomeEmailHtml({
+        ambassadorName: fullName,
+        email,
+        loginUrl: appUrl,
+        referralCode: finalCode,
+        referralLink: `${appUrl.replace(/\/$/, "")}/book?ref=${encodeURIComponent(finalCode)}`,
+        temporaryPassword,
+      });
+
       await sendEmail({
         to: email,
         subject: "Welcome to Travel with Hawkins",
-        html: `
-          <div style="font-family:Arial,sans-serif;padding:20px;">
-            <h2 style="color:#0f3f78;">Welcome to Travel with Hawkins</h2>
-            <p>Hello <strong>${fullName}</strong>,</p>
-            <p>Your ambassador account has been created. Use the details below to log in and start sharing your referral code.</p>
-            <ul>
-              <li><strong>Login URL:</strong> <a href="${process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app"}">Login to Travel with Hawkins</a></li>
-              <li><strong>Email:</strong> ${email}</li>
-              <li><strong>Temporary Password:</strong> ${temporaryPassword}</li>
-              <li><strong>Referral Code:</strong> ${finalCode}</li>
-            </ul>
-            <p>Please change your password after logging in.</p>
-          </div>
-        `,
+        html,
       });
     } catch (emailError) {
       console.warn("Welcome email failed", { error: emailError });
