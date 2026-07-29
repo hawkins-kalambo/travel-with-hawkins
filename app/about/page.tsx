@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WhatsAppButton from "../components/WhatsAppButton";
 
 export const metadata: Metadata = {
   title: "About",
@@ -15,6 +16,7 @@ export default function AboutPage() {
         <h1 className="text-3xl font-black text-slate-900">About Travel with Hawkins</h1>
         <p className="mt-4 text-lg text-slate-600">This page remains available as part of the public website experience.</p>
       </div>
+      <WhatsAppButton />
     </main>
   );
 }

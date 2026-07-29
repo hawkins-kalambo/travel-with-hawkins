@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WhatsAppButton from "../components/WhatsAppButton";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -17,6 +18,7 @@ export default function PrivacyPage() {
           Travel with Hawkins uses booking and contact information to manage transport requests and communicate updates to customers.
         </p>
       </div>
+      <WhatsAppButton />
     </main>
   );
 }

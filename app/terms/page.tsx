@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WhatsAppButton from "../components/WhatsAppButton";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
@@ -17,6 +18,7 @@ export default function TermsPage() {
           Bookings are subject to availability, payment confirmation, and the transport policies published by Travel with Hawkins.
         </p>
       </div>
+      <WhatsAppButton />
     </main>
   );
 }

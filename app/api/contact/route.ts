@@ -84,7 +84,7 @@ export async function POST(request: Request) {
   }
 
   const result = validateFields(body);
-  if (result.error) {
+  if ("error" in result) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 

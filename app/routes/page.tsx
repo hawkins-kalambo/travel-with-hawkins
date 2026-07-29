@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WhatsAppButton from "../components/WhatsAppButton";
 
 export const metadata: Metadata = {
   title: "Routes & Destinations",
@@ -35,6 +36,7 @@ export default function RoutesPage() {
           ))}
         </div>
       </div>
+      <WhatsAppButton />
     </main>
   );
 }

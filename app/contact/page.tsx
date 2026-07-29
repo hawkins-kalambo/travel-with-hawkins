@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WhatsAppButton, { whatsappUrl } from "../components/WhatsAppButton";
 import ContactForm from "./ContactForm";
 
 export const metadata: Metadata = {
@@ -17,8 +18,17 @@ export default function ContactPage() {
         <p className="mt-4 text-lg text-slate-600">
           Send us a message for booking, payment, or travel support.
         </p>
+        <a
+          href={whatsappUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-6 inline-flex rounded-full bg-[#168c4b] px-5 py-3 font-bold text-white transition hover:bg-[#11723d] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200"
+        >
+          Chat with us on WhatsApp
+        </a>
         <ContactForm />
       </div>
+      <WhatsAppButton />
     </main>
   );
 }

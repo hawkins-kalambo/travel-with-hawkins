@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import WhatsAppButton, { whatsappUrl } from "./components/WhatsAppButton";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { logoPngBase64 } from "@/lib/logoBase64";
 import { formatMwk, resolveRouteFareIfAvailable } from "@/lib/routePricing";
@@ -408,43 +409,39 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-white text-[#101815]">
       <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-4 sm:px-8">
+        <div className="mx-auto flex h-[74px] max-w-7xl items-center justify-between px-4 sm:px-8">
           <a href="#" className="flex items-center gap-2">
-            <Image src="/logo.png" width={54} height={54} className="h-12 w-12 object-contain" alt="Travel with Hawkins" />
+            <Image src="/logo.png" width={54} height={54} className="h-12 w-12 object-contain" alt="Travel With Hawkins logo" />
             <div>
               <div className="text-2xl font-black leading-none text-[#0f3f78]">Travel</div>
               <div className="text-xs font-semibold leading-none">with Hawkins</div>
             </div>
           </a>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 sm:gap-3">
             <nav className="hidden items-center gap-6 text-sm font-bold lg:flex">
               {[
                 ["Home", "#"],
                 ["Routes", "#routes"],
                 ["How It Works", "#how-it-works"],
-                ["Help Center", "#help-center"],
-                ["Contact", "#contact"],
+                ["Support", "#help-center"],
               ].map(([item, href]) => (
-                <a key={item} href={href} className="hover:text-[#0f3f78]">{item}</a>
+                <a key={item} href={href} className="text-slate-700 transition hover:text-[#0f3f78]">{item}</a>
               ))}
             </nav>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setShowTrack(true)} className="inline-flex w-full items-center justify-center rounded-md border border-[#0f3f78] px-3 py-2 text-sm font-bold text-[#101815] transition-colors hover:bg-[#f5f9ff] sm:w-auto sm:px-5 sm:py-2.5">
-                <span className="hidden sm:inline">Track Booking</span>
-                <span className="inline sm:hidden">Track</span>
-              </button>
-              <button onClick={() => openBooking()} className="inline-flex w-full items-center justify-center rounded-md bg-[#0f3f78] px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56] sm:w-auto sm:px-5 sm:py-2.5">
-                <span className="hidden sm:inline">Book Trip</span>
-                <span className="inline sm:hidden">Book</span>
-              </button>
-              <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-md lg:hidden" aria-label="Menu">
-                <span className="flex w-5 flex-col gap-1">
-                  <span className="h-0.5 rounded bg-[#101815]" />
-                  <span className="h-0.5 rounded bg-[#101815]" />
-                  <span className="h-0.5 rounded bg-[#101815]" />
-                </span>
-              </button>
+            <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-2 sm:flex">
+              <a href="/customer/login" className="rounded-full px-3 py-2 text-sm font-bold text-[#0f3f78] transition hover:bg-white">Log in</a>
+              <button onClick={() => setShowTrack(true)} className="rounded-full px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-white">Track</button>
             </div>
+            <button onClick={() => openBooking()} className="inline-flex items-center justify-center rounded-full bg-[#0f3f78] px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56]">
+              Book Trip
+            </button>
+            <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white lg:hidden" aria-label="Menu">
+              <span className="flex w-5 flex-col gap-1">
+                <span className="h-0.5 rounded bg-[#101815]" />
+                <span className="h-0.5 rounded bg-[#101815]" />
+                <span className="h-0.5 rounded bg-[#101815]" />
+              </span>
+            </button>
           </div>
         </div>
         {menuOpen && (
@@ -453,11 +450,15 @@ export default function Home() {
               ["Home", "#"],
               ["Routes", "#routes"],
               ["How It Works", "#how-it-works"],
-              ["Help Center", "#help-center"],
-              ["Contact", "#contact"],
+              ["Support", "#help-center"],
             ].map(([item, href]) => (
               <a key={item} href={href} onClick={() => setMenuOpen(false)} className="block rounded-md px-3 py-2 text-sm font-bold hover:bg-blue-50">{item}</a>
             ))}
+            <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-3">
+              <a href="/customer/login" onClick={() => setMenuOpen(false)} className="rounded-md border border-[#0f3f78] px-3 py-2 text-center text-sm font-bold text-[#0f3f78]">Log in</a>
+              <button onClick={() => { setShowTrack(true); setMenuOpen(false); }} className="rounded-md border border-slate-200 px-3 py-2 text-center text-sm font-bold text-slate-700">Track Booking</button>
+              <button onClick={() => { openBooking(); setMenuOpen(false); }} className="rounded-md bg-[#0f3f78] px-3 py-2 text-center text-sm font-bold text-white">Book Trip</button>
+            </div>
           </div>
         )}
       </header>
@@ -477,21 +478,47 @@ export default function Home() {
         ))}
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,20,41,0.84),rgba(15,63,120,0.52),rgba(7,20,41,0.14))]" />
         <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-[88px] sm:px-8">
-          <div className="max-w-2xl">
-            <p className="mb-5 inline-flex rounded-md bg-[#1f78d1] px-3 py-1 text-xs font-black uppercase tracking-wide">Safe. Reliable. Student Friendly</p>
-            <h1 className="max-w-3xl text-5xl font-black leading-[1.05] tracking-normal md:text-6xl">Book Your Journey Home, The <span className="text-[#6db7ff]">Smart</span> Way</h1>
-            <p className="mt-5 max-w-lg text-lg font-medium text-white/90">Connecting university students with trusted bus operators across Malawi.</p>
-            <div className="mt-7 flex flex-wrap gap-4">
-              <button onClick={() => openBooking()} className="rounded-md bg-[#0f3f78] px-10 py-4 text-sm font-black text-white hover:bg-[#0a2d56]">Book Now</button>
-              <a href="#routes" className="rounded-md border border-white/70 px-10 py-4 text-sm font-black text-white/90 transition hover:bg-white/10">Explore Routes</a>
-            </div>
-            <div className="mt-6 flex items-center gap-3">
-              <div className="flex -space-x-2">
-                {["ceo.jpg", "designer.jpg", "developer.jpg"].map((img) => (
-                  <Image key={img} src={`/images/team/${img}`} width={36} height={36} className="h-9 w-9 rounded-full border-2 border-white object-cover" alt="" />
-                ))}
+          <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div className="max-w-2xl">
+              <p className="mb-5 inline-flex rounded-full border border-sky-300/40 bg-sky-400/15 px-3 py-1 text-xs font-black uppercase tracking-[0.24em] text-sky-200">Safe. Reliable. Student Friendly</p>
+              <h1 className="max-w-3xl text-5xl font-black leading-[1.05] tracking-normal md:text-6xl">Book Your Journey Home, The <span className="text-[#6db7ff]">Smart</span> Way</h1>
+              <p className="mt-5 max-w-lg text-lg font-medium text-white/90">Connecting university students with trusted bus operators across Malawi.</p>
+              <div className="mt-7 flex flex-wrap gap-4">
+                <button onClick={() => openBooking()} className="rounded-full bg-[#0f3f78] px-8 py-4 text-sm font-black text-white shadow-lg shadow-slate-950/20 transition hover:bg-[#0a2d56]">Book Trip</button>
+                <a href="#routes" className="rounded-full border border-white/70 px-8 py-4 text-sm font-black text-white/90 transition hover:bg-white/10">Explore Routes</a>
               </div>
-              <div className="text-sm"><span className="text-amber-400">*****</span><br />Trusted by 5,000+ Students</div>
+              <p className="mt-4 text-sm font-medium text-sky-100">No account needed to book today. Sign in later to manage your trip.</p>
+              <div className="mt-6 flex items-center gap-3">
+                <div className="flex -space-x-2">
+                  {["ceo.jpg", "designer.jpg", "developer.jpg"].map((img) => (
+                    <Image key={img} src={`/images/team/${img}`} width={36} height={36} className="h-9 w-9 rounded-full border-2 border-white object-cover" alt="" />
+                  ))}
+                </div>
+                <div className="text-sm"><span className="text-amber-400">★★★★★</span><br />Trusted by 5,000+ Students</div>
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-white/20 bg-slate-950/60 p-5 shadow-2xl backdrop-blur-md">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-300">Choose your portal</p>
+                  <h2 className="mt-1 text-2xl font-black text-white">Travel smarter with one account</h2>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-slate-300">Use the customer portal for bookings and trip updates, or jump to ambassador or admin access when you need a different experience.</p>
+              <div className="mt-5 grid gap-3">
+                <a href="/customer/login" className="rounded-2xl bg-[#0f3f78] px-4 py-3 text-center text-sm font-black text-white transition hover:bg-[#0a2d56]">Traveler Portal</a>
+                <a href="/ambassador/login" className="rounded-2xl border border-white/20 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/10">Ambassador Portal</a>
+                <a href="/admin/login" className="rounded-2xl border border-white/20 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/10">Admin Portal</a>
+              </div>
+              <div className="mt-5 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-slate-200">
+                <div className="font-semibold text-white">Why create an account?</div>
+                <ul className="mt-2 space-y-2 text-sm text-slate-300">
+                  <li>• Save bookings and trip history</li>
+                  <li>• Reuse your student and contact details</li>
+                  <li>• Receive updates without searching for booking IDs</li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
@@ -574,7 +601,29 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="about-us" className="bg-[#f8fbff] px-4 py-8">
+      <section id="why-account" className="bg-[#f8fbff] px-4 py-8">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-6 text-center">
+            <p className="text-xs font-black uppercase text-[#0f3f78]">Why create an account?</p>
+            <h2 className="mt-1 text-3xl font-black text-[#101815]">A smoother trip experience, every time</h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {[
+              ["Manage bookings", "Keep your trip history, booking IDs, and travel details in one secure place."],
+              ["Faster repeat travel", "Reuse your student details and travel preferences so your next trip is quicker."],
+              ["Stay informed", "Receive booking updates and trip reminders without digging through your messages."],
+            ].map(([title, body]) => (
+              <div key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">✓</div>
+                <h3 className="text-lg font-black text-[#0f3f78]">{title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="about-us" className="bg-white px-4 py-8">
         <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1fr_1.5fr]">
           <div>
             <p className="text-xs font-black uppercase text-[#0f3f78]">Why Choose Us</p>
@@ -732,22 +781,22 @@ export default function Home() {
               <h3 className="mb-2 font-black uppercase">Direct Contact</h3>
               <div className="space-y-2.5">
                 <a
-                  href="https://wa.me/265989127308"
+                  href={whatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="group inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.05)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-emerald-500/25 hover:shadow-lg"
-                  aria-label="WhatsApp +265989127308"
+                  aria-label="Chat with Travel With Hawkins on WhatsApp"
                 >
                   <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/90 text-white transition-transform duration-300 group-hover:scale-110">
                     <Image src="/icons/whatsapp.png" width={18} height={18} alt="" />
                   </span>
-                  <span>WhatsApp</span>
+                  <span>Chat with us on WhatsApp</span>
                 </a>
 
                 <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">Call</p>
-                  <a href="tel:+265886470843" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0886470843</a>
-                  <a href="tel:+265989127308" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0989127308</a>
+                  <a href="tel:+265886470843" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0886 470 843</a>
+                  <a href="tel:+265989127308" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0989 127 308</a>
                 </div>
 
                 <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
@@ -761,6 +810,8 @@ export default function Home() {
 
         <p className="mx-auto mt-8 border-t border-white/10 pt-4 text-center text-xs text-white/60">2026 Travel with Hawkins. All Rights Reserved.</p>
       </footer>
+
+      <WhatsAppButton />
 
       {showBooking && (
         <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 sm:items-center">
@@ -790,6 +841,14 @@ export default function Home() {
                 {bookingType === "custom" && <input className="template-input" placeholder="Destination (e.g. Mzuzu - Rumphi)" value={customDestination} onChange={(e) => setCustomDestination(e.target.value)} />}
                 <input className="template-input" type="date" min={today} value={form.travelDate} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} />
                 <select className="template-input" value={form.seats} onChange={(e) => setForm({ ...form, seats: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n} seat{n > 1 ? "s" : ""}</option>)}</select>
+              </div>
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
+                <p className="font-semibold text-[#0f3f78]">No account needed to book today</p>
+                <p className="mt-1">You can continue as a guest now and sign in later to manage your trip details.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a href="/customer/login" className="rounded-md border border-[#0f3f78] px-3 py-2 text-sm font-bold text-[#0f3f78]">Log in</a>
+                  <a href="/customer/register" className="rounded-md bg-[#0f3f78] px-3 py-2 text-sm font-bold text-white">Create account</a>
+                </div>
               </div>
               <button onClick={handleBooking} disabled={loading || !isFormValid()} className="w-full rounded-md bg-[#0f3f78] py-3.5 font-black text-white disabled:bg-slate-300">{loading ? "Processing..." : "Confirm Booking"}</button>
             </div>

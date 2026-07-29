@@ -3,52 +3,46 @@ import StructuredData from "./components/StructuredData";
 import "./globals.css";
 
 const siteUrl = "https://travelwithhawkins.com";
-const siteName = "Travel with Hawkins";
-const siteDescription = "Book safe, reliable and affordable student transport across Malawi. Travel between Mzuzu, Lilongwe, Blantyre, Zomba and other destinations with Travel with Hawkins.";
+const siteName = "Travel With Hawkins";
+const siteTitle = "Travel With Hawkins | Safe Student Transport in Malawi";
+const siteDescription = "Book safe and reliable student transport in Mzuzu and across Malawi. Choose scheduled routes or request a custom trip with Travel With Hawkins.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Travel with Hawkins | Safe Student Transport Across Malawi",
-    template: "%s | Travel with Hawkins",
+    default: siteTitle,
+    template: "%s | Travel With Hawkins",
   },
   description: siteDescription,
-  keywords: [
-    "student transport Malawi",
-    "Mzuzu University transport",
-    "Malawi bus booking",
-    "Mzuzu to Lilongwe transport",
-    "student travel Malawi",
-  ],
   alternates: {
     canonical: siteUrl,
   },
   openGraph: {
-    title: "Travel with Hawkins | Safe Student Transport Across Malawi",
+    title: siteTitle,
     description: siteDescription,
     url: siteUrl,
     siteName,
-    locale: "en_US",
+    locale: "en_MW",
     type: "website",
     images: [
       {
-        url: "/hero.png",
-        width: 1200,
-        height: 630,
-        alt: "Travel with Hawkins student transport booking",
+        url: `${siteUrl}/hero.png`,
+        width: 1672,
+        height: 941,
+        alt: "Students preparing to travel by coach with Travel With Hawkins in Mzuzu",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Travel with Hawkins | Safe Student Transport Across Malawi",
+    title: siteTitle,
     description: siteDescription,
-    images: ["/hero.png"],
+    images: [`${siteUrl}/hero.png`],
   },
   icons: {
-    icon: "/logo.png",
-    apple: "/logo.png",
-    shortcut: "/logo.png",
+    icon: [{ url: "/icon.png", sizes: "512x512", type: "image/png" }],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/icon.png", sizes: "512x512", type: "image/png" }],
   },
 };
 
@@ -57,9 +51,31 @@ const organizationSchema = {
   "@type": "Organization",
   name: siteName,
   url: siteUrl,
+  logo: `${siteUrl}/logo.png`,
   description: siteDescription,
-  email: "info@travelwithhawkins.com",
-  sameAs: ["https://www.facebook.com/TravelWithHawkins"],
+  email: "travelwithhawkins@gmail.com",
+  telephone: ["+265886470843", "+265989127308"],
+  contactPoint: [
+    {
+      "@type": "ContactPoint",
+      telephone: "+265886470843",
+      contactType: "customer service",
+      areaServed: "MW",
+      availableLanguage: "English",
+    },
+    {
+      "@type": "ContactPoint",
+      telephone: "+265989127308",
+      contactType: "customer service",
+      areaServed: "MW",
+      availableLanguage: "English",
+      url: "https://wa.me/265989127308",
+    },
+  ],
+  areaServed: {
+    "@type": "Country",
+    name: "Malawi",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
