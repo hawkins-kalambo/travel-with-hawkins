@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { sendBookingConfirmationSms } from "@/lib/africasTalking";
+import { validateBookingInput } from "@/lib/bookingValidation";
 import {
   generateBookingId,
   generateTripId,
@@ -162,13 +164,11 @@ async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: stri
   if (!isValidEmail) {
     logWarn("Skipping user confirmation email because email is missing or invalid", {
       emailProvided: Boolean(userEmail),
-      emailValue: userEmail || null,
     });
     return;
   }
 
   logInfo("Booking confirmation email attempted", {
-    to: userEmail,
     bookingId,
     tripId,
     destination: payload.destination || "Unknown",
@@ -251,16 +251,48 @@ export async function POST(req: Request) {
       payload = {};
     }
 
-    const name = getNonEmptyString(payload.name);
-    const phone = getNonEmptyString(payload.phone);
-    const destination = getNonEmptyString(payload.destination);
-    const travelDate = getNonEmptyString(payload.travelDate);
-    const studentId = getNonEmptyString(payload.studentId);
-    const seats = getPositiveNumber(payload.seats);
-    const referralCode = getNonEmptyString(payload.referralCode) ?? getNonEmptyString((payload as Record<string, unknown>).referral_code);
+    const validation = validateBookingInput(payload);
+    if (!validation.success) return jsonError(validation.error, 400);
 
-    if (!name || !phone || !destination || !travelDate || !studentId || !seats) {
-      return jsonError("name, phone, destination, travelDate, studentId, and seats are required", 400);
+    const {
+      name,
+      email,
+      phone,
+      destination,
+      travelDate,
+      studentId,
+      seats,
+      pickup,
+      location,
+      bookingType,
+      referralCode,
+    } = validation.data;
+
+    const duplicateCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const duplicateResult = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("phone", phone)
+      .eq("student_id", studentId)
+      .eq("destination", destination)
+      .eq("travel_date", travelDate)
+      .eq("seats", seats)
+      .gte("created_at", duplicateCutoff)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!duplicateResult.error && duplicateResult.data) {
+      const existingBooking = normalizeBookingRecord(duplicateResult.data as Record<string, unknown>);
+      delete (existingBooking as Record<string, unknown>).tripId;
+      logInfo("Duplicate booking submission safely reused", { bookingId: existingBooking.bookingId });
+      return NextResponse.json({
+        success: true,
+        booking: existingBooking,
+        bookingId: existingBooking.bookingId,
+        duplicate: true,
+        message: "Booking already received",
+      });
     }
 
     const bookingId = generateBookingId();
@@ -299,12 +331,15 @@ export async function POST(req: Request) {
       bookingId,
       tripId,
       name,
+      email,
       phone,
       destination,
       travelDate,
       studentId,
       seats,
-      bookingType: getNonEmptyString(payload.bookingType) || "Online",
+      pickup,
+      location,
+      bookingType,
       fare,
       referralCode,
       ambassadorId,
@@ -331,11 +366,11 @@ export async function POST(req: Request) {
     }
 
     if (error) {
-      // Return the real Supabase error to help diagnose production failures.
-      // UI is unchanged; this only affects the admin/dev response payload.
-      console.error("Booking insert failed", error);
+      logError("Booking insert failed", {
+        code: typeof error.code === "string" ? error.code : "unknown",
+      });
       return NextResponse.json(
-        { success: false, error: "Booking could not be saved right now", details: error },
+        { success: false, error: "Booking could not be saved right now. Please try again." },
         { status: 500 }
       );
     }
@@ -375,12 +410,15 @@ export async function POST(req: Request) {
       logError("User confirmation email execution failed", { error });
     }
 
+    await sendBookingConfirmationSms({ bookingId, name, phone });
+
     return NextResponse.json({ success: true, booking: responseBooking, bookingId, message: "Booking created" });
   } catch (error) {
-    console.error("Booking POST failed", error);
-    logError("Booking POST failed", { error });
+    logError("Booking POST failed", {
+      error: error instanceof Error ? error.message : "Unknown booking error",
+    });
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
+      { success: false, error: "Booking could not be processed right now. Please try again." },
       { status: 500 }
     );
   }

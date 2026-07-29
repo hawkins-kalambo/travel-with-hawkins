@@ -6,6 +6,11 @@ import type { Attachment } from "resend";
 const resendApiKey = process.env.RESEND_API_KEY;
 const DEFAULT_FROM_ADDRESS = "Travel With Hawkins <contact@travelwithhawkins.com>";
 
+function safeRecipient(value: string) {
+  const domain = value.split("@")[1];
+  return domain ? `***@${domain}` : "[redacted]";
+}
+
 export const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 export async function sendEmail({
@@ -36,7 +41,7 @@ export async function sendEmail({
   const resolvedFrom = from || DEFAULT_FROM_ADDRESS;
 
   console.log("RESEND EMAIL ATTEMPT:", {
-    to,
+    to: safeRecipient(to),
     subject,
     from: resolvedFrom,
     attachments: attachments?.map((attachment) => attachment.filename),
@@ -63,7 +68,7 @@ export async function sendEmail({
       return { success: false, error: response.error };
     }
 
-    console.log("RESEND EMAIL RESULT:", response);
+    console.log("RESEND EMAIL RESULT:", { success: true, id: response.data?.id });
     return { success: true, data: response };
   } catch (error) {
     console.error("Resend email failed:", error);
