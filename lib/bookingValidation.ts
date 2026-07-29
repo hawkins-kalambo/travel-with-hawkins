@@ -1,6 +1,7 @@
 import "server-only";
 
-const MALAWI_PHONE_PATTERN = /^(?:\+?265|0)(?:8[0-9]|9[0-9])\d{7}$/;
+import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -33,17 +34,6 @@ function cleanText(value: unknown, maxLength: number): string {
     .slice(0, maxLength);
 }
 
-export function normalizeMalawiPhone(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-
-  const compact = value.trim().replace(/[\s().-]/g, "");
-  if (!MALAWI_PHONE_PATTERN.test(compact)) return undefined;
-
-  if (compact.startsWith("+265")) return compact;
-  if (compact.startsWith("265")) return `+${compact}`;
-  return `+265${compact.slice(1)}`;
-}
-
 export function validateBookingInput(payload: Record<string, unknown>): BookingValidationResult {
   const name = cleanText(payload.name, 100);
   const rawEmail = cleanText(payload.email, 254).toLowerCase();
@@ -57,7 +47,7 @@ export function validateBookingInput(payload: Record<string, unknown>): BookingV
   const referralCode = cleanText(payload.referralCode ?? payload.referral_code, 50).toUpperCase() || undefined;
   const seats = typeof payload.seats === "number" ? payload.seats : Number(payload.seats);
 
-  if (name.length < 2 || !/^[\p{L}\p{M}][\p{L}\p{M}\s.'’-]*$/u.test(name)) {
+  if (name.length < 2 || !/^[\p{L}\p{M}][\p{L}\p{M}\s.'\u2019-]*$/u.test(name)) {
     return { success: false, error: "Please enter a valid name." };
   }
   if (rawEmail && !EMAIL_PATTERN.test(rawEmail)) {

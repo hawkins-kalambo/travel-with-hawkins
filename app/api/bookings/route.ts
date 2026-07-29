@@ -15,7 +15,10 @@ import {
   type BookingRecord,
 } from "@/lib/bookingUtils";
 
+export const runtime = "nodejs";
+
 const supabase = supabaseAdmin;
+type NotificationStatus = "sent" | "failed" | "skipped";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -116,11 +119,16 @@ function extractRouteSettingsData(settingsData: Record<string, unknown> | null |
   return routeObjectText || routesText;
 }
 
-async function sendAdminNotification(payload: BookingRecord, bookingId: string, tripId: string, fare?: number) {
+async function sendAdminNotification(
+  payload: BookingRecord,
+  bookingId: string,
+  tripId: string,
+  fare?: number
+): Promise<NotificationStatus> {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logWarn("Admin notification skipped because ADMIN_NOTIFICATION_EMAIL is not configured.");
-    return;
+    return "skipped";
   }
   // Ensure we have a fare to show in the admin notification. If not provided,
   // attempt to resolve from the latest settings.routes so the admin sees the amount.
@@ -154,10 +162,18 @@ async function sendAdminNotification(payload: BookingRecord, bookingId: string, 
 
   if (!result.success) {
     logError("Admin notification failed", { error: result.error });
+    return "failed";
   }
+
+  return "sent";
 }
 
-async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: string, tripId: string, fare?: number) {
+async function sendUserConfirmationEmail(
+  payload: BookingRecord,
+  bookingId: string,
+  tripId: string,
+  fare?: number
+): Promise<NotificationStatus> {
   const userEmail = typeof payload.email === "string" ? payload.email.trim() : "";
   const isValidEmail = userEmail.length > 0 && userEmail.includes("@");
 
@@ -165,7 +181,7 @@ async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: stri
     logWarn("Skipping user confirmation email because email is missing or invalid", {
       emailProvided: Boolean(userEmail),
     });
-    return;
+    return "skipped";
   }
 
   logInfo("Booking confirmation email attempted", {
@@ -201,7 +217,10 @@ async function sendUserConfirmationEmail(payload: BookingRecord, bookingId: stri
 
   if (!result.success) {
     logError("User confirmation email failed", { error: result.error });
+    return "failed";
   }
+
+  return "sent";
 }
 
 export async function GET(req: Request) {
@@ -292,6 +311,12 @@ export async function POST(req: Request) {
         bookingId: existingBooking.bookingId,
         duplicate: true,
         message: "Booking already received",
+        notifications: {
+          adminEmail: "skipped",
+          customerEmail: "skipped",
+          sms: "skipped",
+          smsProviderStatus: "duplicate_submission",
+        },
       });
     }
 
@@ -398,21 +423,39 @@ export async function POST(req: Request) {
     const responseBooking = { ...record, fare: fare ?? record.fare };
     delete (responseBooking as Record<string, unknown>).tripId;
 
+    let adminEmailStatus: NotificationStatus = "failed";
+    let customerEmailStatus: NotificationStatus = "failed";
+
     try {
-      await sendAdminNotification(record, bookingId, tripId, fare);
+      adminEmailStatus = await sendAdminNotification(record, bookingId, tripId, fare);
     } catch (error) {
-      logError("Admin notification execution failed", { error });
+      logError("Admin notification execution failed", {
+        error: error instanceof Error ? error.message : "Unknown email error",
+      });
     }
 
     try {
-      await sendUserConfirmationEmail(record, bookingId, tripId, fare);
+      customerEmailStatus = await sendUserConfirmationEmail(record, bookingId, tripId, fare);
     } catch (error) {
-      logError("User confirmation email execution failed", { error });
+      logError("User confirmation email execution failed", {
+        error: error instanceof Error ? error.message : "Unknown email error",
+      });
     }
 
-    await sendBookingConfirmationSms({ bookingId, name, phone });
+    const smsResult = await sendBookingConfirmationSms({ bookingId, name, phone });
 
-    return NextResponse.json({ success: true, booking: responseBooking, bookingId, message: "Booking created" });
+    return NextResponse.json({
+      success: true,
+      booking: responseBooking,
+      bookingId,
+      message: "Booking created",
+      notifications: {
+        adminEmail: adminEmailStatus,
+        customerEmail: customerEmailStatus,
+        sms: smsResult.outcome,
+        smsProviderStatus: smsResult.status,
+      },
+    });
   } catch (error) {
     logError("Booking POST failed", {
       error: error instanceof Error ? error.message : "Unknown booking error",
