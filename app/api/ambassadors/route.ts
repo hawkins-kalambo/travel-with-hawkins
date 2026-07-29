@@ -57,10 +57,13 @@ async function findExistingAuthUserIdByEmail(email: string): Promise<string | nu
       break;
     }
 
-    const users = Array.isArray((data as { users?: unknown[] } | null)?.users) ? (data as { users?: unknown[] }).users ?? [] : [];
-    const found = users.find((user) => typeof (user as any).email === "string" && (user as any).email.trim().toLowerCase() === normalizedEmail);
-    if (found?.id) {
-      return (found as any).id;
+    const users = Array.isArray((data as unknown as { users?: unknown[] } | null)?.users)
+      ? ((data as unknown as { users?: unknown[] }).users ?? [])
+      : [];
+    const found = users.find((user) => typeof (user as { email?: unknown }).email === "string" && String((user as { email?: unknown }).email).trim().toLowerCase() === normalizedEmail);
+    const foundId = typeof (found as { id?: unknown })?.id === "string" ? (found as { id?: string }).id : undefined;
+    if (foundId) {
+      return foundId;
     }
 
     page = Number((data as { nextPage?: number } | null)?.nextPage ?? 0);
