@@ -1,26 +1,26 @@
+import "server-only";
+
 import { Resend } from "resend";
 import type { Attachment } from "resend";
 
 const resendApiKey = process.env.RESEND_API_KEY;
-const DEFAULT_FROM_ADDRESS = "Travel with Hawkins <onboarding@resend.dev>";
+const DEFAULT_FROM_ADDRESS = "Travel With Hawkins <contact@travelwithhawkins.com>";
 
 export const resend = resendApiKey ? new Resend(resendApiKey) : null;
-
-function getFromAddress() {
-  return process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_ADDRESS;
-}
 
 export async function sendEmail({
   to,
   subject,
   html,
   from,
+  replyTo,
   attachments,
 }: {
   to: string;
   subject: string;
   html: string;
   from?: string;
+  replyTo?: string;
   attachments?: Array<{
     content: string | Buffer;
     filename?: string;
@@ -33,7 +33,7 @@ export async function sendEmail({
     return { success: false, error };
   }
 
-  const resolvedFrom = from || getFromAddress();
+  const resolvedFrom = from || DEFAULT_FROM_ADDRESS;
 
   console.log("RESEND EMAIL ATTEMPT:", {
     to,
@@ -54,8 +54,14 @@ export async function sendEmail({
       to,
       subject,
       html,
+      replyTo,
       attachments: normalizedAttachments,
     });
+
+    if (response.error) {
+      console.error("Resend email failed:", response.error);
+      return { success: false, error: response.error };
+    }
 
     console.log("RESEND EMAIL RESULT:", response);
     return { success: true, data: response };
