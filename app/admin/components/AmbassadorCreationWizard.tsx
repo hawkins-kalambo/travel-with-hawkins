@@ -91,8 +91,9 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === "string") {
-        setPayload((current) => ({ ...current, profileImageBase64: reader.result ?? current.profileImageBase64 }));
-        setProfilePreview(reader.result);
+        const nextValue = reader.result;
+        setPayload((current) => ({ ...current, profileImageBase64: nextValue }));
+        setProfilePreview(nextValue);
       }
     };
     reader.readAsDataURL(file);
