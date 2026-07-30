@@ -418,7 +418,6 @@ export default function Home() {
               ))}
             </nav>
             <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-2 sm:flex">
-              <a href="/customer/login" className="rounded-full px-3 py-2 text-sm font-bold text-[#0f3f78] transition hover:bg-white">Log in</a>
               <button onClick={() => setShowTrack(true)} className="rounded-full px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-white">Track</button>
             </div>
             <button onClick={() => openBooking()} className="inline-flex items-center justify-center rounded-full bg-[#0f3f78] px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56]">
@@ -444,7 +443,6 @@ export default function Home() {
               <a key={item} href={href} onClick={() => setMenuOpen(false)} className="block rounded-md px-3 py-2 text-sm font-bold hover:bg-blue-50">{item}</a>
             ))}
             <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-3">
-              <a href="/customer/login" onClick={() => setMenuOpen(false)} className="rounded-md border border-[#0f3f78] px-3 py-2 text-center text-sm font-bold text-[#0f3f78]">Log in</a>
               <button onClick={() => { setShowTrack(true); setMenuOpen(false); }} className="rounded-md border border-slate-200 px-3 py-2 text-center text-sm font-bold text-slate-700">Track Booking</button>
               <button onClick={() => { openBooking(); setMenuOpen(false); }} className="rounded-md bg-[#0f3f78] px-3 py-2 text-center text-sm font-bold text-white">Book Trip</button>
             </div>
@@ -476,7 +474,7 @@ export default function Home() {
                 <button onClick={() => openBooking()} className="rounded-full bg-[#0f3f78] px-8 py-4 text-sm font-black text-white shadow-lg shadow-slate-950/20 transition hover:bg-[#0a2d56]">Book Trip</button>
                 <a href="#routes" className="rounded-full border border-white/70 px-8 py-4 text-sm font-black text-white/90 transition hover:bg-white/10">Explore Routes</a>
               </div>
-              <p className="mt-4 text-sm font-medium text-sky-100">No account needed to book today. Sign in later to manage your trip.</p>
+              <p className="mt-4 text-sm font-medium text-sky-100">Book your trip directly and manage your journey later when the experience is ready.</p>
               <div className="mt-6 flex items-center gap-3">
                 <div className="flex -space-x-2">
                   {["ceo.jpg", "designer.jpg", "developer.jpg"].map((img) => (
@@ -490,22 +488,21 @@ export default function Home() {
             <div className="rounded-[28px] border border-white/20 bg-slate-950/60 p-5 shadow-2xl backdrop-blur-md">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-300">Choose your portal</p>
-                  <h2 className="mt-1 text-2xl font-black text-white">Travel smarter with one account</h2>
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-300">Simple booking</p>
+                  <h2 className="mt-1 text-2xl font-black text-white">Book your trip in minutes</h2>
                 </div>
               </div>
-              <p className="mt-3 text-sm text-slate-300">Use the customer portal for bookings and trip updates, or jump to ambassador or admin access when you need a different experience.</p>
+              <p className="mt-3 text-sm text-slate-300">Reserve your seat quickly and keep the experience simple while we finish the full account experience.</p>
               <div className="mt-5 grid gap-3">
-                <a href="/customer/login" className="rounded-2xl bg-[#0f3f78] px-4 py-3 text-center text-sm font-black text-white transition hover:bg-[#0a2d56]">Traveler Portal</a>
-                <a href="/ambassador/login" className="rounded-2xl border border-white/20 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/10">Ambassador Portal</a>
-                <a href="/admin/login" className="rounded-2xl border border-white/20 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/10">Admin Portal</a>
+                <button onClick={() => openBooking()} className="rounded-2xl bg-[#0f3f78] px-4 py-3 text-center text-sm font-black text-white transition hover:bg-[#0a2d56]">Book Trip</button>
+                <a href="#routes" className="rounded-2xl border border-white/20 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/10">Explore Routes</a>
               </div>
               <div className="mt-5 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-slate-200">
-                <div className="font-semibold text-white">Why create an account?</div>
+                <div className="font-semibold text-white">Why book now?</div>
                 <ul className="mt-2 space-y-2 text-sm text-slate-300">
-                  <li>• Save bookings and trip history</li>
-                  <li>• Reuse your student and contact details</li>
-                  <li>• Receive updates without searching for booking IDs</li>
+                  <li>• Secure your seat early</li>
+                  <li>• Keep your travel plans simple</li>
+                  <li>• Get ready for the full trip experience soon</li>
                 </ul>
               </div>
             </div>
