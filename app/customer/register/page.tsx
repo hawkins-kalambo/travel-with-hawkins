@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signInWithGoogle } from "@/lib/auth";
+import { signInWithGoogle } from "@/lib/customerAuth";
 
 export default function CustomerRegisterPage() {
   const router = useRouter();

@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
-import { signInWithGoogle } from "@/lib/auth";
+import { signInWithGoogle } from "@/lib/customerAuth";
 
 export default function CustomerLoginPage() {
   return (
