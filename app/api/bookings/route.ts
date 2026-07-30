@@ -103,7 +103,10 @@ function routeObjectsToRoutesText(routeObjects: unknown): string {
     .map((item) => {
       if (!item || typeof item !== "object") return "";
       const record = item as Record<string, unknown>;
-      const routeName = String(record.route_name ?? "").trim();
+      const origin = String(record.origin ?? "").trim();
+      const destination = String(record.destination ?? "").trim();
+      const configuredRouteName = String(record.route_name ?? "").trim();
+      const routeName = configuredRouteName || (origin && destination ? `${origin} - ${destination}` : "");
       const fare = Number(record.fare ?? 0);
       if (!routeName || !Number.isFinite(fare) || fare <= 0) return "";
       return `${routeName}: ${fare}`;

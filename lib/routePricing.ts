@@ -45,7 +45,10 @@ function parseRouteObjects(routeObjects: unknown): Record<string, number> {
   for (const item of routeObjects) {
     if (!isRecord(item)) continue;
 
-    const routeName = String(item.route_name ?? item.name ?? item.route ?? "").trim();
+    const origin = String(item.origin ?? "").trim();
+    const destination = String(item.destination ?? "").trim();
+    const configuredRouteName = String(item.route_name ?? item.name ?? item.route ?? "").trim();
+    const routeName = configuredRouteName || (origin && destination ? `${origin} - ${destination}` : "");
     const fareValue = item.fare ?? item.price ?? item.amount;
     const numericPrice = typeof fareValue === "number" ? fareValue : Number(String(fareValue ?? "").replace(/[^0-9.-]/g, ""));
 

@@ -40,6 +40,19 @@ const ROUTES_DATA = [
 
 const HERO_WALLPAPERS = ["/hero.png", "/images/hero/hero1.jpg", "/images/hero/hero3.jpg", "/images/hero/hero6.jpg"];
 
+function formatTravelDate(value: string) {
+  if (!value) return "Date to be confirmed";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-MW", {
+    weekday: "short",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(parsed);
+}
+
 function StatusBadge({ status }: { status: BookingStatus }) {
   const s = String(status || "Booked");
   const colors: Record<string, string> = {
@@ -177,39 +190,40 @@ function PremiumBoardingPass(props: { name: string; studentId: string; phone: st
   };
 
   return (
-    <div className="mx-auto max-w-md overflow-hidden rounded-lg border border-blue-100 bg-white shadow-2xl">
-      <div className="flex items-center justify-between bg-[#0f3f78] px-5 py-4 text-white">
-        <div>
-          <h3 className="text-base font-black">Travel with Hawkins</h3>
-          <p className="text-[11px] text-white/75">Student Transport Boarding Pass</p>
-        </div>
-        <span className="rounded-full bg-white/12 px-3 py-1 text-[10px] font-bold uppercase">{props.bookingType}</span>
-      </div>
-      <div className="space-y-3 px-5 py-4 text-sm">
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            ["Passenger", props.name],
-            ["Student ID", props.studentId],
-            ["Phone", props.phone],
-            ["Seats", props.seats],
-            ["Destination", props.destination],
-            ["Travel Date", props.travelDate],
-            ["Fare", props.fare != null ? formatMwk(props.fare) : "—"],
-          ].map(([label, value]) => (
-            <div key={String(label)}>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
-              <p className="font-bold text-slate-900">{String(value)}</p>
-            </div>
-          ))}
-        </div>
-        <div className="rounded-md border border-blue-100 bg-blue-50 p-3">
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">Booking ID</p>
-          <p className="font-mono text-sm font-black text-[#0f3f78]">{props.bookingId}</p>
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="border-b border-dashed border-slate-300 bg-slate-50 px-5 py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Booking reference</p>
+            <p className="mt-1 break-all font-mono text-base font-black tracking-wide text-[#0f3f78]">{props.bookingId}</p>
+          </div>
+          <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[#0f3f78]">
+            {props.bookingType === "route" ? "Scheduled route" : "Custom trip"}
+          </span>
         </div>
       </div>
-      <div className="flex divide-x divide-blue-100 border-t border-blue-100">
-        <button onClick={handleCopy} className="flex-1 py-3 text-sm font-semibold text-[#0f3f78] hover:bg-blue-50">{copied ? "Copied" : "Copy Booking ID"}</button>
-        <button onClick={handleDownloadPdf} className="flex-1 py-3 text-sm font-semibold text-[#0f3f78] hover:bg-blue-50">Download PDF</button>
+
+      <div className="grid gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
+        {[
+          ["Passenger", props.name],
+          ["Student ID", props.studentId],
+          ["Phone", props.phone],
+          ["Seats reserved", `${props.seats} seat${props.seats === 1 ? "" : "s"}`],
+        ].map(([label, value]) => (
+          <div key={String(label)}>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+            <p className="mt-1 break-words text-sm font-bold text-slate-900">{String(value)}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 divide-x divide-slate-200 border-t border-slate-200">
+        <button onClick={handleCopy} className="px-3 py-3.5 text-sm font-bold text-[#0f3f78] transition hover:bg-blue-50">
+          {copied ? "Reference copied" : "Copy reference"}
+        </button>
+        <button onClick={handleDownloadPdf} className="px-3 py-3.5 text-sm font-bold text-[#0f3f78] transition hover:bg-blue-50">
+          Download PDF
+        </button>
       </div>
     </div>
   );
@@ -356,7 +370,7 @@ export default function Home() {
       const result = await res.json();
       if (result?.success) {
         const normalized = normalizeBookingRecord(result.booking ?? {});
-        const finalFare = fare ?? normalized.fare ?? resolveRouteFareIfAvailable(destination, settingsText);
+        const finalFare = normalized.fare ?? fare ?? resolveRouteFareIfAvailable(destination, settingsText);
         setSuccessData({
           name: form.name,
           studentId: form.studentId,
@@ -876,20 +890,102 @@ export default function Home() {
       )}
 
       {successData && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
-          <div className="w-full max-w-md py-6">
-            <div className="mb-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-lg">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-600">Booking confirmed</p>
-              <h3 className="mt-1 text-xl font-black text-slate-900">Your trip is booked</h3>
-              <div className="mt-3 space-y-2 text-sm text-slate-700">
-                <div className="flex items-center justify-between"><span>Route</span><span className="font-semibold">{successData.route}</span></div>
-                <div className="flex items-center justify-between"><span>Travel date</span><span className="font-semibold">{successData.travelDate}</span></div>
-                <div className="flex items-center justify-between"><span>Seats</span><span className="font-semibold">{successData.seats}</span></div>
-                <div className="flex items-center justify-between"><span>Fare</span><span className="font-semibold text-[#0f3f78]">{successData.fare != null ? formatMwk(successData.fare) : "Pending"}</span></div>
+        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-950/75 px-4 py-6 backdrop-blur-sm sm:py-10" role="dialog" aria-modal="true" aria-labelledby="booking-confirmation-title">
+          <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-[28px] bg-[#f8fafc] shadow-[0_32px_90px_rgba(2,8,23,0.38)]">
+            <div className="relative overflow-hidden bg-[#0f3f78] px-6 py-7 text-white sm:px-8">
+              <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-300/15" />
+              <div className="absolute -bottom-24 right-28 h-40 w-40 rounded-full bg-white/5" />
+              <button
+                onClick={() => setSuccessData(null)}
+                className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full border border-white/20 bg-white/10 text-xl leading-none text-white transition hover:bg-white/20"
+                aria-label="Close booking confirmation"
+              >
+                ×
+              </button>
+              <div className="relative flex items-start gap-4 pr-10">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-emerald-400 text-2xl font-black text-[#062e23] shadow-lg shadow-emerald-950/20">✓</div>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-200">Booking confirmed</p>
+                  <h2 id="booking-confirmation-title" className="mt-1 text-2xl font-black sm:text-3xl">You’re ready for your trip</h2>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-blue-100">
+                    Your seat has been reserved. Keep your booking reference handy when contacting our team.
+                  </p>
+                </div>
               </div>
             </div>
-            <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} fare={successData.fare} />
-            <div className="mt-4 text-center"><button onClick={() => setSuccessData(null)} className="rounded-md bg-[#0f3f78] px-8 py-3 font-black text-white">Done</button></div>
+
+            <div className="grid gap-6 p-5 sm:p-8 lg:grid-cols-[1.08fr_0.92fr]">
+              <div className="space-y-6">
+                <section className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+                  <div className="border-b border-blue-100 bg-blue-50/70 px-5 py-4">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0f3f78]">Journey details</p>
+                  </div>
+                  <div className="space-y-5 p-5">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Route</p>
+                      <div className="mt-2 flex items-center gap-3">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">A</span>
+                        <div className="h-px flex-1 border-t border-dashed border-slate-300" />
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-500 text-sm font-black text-white">B</span>
+                      </div>
+                      <p className="mt-2 text-base font-black text-slate-900">{successData.route}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Travel date</p>
+                        <p className="mt-1 text-sm font-bold text-slate-900">{formatTravelDate(successData.travelDate)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Seats</p>
+                        <p className="mt-1 text-sm font-bold text-slate-900">{successData.seats} reserved</p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} fare={successData.fare} />
+              </div>
+
+              <aside className="space-y-5">
+                <div className="rounded-2xl bg-[#071f3d] p-6 text-white shadow-xl shadow-blue-950/15">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-200">Route fare</p>
+                    <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-200">Payment pending</span>
+                  </div>
+                  <p className="mt-4 text-3xl font-black tracking-tight">
+                    {successData.fare != null ? formatMwk(successData.fare) : "To be confirmed"}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-300">
+                    {successData.fare != null
+                      ? "This is the fare assigned to your selected route."
+                      : "Our team will confirm the fare for this custom trip."}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">What happens next?</p>
+                  <ol className="mt-4 space-y-4">
+                    {[
+                      ["1", "Save your reference", "Use it to track your booking at any time."],
+                      ["2", "Wait for payment details", "Our team will share payment instructions with you."],
+                      ["3", "Arrive ready to travel", "Bring your student ID and booking reference."],
+                    ].map(([number, title, description]) => (
+                      <li key={number} className="flex gap-3">
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-black text-[#0f3f78]">{number}</span>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{title}</p>
+                          <p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                <button onClick={() => setSuccessData(null)} className="w-full rounded-xl bg-[#0f3f78] px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-950/10 transition hover:bg-[#0a2d56]">
+                  Done
+                </button>
+              </aside>
+            </div>
           </div>
         </div>
       )}
