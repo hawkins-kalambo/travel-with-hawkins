@@ -54,9 +54,8 @@ export async function POST(request: NextRequest) {
     }
 
     const booking = normalizeBookingRecord(data as Record<string, unknown>);
-    const { data: settingsData } = await supabaseAdmin.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-    const resolvedRouteFare = resolveRouteFareIfAvailable(booking.destination, routesText);
+    const { data: settingsData } = await supabaseAdmin.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const resolvedRouteFare = resolveRouteFareIfAvailable(booking.destination, settingsData as Record<string, unknown> | undefined);
     const bookingWithFare = {
       ...booking,
       fare:

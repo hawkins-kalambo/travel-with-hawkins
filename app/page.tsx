@@ -5,7 +5,7 @@ import Image from "next/image";
 import WhatsAppButton, { whatsappUrl } from "./components/WhatsAppButton";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { logoPngBase64 } from "@/lib/logoBase64";
-import { formatMwk, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { formatMwk, parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -231,7 +231,7 @@ export default function Home() {
   const [trackResult, setTrackResult] = useState<BookingRecord | null>(null);
   const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
   const [routePrices, setRoutePrices] = useState<Record<string, number>>({});
-  const [settingsText, setSettingsText] = useState("");
+  const [settingsText, setSettingsText] = useState<string | Record<string, unknown>>("");
   const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; travelDate: string; bookingId: string; seats: number; fare?: number } | null>(null);
   const [referralValidation, setReferralValidation] = useState<{ state: "idle" | "checking" | "valid" | "invalid"; message?: string }>({ state: "idle" });
   const [form, setForm] = useState(() => {
@@ -276,22 +276,11 @@ export default function Home() {
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
         const data = await res.json();
-        const routesText = typeof data?.settings?.routes === "string" ? data.settings.routes : "";
-        const parsedPrices: Record<string, number> = {};
-        if (routesText) {
-          for (const line of routesText.split(/\r?\n/)) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            const separatorIndex = trimmed.indexOf(":");
-            if (separatorIndex === -1) continue;
-            const route = trimmed.slice(0, separatorIndex).trim();
-            const rawPrice = trimmed.slice(separatorIndex + 1).trim();
-            const numericPrice = Number(rawPrice.replace(/[^0-9.-]/g, ""));
-            if (route && Number.isFinite(numericPrice) && numericPrice > 0) parsedPrices[route] = numericPrice;
-          }
-        }
+        const rawSettings = data?.settings;
+        const routesText = typeof rawSettings?.routes === "string" ? rawSettings.routes : "";
+        const parsedPrices = parseRoutePrices(rawSettings);
         setRoutePrices(parsedPrices);
-        setSettingsText(routesText);
+        setSettingsText(typeof rawSettings === "object" && rawSettings != null ? rawSettings : routesText);
       } catch {}
     };
 

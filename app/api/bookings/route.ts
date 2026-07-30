@@ -195,9 +195,8 @@ async function sendUserConfirmationEmail(
   // If fare was not provided, try to resolve it from settings so the user sees the amount.
   try {
     if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
-      const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-      const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-      const resolved = resolveRouteFareIfAvailable(payload.destination, routesText);
+      const { data: settingsData } = await supabase.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const resolved = resolveRouteFareIfAvailable(payload.destination, settingsData as Record<string, unknown> | undefined);
       if (typeof resolved === "number" && Number.isFinite(resolved) && resolved > 0) fare = resolved;
     }
   } catch {

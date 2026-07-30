@@ -9,7 +9,11 @@ function normalizeRouteText(value: string | undefined): string {
     .toLowerCase();
 }
 
-export function parseRoutePrices(routesText: string): Record<string, number> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseRoutePriceLines(routesText: string): Record<string, number> {
   const prices: Record<string, number> = {};
 
   if (!routesText || typeof routesText !== "string") return prices;
@@ -33,11 +37,47 @@ export function parseRoutePrices(routesText: string): Record<string, number> {
   return prices;
 }
 
-export function resolveRouteFare(destination: string | undefined, routesText: string | undefined, fallback = 5000): number {
+function parseRouteObjects(routeObjects: unknown): Record<string, number> {
+  const prices: Record<string, number> = {};
+
+  if (!Array.isArray(routeObjects)) return prices;
+
+  for (const item of routeObjects) {
+    if (!isRecord(item)) continue;
+
+    const routeName = String(item.route_name ?? item.name ?? item.route ?? "").trim();
+    const fareValue = item.fare ?? item.price ?? item.amount;
+    const numericPrice = typeof fareValue === "number" ? fareValue : Number(String(fareValue ?? "").replace(/[^0-9.-]/g, ""));
+
+    if (routeName && Number.isFinite(numericPrice) && numericPrice > 0) {
+      prices[normalizeRouteText(routeName)] = numericPrice;
+    }
+  }
+
+  return prices;
+}
+
+export function parseRoutePrices(routesTextOrSettings: string | Record<string, unknown> | null | undefined): Record<string, number> {
+  if (!routesTextOrSettings) return {};
+
+  if (typeof routesTextOrSettings === "string") {
+    return parseRoutePriceLines(routesTextOrSettings);
+  }
+
+  const settings = isRecord(routesTextOrSettings.settings) ? routesTextOrSettings.settings : routesTextOrSettings;
+  const prices: Record<string, number> = {
+    ...parseRoutePriceLines(typeof settings.routes === "string" ? settings.routes : ""),
+    ...parseRouteObjects(settings.route_objects),
+  };
+
+  return prices;
+}
+
+export function resolveRouteFare(destination: string | undefined, routesText: string | Record<string, unknown> | undefined, fallback = 5000): number {
   return resolveRouteFareIfAvailable(destination, routesText) ?? fallback;
 }
 
-export function resolveRouteFareIfAvailable(destination: string | undefined, routesText: string | undefined): number | undefined {
+export function resolveRouteFareIfAvailable(destination: string | undefined, routesText: string | Record<string, unknown> | undefined): number | undefined {
   const prices = parseRoutePrices(routesText || "");
   const normalizedDestination = normalizeRouteText(destination);
 

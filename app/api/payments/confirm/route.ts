@@ -97,13 +97,12 @@ export async function POST(request: NextRequest) {
       if (!fareToStore) {
         const { data: settingsData } = await supabaseAdmin
           .from("settings")
-          .select("routes")
+          .select("routes, route_objects")
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-        const resolvedFare = resolveRouteFareIfAvailable(record.destination, routesText);
+        const resolvedFare = resolveRouteFareIfAvailable(record.destination, settingsData as Record<string, unknown> | undefined);
         if (typeof resolvedFare === "number" && Number.isFinite(resolvedFare) && resolvedFare > 0) fareToStore = resolvedFare;
       }
     } catch {
