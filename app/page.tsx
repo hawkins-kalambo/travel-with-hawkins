@@ -829,12 +829,8 @@ export default function Home() {
                 <select className="template-input" value={form.seats} onChange={(e) => setForm({ ...form, seats: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n} seat{n > 1 ? "s" : ""}</option>)}</select>
               </div>
               <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
-                <p className="font-semibold text-[#0f3f78]">No account needed to book today</p>
-                <p className="mt-1">You can continue as a guest now and sign in later to manage your trip details.</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <a href="/customer/login" className="rounded-md border border-[#0f3f78] px-3 py-2 text-sm font-bold text-[#0f3f78]">Log in</a>
-                  <a href="/customer/register" className="rounded-md bg-[#0f3f78] px-3 py-2 text-sm font-bold text-white">Create account</a>
-                </div>
+                <p className="font-semibold text-[#0f3f78]">Booking is available now</p>
+                <p className="mt-1">You can continue as a guest and receive your booking confirmation right away.</p>
               </div>
               <button onClick={handleBooking} disabled={loading || !isFormValid()} className="w-full rounded-md bg-[#0f3f78] py-3.5 font-black text-white disabled:bg-slate-300">{loading ? "Processing..." : "Confirm Booking"}</button>
             </div>
@@ -881,7 +877,17 @@ export default function Home() {
 
       {successData && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black/60 p-4">
-          <div className="py-6">
+          <div className="w-full max-w-md py-6">
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-lg">
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-600">Booking confirmed</p>
+              <h3 className="mt-1 text-xl font-black text-slate-900">Your trip is booked</h3>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <div className="flex items-center justify-between"><span>Route</span><span className="font-semibold">{successData.route}</span></div>
+                <div className="flex items-center justify-between"><span>Travel date</span><span className="font-semibold">{successData.travelDate}</span></div>
+                <div className="flex items-center justify-between"><span>Seats</span><span className="font-semibold">{successData.seats}</span></div>
+                <div className="flex items-center justify-between"><span>Fare</span><span className="font-semibold text-[#0f3f78]">{successData.fare != null ? formatMwk(successData.fare) : "Pending"}</span></div>
+              </div>
+            </div>
             <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} fare={successData.fare} />
             <div className="mt-4 text-center"><button onClick={() => setSuccessData(null)} className="rounded-md bg-[#0f3f78] px-8 py-3 font-black text-white">Done</button></div>
           </div>
