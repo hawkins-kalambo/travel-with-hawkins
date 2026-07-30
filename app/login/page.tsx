@@ -10,7 +10,7 @@ async function handleForgotPassword(email: string) {
     return { success: false, message: "Please enter your email address first." };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
     redirectTo: `${appUrl.replace(/\/$/, "")}/reset-password`,
   });

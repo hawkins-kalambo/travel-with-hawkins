@@ -304,7 +304,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://travelwithhawkins.com";
       const html = buildAmbassadorWelcomeEmailHtml({
         ambassadorName: fullName,
         email,

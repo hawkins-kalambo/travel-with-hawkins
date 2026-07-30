@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
 // ================= SUPABASE CLIENT =================
 
@@ -13,13 +14,22 @@ if (!supabaseAnonKey) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
 }
 
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-  },
-});
+const isBrowser = typeof window !== "undefined";
+
+export const supabase = isBrowser
+  ? createBrowserClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+      },
+    })
+  : createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
 
 // ================= AUTH HELPERS =================
 
@@ -108,5 +118,31 @@ export async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
     return res;
   } catch {
     return doFetch();
+  }
+}
+
+export async function signInWithGoogle(): Promise<{ success: boolean; error?: string }> {
+  try {
+    const appUrl = typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || "https://travelwithhawkins.com";
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${appUrl}/auth/callback`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Google sign in error", error);
+    return { success: false, error: error instanceof Error ? error.message : "Google sign in failed" };
   }
 }

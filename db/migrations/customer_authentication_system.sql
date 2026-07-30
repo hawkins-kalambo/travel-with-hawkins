@@ -332,11 +332,11 @@ CREATE OR REPLACE FUNCTION public.link_guest_bookings_to_customer(
 )
 RETURNS TABLE(linked_count INTEGER, linked_booking_ids TEXT[]) AS $$
 DECLARE
-    v_guest_bookings UUID[];
+    v_guest_bookings TEXT[];
     v_count INTEGER;
 BEGIN
     -- Find all guest bookings with this email
-    SELECT ARRAY_AGG(id)
+    SELECT ARRAY_AGG(id::TEXT)
     INTO v_guest_bookings
     FROM public.bookings
     WHERE email = LOWER(TRIM(p_email)) 

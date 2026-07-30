@@ -204,7 +204,7 @@ export async function loginCustomer(data: CustomerLoginData): Promise<{ success:
 
 export async function signInWithGoogle(): Promise<{ success: boolean; error?: string }> {
   try {
-    const appUrl = typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || "https://travel-with-hawkins.vercel.app";
+    const appUrl = typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || "https://travelwithhawkins.com";
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -232,7 +232,7 @@ export async function signInWithGoogle(): Promise<{ success: boolean; error?: st
 
 export async function requestPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const appUrl = typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || "https://travel-with-hawkins.vercel.app";
+    const appUrl = typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || "https://travelwithhawkins.com";
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
       redirectTo: `${appUrl}/reset-password`,

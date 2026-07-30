@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     if (fetchError) throw fetchError;
     if (!ambassador) return jsonError("Ambassador account not found", 404);
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://travelwithhawkins.com";
     const html = buildAmbassadorWelcomeEmailHtml({
       ambassadorName: String(ambassador.full_name || email),
       email,

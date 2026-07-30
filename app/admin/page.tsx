@@ -1676,8 +1676,8 @@ const filtered = useMemo(() => {
                           email={createdAmbassadorCredentials.email}
                           temporaryPassword={createdAmbassadorCredentials.temporaryPassword}
                           referralCode={createdAmbassadorCredentials.referralCode}
-                          referralLink={`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app"}/book?ref=${encodeURIComponent(createdAmbassadorCredentials.referralCode)}`}
-                          loginUrl={typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL ?? "https://travel-with-hawkins.vercel.app"}
+                          referralLink={`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL ?? "https://travelwithhawkins.com"}/book?ref=${encodeURIComponent(createdAmbassadorCredentials.referralCode)}`}
+                          loginUrl={typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL ?? "https://travelwithhawkins.com"}
                           onClose={() => setCreatedAmbassadorCredentials(null)}
                           onResendEmail={async () => {
                             if (!createdAmbassadorCredentials) return;

@@ -143,7 +143,7 @@ async function ensureUniqueUsername(baseUsername: string) {
 }
 
 function getReferralLink(code: string) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
   return `${appUrl.replace(/\/$/, "")}/book?ref=${encodeURIComponent(code)}`;
 }
 

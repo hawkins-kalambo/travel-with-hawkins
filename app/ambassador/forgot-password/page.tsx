@@ -14,7 +14,7 @@ export default function AmbassadorForgotPasswordPage() {
     setLoading(true);
     setMessage("");
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: `${appUrl.replace(/\/$/, "")}/reset-password`,
     });

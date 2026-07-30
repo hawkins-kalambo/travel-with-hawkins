@@ -64,7 +64,7 @@ export function buildAmbassadorWelcomeEmailHtml(options: {
                 </div>
 
                 <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#64748b;">Please change your password after logging in for the first time.</p>
-                <p style="margin:10px 0 0;font-size:13px;line-height:1.7;color:#64748b;">Need help? Contact us at <a href="mailto:support@travel-with-hawkins.com" style="color:#0f3f78;text-decoration:none;">support@travel-with-hawkins.com</a> or +265 989 127 308.</p>
+                <p style="margin:10px 0 0;font-size:13px;line-height:1.7;color:#64748b;">Need help? Contact us at <a href="mailto:travelwithhawkins@gmail.com" style="color:#0f3f78;text-decoration:none;">travelwithhawkins@gmail.com</a> or +265 989 127 308.</p>
               </td>
             </tr>
             <tr>

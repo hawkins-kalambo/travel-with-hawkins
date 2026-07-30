@@ -13,7 +13,7 @@ async function handleForgotPassword(email: string) {
   const appUrl =
     typeof window !== "undefined"
       ? window.location.origin
-      : process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travel-with-hawkins.vercel.app";
+      : process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
 
   const redirectTo = `${appUrl.replace(/\/$/, "")}/reset-password`;
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
