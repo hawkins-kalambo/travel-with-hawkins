@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
 
-export default function AuthCallbackPage() {
+function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState("");
@@ -48,7 +48,7 @@ export default function AuthCallbackPage() {
                 phone: phone,
                 customer_type: "public_traveler",
                 customer_number: `CUST-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-                email_verified: data.user.email_confirmed || false,
+                email_verified: Boolean(data.user.email_confirmed_at),
                 account_status: "active",
               },
             ]);
@@ -123,4 +123,12 @@ export default function AuthCallbackPage() {
   }
 
   return null;
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50"><div className="text-center"><p className="text-slate-600">Loading...</p></div></div>}>
+      <AuthCallbackContent />
+    </Suspense>
+  );
 }
