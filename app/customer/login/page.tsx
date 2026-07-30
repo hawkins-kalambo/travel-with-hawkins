@@ -1,12 +1,52 @@
 "use client";
 
-import { FormEvent, useState, useEffect } from "react";
+import { FormEvent, Suspense, useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
+import { signInWithGoogle } from "@/lib/auth";
 
 export default function CustomerLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="min-h-screen bg-gradient-to-br from-[#0A4D8C] to-[#0f3f78] px-4 py-8 sm:px-6 lg:px-8"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
+              <div className="flex flex-col justify-center text-white lg:pr-12">
+                <div className="mb-8 h-14 w-14 animate-pulse rounded-full bg-white/20" />
+                <div className="space-y-4">
+                  <div className="h-10 w-3/4 animate-pulse rounded-full bg-white/20" />
+                  <div className="h-4 w-full animate-pulse rounded-full bg-white/20" />
+                  <div className="h-4 w-5/6 animate-pulse rounded-full bg-white/20" />
+                </div>
+              </div>
+              <div className="flex items-center justify-center">
+                <div className="w-full max-w-md rounded-[28px] border border-white/20 bg-white p-6 shadow-2xl sm:p-8">
+                  <div className="space-y-4">
+                    <div className="h-4 w-1/2 animate-pulse rounded-full bg-slate-200" />
+                    <div className="h-10 animate-pulse rounded-2xl bg-slate-200" />
+                    <div className="h-10 animate-pulse rounded-2xl bg-slate-200" />
+                    <div className="h-10 animate-pulse rounded-2xl bg-slate-200" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <CustomerLoginContent />
+    </Suspense>
+  );
+}
+
+function CustomerLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered");
@@ -14,6 +54,7 @@ export default function CustomerLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
@@ -212,11 +253,22 @@ export default function CustomerLoginPage() {
                   </div>
 
                   <button
-                    onClick={() => {
-                      const appUrl = window.location.origin;
-                      window.location.href = `${appUrl}/api/auth/google?redirectTo=/customer/dashboard`;
+                    onClick={async () => {
+                      setError("");
+                      setGoogleLoading(true);
+                      try {
+                        const result = await signInWithGoogle();
+                        if (!result.success) {
+                          setError(result.error || "Unable to continue with Google");
+                        }
+                      } catch (err: unknown) {
+                        setError(err instanceof Error ? err.message : "An error occurred");
+                      } finally {
+                        setGoogleLoading(false);
+                      }
                     }}
-                    className="w-full flex items-center justify-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    disabled={googleLoading}
+                    className="w-full flex items-center justify-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
@@ -224,7 +276,7 @@ export default function CustomerLoginPage() {
                       <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
                       <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                     </svg>
-                    Continue with Google
+                    {googleLoading ? "Redirecting..." : "Continue with Google"}
                   </button>
                 </>
               ) : (
