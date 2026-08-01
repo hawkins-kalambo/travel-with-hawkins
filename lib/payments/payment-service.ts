@@ -170,3 +170,54 @@ export async function initiatePayChanguPayment(input: InitiatePaymentInput): Pro
 
   return { outcome: "initialized", checkoutUrl, txRef, amount: expectedAmount };
 }
+
+export type SelectCashFareResult = { outcome: "selected" } | { outcome: "rejected"; reason: string };
+
+// Lets a guest declare "I'll pay the transport fare in cash on my travel
+// day" instead of paying online. Same ownership proof as every other guest
+// booking action (bookingId + contact) — no online payment or amount
+// authority is exercised here, just a fare_status/fare_payment_method flip,
+// so unlike initiatePayChanguPayment there is no `payments` row involved.
+export async function selectCashFarePayment(bookingId: string, contact: string): Promise<SelectCashFareResult> {
+  const trimmedId = bookingId.trim();
+  const trimmedContact = contact.trim();
+
+  if (!trimmedId || !trimmedContact) {
+    return { outcome: "rejected", reason: "missing_booking_or_contact" };
+  }
+
+  const lookup = await loadBookingById(trimmedId);
+  if (!lookup.found) {
+    return { outcome: "rejected", reason: "booking_not_found" };
+  }
+
+  if (!contactMatchesBooking(lookup.booking, trimmedContact)) {
+    return { outcome: "rejected", reason: "booking_not_found" };
+  }
+
+  const booking = lookup.booking;
+
+  if (booking.status === "Cancelled") {
+    return { outcome: "rejected", reason: "booking_cancelled" };
+  }
+
+  if (booking.bookingFeeStatus !== "paid") {
+    return { outcome: "rejected", reason: "booking_fee_not_paid" };
+  }
+
+  if (booking.fareStatus === "paid" || booking.fareStatus === "cash_collected") {
+    return { outcome: "rejected", reason: "fare_already_paid" };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("bookings")
+    .update({ fare_status: "cash_selected", fare_payment_method: "cash" })
+    .eq("booking_id", booking.bookingId);
+
+  if (error) {
+    logError("Failed to record cash fare selection", { error: error.message, bookingId: trimmedId });
+    return { outcome: "rejected", reason: "update_failed" };
+  }
+
+  return { outcome: "selected" };
+}

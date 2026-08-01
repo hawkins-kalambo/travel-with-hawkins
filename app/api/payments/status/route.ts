@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isRateLimited } from "@/lib/rateLimit";
 import { verifyAndFinalizePayment } from "@/lib/payments/finalize-flow";
+import { loadBookingById } from "@/lib/bookingAccess";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 export const runtime = "nodejs";
 
@@ -52,10 +55,58 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, status: "pending" });
   }
 
+  // The caller already proved ownership of this checkout session by
+  // possessing its tx_ref (see the trust-model note above), so it's safe to
+  // hand back the receipt data for the booking that tx_ref just paid for —
+  // this lets the return page render/download the receipt without requiring
+  // the guest to be logged in.
+  let receipt: Record<string, unknown> | null = null;
+  const lookup = await loadBookingById(result.bookingId);
+  if (lookup.found) {
+    const booking = lookup.booking;
+    const { data: settingsData } = await supabaseAdmin
+      .from("settings")
+      .select("routes, route_objects")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const resolvedRouteFare = resolveRouteFareIfAvailable(booking.destination, settingsData as Record<string, unknown> | undefined);
+
+    // The legacy paymentStatus/receiptNumber/paymentConfirmedAt fields are
+    // only ever written by the manual admin "Confirm Payment" flow (see
+    // app/admin/page.tsx) — this automated PayChangu path never touches
+    // them, so they can't be used here. Instead, describe exactly what this
+    // tx_ref just paid for using the booking_fee_status/fare_status fields
+    // finalize_payment actually updates, and fall back to the tx_ref itself
+    // (already known to this caller) as the receipt number when no manual
+    // receipt number has been assigned.
+    const paidBookingFee = result.paymentType === "booking_fee";
+    receipt = {
+      bookingId: booking.bookingId,
+      tripId: booking.tripId,
+      name: booking.name,
+      phone: booking.phone,
+      studentId: booking.studentId,
+      destination: booking.destination,
+      pickup: booking.pickup,
+      travelDate: booking.travelDate,
+      seats: booking.seats,
+      bookingType: booking.bookingType,
+      paymentStatus: paidBookingFee ? "Booking Fee Paid" : "Transport Fare Paid",
+      paymentConfirmedAt: paidBookingFee ? booking.bookingFeePaidAt : booking.farePaidAt,
+      receiptNumber: booking.receiptNumber || txRef,
+      fare:
+        typeof booking.fare === "number" && Number.isFinite(booking.fare) && booking.fare > 0
+          ? booking.fare
+          : resolvedRouteFare,
+    };
+  }
+
   return NextResponse.json({
     success: true,
     status: "paid",
     paymentType: result.paymentType,
     bookingId: result.bookingId,
+    receipt,
   });
 }

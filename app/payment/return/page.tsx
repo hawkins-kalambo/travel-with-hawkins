@@ -3,6 +3,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import type { BookingRecord } from "@/lib/bookingTypes";
+import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
 
 type StatusOutcome = "checking" | "paid" | "pending" | "failed" | "error";
 
@@ -15,6 +17,9 @@ function ReturnContent() {
 
   const [outcome, setOutcome] = useState<StatusOutcome>(txRef ? "checking" : "error");
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [receiptName, setReceiptName] = useState<string>("receipt.pdf");
+  const downloadedRef = useRef(false);
   const pollCountRef = useRef(0);
 
   useEffect(() => {
@@ -40,6 +45,26 @@ function ReturnContent() {
 
         if (result.status === "paid") {
           setBookingId(result.bookingId || null);
+
+          const receipt = result.receipt as BookingRecord | null | undefined;
+          if (receipt && !downloadedRef.current) {
+            downloadedRef.current = true;
+            try {
+              const pdfBlob = generateReceiptPdfBlob(receipt);
+              const url = URL.createObjectURL(pdfBlob);
+              const filename = `${receipt.receiptNumber || receipt.bookingId || "receipt"}.pdf`;
+              setReceiptUrl(url);
+              setReceiptName(filename);
+
+              const anchor = document.createElement("a");
+              anchor.href = url;
+              anchor.download = filename;
+              anchor.click();
+            } catch (e) {
+              console.error("Receipt generation failed", e);
+            }
+          }
+
           setOutcome("paid");
           return;
         }
@@ -67,6 +92,12 @@ function ReturnContent() {
     };
   }, [txRef]);
 
+  useEffect(() => {
+    return () => {
+      if (receiptUrl) URL.revokeObjectURL(receiptUrl);
+    };
+  }, [receiptUrl]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl">
@@ -91,7 +122,24 @@ function ReturnContent() {
                 "Your payment was successful."
               )}
             </p>
-            <Link href="/" className="mt-6 inline-block w-full rounded-xl bg-[#0f3f78] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0a2d56]">
+
+            {receiptUrl ? (
+              <>
+                <p className="mt-3 text-xs text-slate-500">Your receipt has downloaded automatically.</p>
+                <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
+                  <iframe src={receiptUrl} title="Payment receipt" className="h-72 w-full" />
+                </div>
+                <a
+                  href={receiptUrl}
+                  download={receiptName}
+                  className="mt-4 inline-block w-full rounded-xl border-2 border-[#0f3f78] px-6 py-3 text-sm font-black text-[#0f3f78] transition hover:bg-slate-50"
+                >
+                  Download receipt again
+                </a>
+              </>
+            ) : null}
+
+            <Link href="/" className="mt-3 inline-block w-full rounded-xl bg-[#0f3f78] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0a2d56]">
               Back to homepage
             </Link>
           </>

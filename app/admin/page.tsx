@@ -336,6 +336,7 @@ function AdminPageContent() {
   const [search, setSearch] = useState("");
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [paymentUpdating, setPaymentUpdating] = useState<string | null>(null);
+  const [fareCashUpdating, setFareCashUpdating] = useState<string | null>(null);
   const [sendingReceipt, setSendingReceipt] = useState<string | null>(null);
   const [generatedReceiptBookingId, setGeneratedReceiptBookingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -1459,6 +1460,37 @@ const filtered = useMemo(() => {
                                       className={`${PAYMENT_STATUS_COLORS["Payment Confirmed"].button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
                                     >
                                       {paymentUpdating === b.bookingId ? "..." : b.paymentStatus === "Payment Confirmed" ? "Paid" : "Confirm Payment"}
+                                    </button>
+                                  ) : null}
+
+                                  {!isViewer && b.fareStatus !== "paid" && b.fareStatus !== "cash_collected" ? (
+                                    <button
+                                      onClick={async () => {
+                                        const id = b.bookingId || "";
+                                        if (!id) return;
+                                        setFareCashUpdating(id);
+                                        try {
+                                          const res = await authFetch("/api/payments/fare/confirm-cash", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ bookingId: id }),
+                                          });
+                                          const result = await res.json();
+                                          if (!result?.success) {
+                                            alert(result?.error || "Failed to record cash fare collection");
+                                          }
+                                        } catch (e) {
+                                          console.error(e);
+                                          alert("Network error recording cash fare collection");
+                                        } finally {
+                                          await refreshBookings();
+                                          setFareCashUpdating(null);
+                                        }
+                                      }}
+                                      disabled={fareCashUpdating === b.bookingId}
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition"
+                                    >
+                                      {fareCashUpdating === b.bookingId ? "..." : "Mark Fare Cash Collected"}
                                     </button>
                                   ) : null}
 

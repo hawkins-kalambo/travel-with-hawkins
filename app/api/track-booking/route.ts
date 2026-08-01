@@ -22,7 +22,10 @@ function jsonError(message: string, status = 400) {
 function toGuestSafeView(record: BookingRecord) {
   return {
     bookingId: record.bookingId,
+    tripId: record.tripId,
     name: record.name,
+    phone: record.phone,
+    studentId: record.studentId,
     destination: record.destination,
     travelDate: record.travelDate,
     seats: record.seats,
@@ -35,9 +38,12 @@ function toGuestSafeView(record: BookingRecord) {
     fare: record.fare,
     bookingFeeAmount: record.bookingFeeAmount,
     bookingFeeStatus: record.bookingFeeStatus,
+    bookingFeePaidAt: record.bookingFeePaidAt,
     bookingExpiresAt: record.bookingExpiresAt,
     fareStatus: record.fareStatus,
     farePaymentMethod: record.farePaymentMethod,
+    farePaidAt: record.farePaidAt,
+    fareCashCollectedAt: record.fareCashCollectedAt,
   };
 }
 
