@@ -8,7 +8,7 @@ type CustomizeJourneyBannerProps = {
 
 export default function CustomizeJourneyBanner({ onCustomize }: CustomizeJourneyBannerProps) {
   return (
-    <section id="customize" className="scroll-mt-24 px-4 py-8">
+    <section id="customize" className="scroll-mt-24 px-4 py-10 sm:py-8">
       <div className="mx-auto grid max-w-6xl items-center gap-8 overflow-hidden rounded-3xl bg-[#071f3d] p-6 text-white sm:p-10 lg:grid-cols-2">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-300">Build Your Own Trip</p>

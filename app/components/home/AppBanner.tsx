@@ -2,7 +2,7 @@ import Image from "next/image";
 
 export default function AppBanner() {
   return (
-    <section className="px-4 py-8">
+    <section className="px-4 py-10 sm:py-8">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 overflow-hidden rounded-3xl bg-[#071f3d] p-6 text-center text-white sm:p-10 lg:flex-row lg:text-left">
         <div className="relative h-40 w-full max-w-[220px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 lg:h-48">
           <Image src="/images/playstore.png" fill sizes="220px" className="object-cover" alt="The Travel with Hawkins app preview" />

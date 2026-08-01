@@ -9,7 +9,7 @@ const STATS = [
 
 export default function StatsStrip() {
   return (
-    <section className="bg-[#f4f8fd] px-4 py-8">
+    <section className="bg-[#f4f8fd] px-4 py-10 sm:py-8">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm sm:p-6 md:grid-cols-4">
         {STATS.map(({ value, label, Icon }) => (
           <div key={label} className="flex items-center gap-3 border-slate-200 md:border-r md:last:border-r-0">

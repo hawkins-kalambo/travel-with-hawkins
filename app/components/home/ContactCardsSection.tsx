@@ -9,7 +9,7 @@ const CONTACT_PHONES = [
 
 export default function ContactCardsSection() {
   return (
-    <section className="px-4 pb-8">
+    <section className="px-4 pb-8 pt-8 sm:pt-0">
       <div className="mx-auto grid max-w-6xl gap-4 rounded-3xl bg-[#071f3d] p-6 text-white sm:p-8 md:grid-cols-3">
         <a
           href={whatsappUrl}

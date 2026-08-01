@@ -16,7 +16,7 @@ const HOW_IT_WORKS = [
 
 export default function WhyChooseUsSection() {
   return (
-    <section id="how-it-works" className="scroll-mt-24 bg-white px-4 py-10">
+    <section id="how-it-works" className="scroll-mt-24 border-t border-slate-100 bg-white px-4 py-12 sm:border-t-0 sm:py-10">
       <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-xl font-black text-[#101815] sm:text-2xl">Why Choose Us</h2>

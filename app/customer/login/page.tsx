@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
 import { signInWithGoogle } from "@/lib/customerAuth";
+import AuthTabs from "../../components/AuthTabs";
 
 export default function CustomerLoginPage() {
   return (
@@ -173,6 +174,8 @@ function CustomerLoginContent() {
           {/* Right Side - Login Form */}
           <div className="flex items-center justify-center">
             <div className="w-full max-w-md rounded-[28px] border border-white/20 bg-white p-6 shadow-2xl sm:p-8">
+              <AuthTabs active="signin" />
+
               <div className="mb-8 text-center">
                 <h2 className="text-2xl font-black text-slate-900">Sign in to your account</h2>
                 <p className="mt-2 text-sm text-slate-600">Stay updated on your trips and bookings</p>

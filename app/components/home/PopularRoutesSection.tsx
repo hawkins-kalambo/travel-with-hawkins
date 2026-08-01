@@ -18,7 +18,7 @@ type PopularRoutesSectionProps = {
 
 export default function PopularRoutesSection({ routePrices, onBookRoute, onCustomize }: PopularRoutesSectionProps) {
   return (
-    <section id="routes" className="scroll-mt-24 bg-white px-4 py-10 sm:py-12">
+    <section id="routes" className="scroll-mt-24 border-t border-slate-100 bg-white px-4 py-12 sm:border-t-0 sm:py-12">
       <div className="mx-auto max-w-7xl">
         <div className="mb-5 flex items-end justify-between gap-4">
           <div>

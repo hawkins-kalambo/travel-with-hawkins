@@ -29,7 +29,7 @@ const FAQ_ITEMS = [
 
 export default function FAQSection() {
   return (
-    <section id="help-center" className="scroll-mt-24 px-4 pb-12">
+    <section id="help-center" className="scroll-mt-24 border-t border-slate-100 px-4 pb-12 pt-10 sm:border-t-0 sm:pt-0">
       <div className="mx-auto max-w-6xl">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0f3f78]">Frequently Asked Questions</p>
         <h2 className="text-2xl font-black text-[#101815] sm:text-3xl">Got Questions? We&apos;ve Got Answers</h2>

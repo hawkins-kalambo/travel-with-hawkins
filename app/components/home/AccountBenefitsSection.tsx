@@ -21,7 +21,7 @@ const ACCOUNT_BENEFITS = [
 
 export default function AccountBenefitsSection() {
   return (
-    <section id="why-account" className="bg-[#f8fbff] px-4 py-10">
+    <section id="why-account" className="bg-[#f8fbff] px-4 py-12 sm:py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 text-center">
           <h2 className="mt-1 text-2xl font-black text-[#101815] sm:text-3xl">Your Account. Your Journey.</h2>
