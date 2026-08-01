@@ -30,14 +30,46 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       return jsonError("Conversation not found or access denied", 404);
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("communication_messages")
-      .select("id, sender_id, body, html, attachments, created_at")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+    const [{ data: messages, error }, { data: conversation }, { data: participants }] = await Promise.all([
+      supabaseAdmin
+        .from("communication_messages")
+        .select("id, sender_id, body, html, attachments, created_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true }),
+      supabaseAdmin.from("communication_conversations").select("id, title, conversation_type, updated_at").eq("id", conversationId).maybeSingle(),
+      supabaseAdmin
+        .from("communication_conversation_participants")
+        .select("profile_id, role, profiles(id, full_name, role)")
+        .eq("conversation_id", conversationId)
+        .eq("deleted", false),
+    ]);
 
     if (error) throw error;
-    return NextResponse.json({ success: true, messages: data ?? [] });
+
+    await supabaseAdmin
+      .from("communication_conversation_participants")
+      .update({ last_read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .eq("profile_id", profileId);
+
+    const senderIds = Array.from(new Set((messages ?? []).map((entry) => entry.sender_id).filter(Boolean)));
+    const { data: senderProfiles } = senderIds.length
+      ? await supabaseAdmin.from("profiles").select("id, full_name, role").in("id", senderIds)
+      : { data: [] };
+    const senderMap = new Map((senderProfiles ?? []).map((entry) => [entry.id, entry]));
+
+    const enrichedMessages = (messages ?? []).map((entry) => ({
+      ...entry,
+      sender_name: senderMap.get(entry.sender_id ?? "")?.full_name ?? "Travel with Hawkins",
+      sender_role: senderMap.get(entry.sender_id ?? "")?.role ?? null,
+    }));
+
+    return NextResponse.json({
+      success: true,
+      messages: enrichedMessages,
+      conversation: conversation ?? null,
+      participants: participants ?? [],
+    });
   } catch (err) {
     console.error("GET /api/communication/conversations/[id] error", err);
     return jsonError(err instanceof Error ? err.message : "Unable to load messages", 500);
@@ -87,6 +119,43 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       .single();
 
     if (error) throw error;
+
+    await supabaseAdmin
+      .from("communication_conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    const [{ data: otherParticipants }, { data: senderProfile }, { data: conversation }] = await Promise.all([
+      supabaseAdmin
+        .from("communication_conversation_participants")
+        .select("profile_id")
+        .eq("conversation_id", conversationId)
+        .eq("deleted", false)
+        .neq("profile_id", profileId),
+      supabaseAdmin.from("profiles").select("full_name").eq("id", profileId).maybeSingle(),
+      supabaseAdmin.from("communication_conversations").select("title").eq("id", conversationId).maybeSingle(),
+    ]);
+
+    const notifications = (otherParticipants ?? [])
+      .filter((participant) => participant?.profile_id)
+      .map((participant) => ({
+        profile_id: participant.profile_id,
+        type: "message",
+        title: `New reply: ${conversation?.title || "Conversation"}`,
+        message: messageBody.length > 180 ? `${messageBody.slice(0, 177)}...` : messageBody,
+        priority: "normal",
+        related_type: "conversation",
+        related_id: conversationId,
+        metadata: { conversation_id: conversationId, sender_name: senderProfile?.full_name || "Travel with Hawkins" },
+      }));
+
+    if (notifications.length > 0) {
+      const { error: notificationError } = await supabaseAdmin.from("communication_notifications").insert(notifications);
+      if (notificationError) {
+        console.warn("Failed to create reply notifications", notificationError.message);
+      }
+    }
+
     return NextResponse.json({ success: true, message: data });
   } catch (err) {
     console.error("POST /api/communication/conversations/[id] error", err);
