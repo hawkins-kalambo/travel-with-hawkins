@@ -32,29 +32,50 @@ export async function middleware(request: NextRequest) {
     pathname === "/customer/forgot-password";
   const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isCustomerPublicRoute || isResetRoute || isAuthCallbackRoute;
 
-  const isSettingsRoute = pathname.startsWith("/api/settings");
+  // Reading settings (routes/fares/booking fee) is public — the homepage
+  // needs it for anonymous visitors. Editing (PATCH/PUT) stays admin-only,
+  // both here and via requireAdminUser inside the route handler itself.
+  const isPublicSettingsRead = pathname === "/api/settings" && method === "GET";
+  const isSettingsRoute = pathname.startsWith("/api/settings") && !isPublicSettingsRead;
   const isBookingsRoute = pathname.startsWith("/api/bookings");
   const isCustomerApiRoute = pathname.startsWith("/api/customers");
+  // Payment initialization is guest-accessible (authorization is the
+  // booking-ID + contact-match check inside the route handler, same model
+  // as /api/track-booking) — never gated behind a Supabase session here.
+  // The webhook is PayChangu calling us directly with no Supabase session
+  // at all; it authenticates via HMAC signature verification inside the
+  // route, not middleware auth. Both are rate-limited in their own handlers.
+  // Everything else under /api/payments/ (confirm, send-receipt, and any
+  // future admin/reporting endpoints) stays admin-only.
+  const isPublicPaymentInitialize = pathname.startsWith("/api/payments/") && pathname.endsWith("/initialize") && method === "POST";
+  const isPublicPaymentWebhook = pathname === "/api/payments/webhook" && method === "POST";
+  // Status checks are rate-limited and gated by possession of a
+  // server-generated tx_ref (see app/api/payments/status/route.ts), not by
+  // a Supabase session — the browser return page has no session context.
+  const isPublicPaymentStatus = pathname === "/api/payments/status" && method === "POST";
+  const isAdminPaymentsRoute = pathname.startsWith("/api/payments") && !isPublicPaymentInitialize && !isPublicPaymentWebhook && !isPublicPaymentStatus;
   const isAdminApiRoute =
-    pathname.startsWith("/api/settings") ||
+    isSettingsRoute ||
     pathname.startsWith("/api/reports") ||
     pathname.startsWith("/api/referrals") ||
     pathname.startsWith("/api/applications") ||
     pathname.startsWith("/api/ambassadors") ||
     pathname.startsWith("/api/communications") ||
     pathname.startsWith("/api/communication") ||
-    pathname.startsWith("/api/payments") ||
+    isAdminPaymentsRoute ||
     pathname.startsWith("/api/commissions") ||
     pathname.startsWith("/api/commission-rules") ||
     pathname.startsWith("/api/admin/");
 
   const isPublicBookingCreate = isBookingsRoute && method === "POST";
-  const isPublicBookingLookup =
-    isBookingsRoute &&
-    method === "GET" &&
-    request.nextUrl.searchParams.has("trackingId");
+  // Guest/customer booking lookups go through POST /api/track-booking (its
+  // own route, rate-limited and contact-verified there) — GET /api/bookings
+  // (list-all or lookup-by-id) is always admin-only now. The urgency-signal
+  // sub-route is deliberately public: it returns only a destination string,
+  // never raw booking rows.
+  const isPublicUrgencySignal = pathname === "/api/bookings/urgency" && method === "GET";
   const isPublicCustomerRoute = isCustomerApiRoute && (pathname === "/api/customers/register" || pathname === "/api/customers/login" || pathname === "/api/customers/forgot-password");
-  const isAdminBookingRoute = isBookingsRoute && !isPublicBookingLookup && !isPublicBookingCreate;
+  const isAdminBookingRoute = isBookingsRoute && !isPublicBookingCreate && !isPublicUrgencySignal;
 
   const isProtectedApiRoute =
     isSettingsRoute ||

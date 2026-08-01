@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { linkGuestBookings } from "@/lib/customerAuth";
+import { linkGuestBookings } from "@/lib/customerAuthAdmin";
 
 export async function POST(req: NextRequest) {
   try {

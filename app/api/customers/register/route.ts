@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { registerCustomer } from "@/lib/customerAuth";
+import { registerCustomer } from "@/lib/customerAuthAdmin";
 
 export async function POST(req: NextRequest) {
   try {

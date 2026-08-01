@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
-import WhatsAppButton, { whatsappUrl } from "./components/WhatsAppButton";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import SiteHeader from "./components/home/SiteHeader";
+import HeroSection from "./components/home/HeroSection";
+import TripSearchCard from "./components/home/TripSearchCard";
+import StatsStrip from "./components/home/StatsStrip";
+import PopularRoutesSection from "./components/home/PopularRoutesSection";
+import CustomizeJourneyBanner from "./components/home/CustomizeJourneyBanner";
+import AccountBenefitsSection from "./components/home/AccountBenefitsSection";
+import WhyChooseUsSection from "./components/home/WhyChooseUsSection";
+import TeamSection from "./components/home/TeamSection";
+import AppBanner from "./components/home/AppBanner";
+import FAQSection from "./components/home/FAQSection";
+import ContactCardsSection from "./components/home/ContactCardsSection";
+import SiteFooter from "./components/home/SiteFooter";
+import BookingModal, { type BookingFormState, type ReferralValidationState } from "./components/home/BookingModal";
+import TrackModal from "./components/home/TrackModal";
+import BookingSuccessModal, { type BookingSuccessData } from "./components/home/BookingSuccessModal";
+import WhatsAppButton from "./components/WhatsAppButton";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
-import { logoPngBase64 } from "@/lib/logoBase64";
-import { formatMwk, parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -20,269 +35,79 @@ type BookingRecord = {
   [key: string]: unknown;
 };
 
-
-const STATUS_ORDER: BookingStatus[] = ["Booked", "Confirmed", "Boarding", "Departed", "Arrived", "Completed"];
-const POPULAR_ROUTES = [
-  "Mzuzu - Lilongwe",
-  "Mzuzu - Blantyre",
-  "Mzuzu - Zomba",
-  "Mzuzu - Kasungu",
-  "Mzuzu - Karonga",
-];
-
-const ROUTES_DATA = [
-  { route: "Mzuzu - Lilongwe", buses: "Travel With Us today", fallbackPrice: 70000, rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },
-  { route: "Mzuzu - Blantyre", buses: "Travel With Us today", fallbackPrice: 120000, rating: "4.7 (98+)", img: "/images/routes/mzuzu-blantyre.jpg" },
-  { route: "Mzuzu - Zomba", buses: "Travel With Us today", fallbackPrice: 110000, rating: "4.6 (76+)", img: "/images/routes/mzuzu-zomba.jpeg" },
-  { route: "Mzuzu - Kasungu", buses: "Travel With Us Today", fallbackPrice: 60000, rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
-  { route: "Mzuzu - Karonga", buses: "Travel With Us Today", fallbackPrice: 45000, rating: "4.5 (50+)", img: "/images/routes/mzuzu-karonga.jpg" },
-];
-
-const HERO_WALLPAPERS = ["/hero.png", "/images/hero/hero1.jpg", "/images/hero/hero3.jpg", "/images/hero/hero6.jpg"];
-
-function formatTravelDate(value: string) {
-  if (!value) return "Date to be confirmed";
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return new Intl.DateTimeFormat("en-MW", {
-    weekday: "short",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(parsed);
-}
-
-function StatusBadge({ status }: { status: BookingStatus }) {
-  const s = String(status || "Booked");
-  const colors: Record<string, string> = {
-    Booked: "bg-amber-50 text-amber-700 border-amber-200",
-    Confirmed: "bg-blue-50 text-blue-700 border-blue-200",
-    Boarding: "bg-sky-50 text-sky-700 border-sky-200",
-    Departed: "bg-sky-50 text-sky-700 border-sky-200",
-    Arrived: "bg-cyan-50 text-cyan-700 border-cyan-200",
-    Completed: "bg-blue-50 text-blue-700 border-blue-200",
-    Cancelled: "bg-red-50 text-red-700 border-red-200",
+type HomeProps = {
+  initialTrip?: {
+    destination: string;
+    travelDate?: string;
+    seats?: number;
   };
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${colors[s] ?? colors.Booked}`}>{s}</span>;
-}
+};
 
-function PaymentBadge({ status }: { status: string }) {
-  const normalized = String(status || "Pending").trim();
-  const paid = normalized === "Payment Confirmed" || normalized.toLowerCase() === "paid";
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${paid ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{normalized}</span>;
-}
-
-function StepperTimeline({ currentStatus }: { currentStatus: BookingStatus }) {
-  const activeIndex = Math.max(0, STATUS_ORDER.indexOf(currentStatus === "Cancelled" ? "Booked" : currentStatus));
-  return (
-    <div className="py-4">
-      <div className="flex items-start justify-between">
-        {STATUS_ORDER.map((label, i) => {
-          const active = i <= activeIndex;
-          return (
-            <div key={label} className="flex flex-1 items-start last:flex-none">
-              <div className="flex flex-col items-center">
-                <div className={`grid h-8 w-8 place-items-center rounded-full border-2 text-xs font-bold ${active ? "border-[#0f3f78] bg-[#0f3f78] text-white" : "border-slate-200 bg-white text-slate-400"}`}>{active ? "OK" : i + 1}</div>
-                <span className={`mt-1 max-w-14 text-center text-[10px] leading-tight ${active ? "font-semibold text-[#0f3f78]" : "text-slate-500"}`}>{label}</span>
-              </div>
-              {i < STATUS_ORDER.length - 1 && <div className={`mx-1 mt-4 h-0.5 flex-1 ${i < activeIndex ? "bg-[#0f3f78]" : "bg-slate-200"}`} />}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PremiumBoardingPass(props: { name: string; studentId: string; phone: string; destination: string; travelDate: string; seats: number; bookingId: string; bookingType: string; fare?: number }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(props.bookingId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {}
-  };
-
-  const handleDownloadPdf = async () => {
-    try {
-      const imported = await import("jspdf");
-      const Ctor = imported.default || imported.jsPDF;
-      const doc = new Ctor({ orientation: "portrait", unit: "pt", format: "a5", compress: true });
-      const margin = 24;
-      const width = 420 - margin * 2;
-      let y = 24;
-      const logoBase64 = logoPngBase64 || null;
-
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(margin, y, width, 112, 8, 8, "F");
-      doc.setDrawColor("#E5E7EB");
-      doc.roundedRect(margin, y, width, 112, 8, 8, "S");
-
-      doc.setTextColor("#1A0F00");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.text("Travel with Hawkins", margin + 12, y + 24);
-
-      if (logoBase64) {
-        doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", margin + width - 48, y + 10, 36, 36);
-      }
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-      doc.setTextColor("#6B7280");
-      doc.text("Student Transport Boarding Pass", margin + 12, y + 44);
-
-      y += 124;
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(margin, y, width, 134, 8, 8, "F");
-      doc.setDrawColor("#E5E7EB");
-      doc.roundedRect(margin, y, width, 134, 8, 8, "S");
-
-      const boxPadding = 14;
-      const leftX = margin + boxPadding;
-      const rightX = margin + width / 2 + 6;
-      let boxY = y + 16;
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.setTextColor("#111827");
-      doc.text("Passenger Details", leftX, boxY);
-
-      boxY += 12;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-      doc.setTextColor("#374151");
-      doc.text(`Passenger: ${props.name}`, leftX, boxY);
-      doc.text(`Student ID: ${props.studentId}`, leftX, boxY + 14);
-      doc.text(`Phone: ${props.phone}`, leftX, boxY + 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Trip Details", rightX, y + 16);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Destination: ${props.destination}`, rightX, y + 28);
-      doc.text(`Travel Date: ${props.travelDate}`, rightX, y + 42);
-      doc.text(`Seats: ${props.seats}`, rightX, y + 56);
-      doc.text(`Fare: ${formatMwk(props.fare)}`, rightX, y + 70);
-      doc.text(`Booking Type: ${props.bookingType}`, rightX, y + 84);
-
-      y += 276;
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(margin, y, width, 48, 8, 8, "F");
-      doc.setDrawColor("#E5E7EB");
-      doc.roundedRect(margin, y, width, 48, 8, 8, "S");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.setTextColor("#111827");
-      doc.text("Booking ID", margin + boxPadding, y + 16);
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10.5);
-      doc.setTextColor("#0f3f78");
-      doc.text(props.bookingId, margin + boxPadding, y + 32);
-
-      doc.save(`TWH-Boarding-Pass-${props.bookingId}.pdf`);
-    } catch {
-      window.print();
-    }
-  };
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="border-b border-dashed border-slate-300 bg-slate-50 px-5 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Booking reference</p>
-            <p className="mt-1 break-all font-mono text-base font-black tracking-wide text-[#0f3f78]">{props.bookingId}</p>
-          </div>
-          <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[#0f3f78]">
-            {props.bookingType === "route" ? "Scheduled route" : "Custom trip"}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
-        {[
-          ["Passenger", props.name],
-          ["Student ID", props.studentId],
-          ["Phone", props.phone],
-          ["Seats reserved", `${props.seats} seat${props.seats === 1 ? "" : "s"}`],
-        ].map(([label, value]) => (
-          <div key={String(label)}>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-            <p className="mt-1 break-words text-sm font-bold text-slate-900">{String(value)}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 divide-x divide-slate-200 border-t border-slate-200">
-        <button onClick={handleCopy} className="px-3 py-3.5 text-sm font-bold text-[#0f3f78] transition hover:bg-blue-50">
-          {copied ? "Reference copied" : "Copy reference"}
-        </button>
-        <button onClick={handleDownloadPdf} className="px-3 py-3.5 text-sm font-bold text-[#0f3f78] transition hover:bg-blue-50">
-          Download PDF
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function Home() {
-  const [heroIndex, setHeroIndex] = useState(0);
-  const [menuOpen, setMenuOpen] = useState(false);
+export default function Home({ initialTrip }: HomeProps = {}) {
+  const router = useRouter();
+  const tripSearchRef = useRef<HTMLFormElement>(null);
+  const departureSelectRef = useRef<HTMLSelectElement>(null);
   const [bookingType, setBookingType] = useState<"route" | "custom">("custom");
   const [selectedRoute, setSelectedRoute] = useState("");
-  const [customDestination, setCustomDestination] = useState("");
-  const [showBooking, setShowBooking] = useState(false);
+  const [departureDistrict, setDepartureDistrict] = useState("");
+  const [destinationUniversity, setDestinationUniversity] = useState("");
+  const [customDestination, setCustomDestination] = useState(initialTrip?.destination ?? "");
+  const [showBooking, setShowBooking] = useState(Boolean(initialTrip?.destination));
   const [showTrack, setShowTrack] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [trackId, setTrackId] = useState("");
+  const [trackContact, setTrackContact] = useState("");
   const [trackLoading, setTrackLoading] = useState(false);
   const [trackError, setTrackError] = useState("");
   const [trackResult, setTrackResult] = useState<BookingRecord | null>(null);
-  const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
+  const [urgencyDestination, setUrgencyDestination] = useState<string | null>(null);
   const [routePrices, setRoutePrices] = useState<Record<string, number>>({});
   const [settingsText, setSettingsText] = useState<string | Record<string, unknown>>("");
-  const [successData, setSuccessData] = useState<{ name: string; studentId: string; phone: string; route: string; bookingType: "route" | "custom"; travelDate: string; bookingId: string; seats: number; fare?: number } | null>(null);
-  const [referralValidation, setReferralValidation] = useState<{ state: "idle" | "checking" | "valid" | "invalid"; message?: string }>({ state: "idle" });
-  const [form, setForm] = useState(() => {
-    const base = {
-      name: "",
-      studentId: "",
-      phone: "",
-      email: "",
-      seats: 1,
-      referralCode: "",
-      travelDate: new Date().toISOString().split("T")[0],
-    };
-    try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("twh_profile") : null;
-      if (raw) {
-        const profile = JSON.parse(raw) as Partial<typeof base>;
-        return { ...base, name: profile.name || "", studentId: profile.studentId || "", phone: profile.phone || "" };
-      }
-    } catch {}
-    return base;
+  const [successData, setSuccessData] = useState<BookingSuccessData | null>(null);
+  const [referralValidation, setReferralValidation] = useState<ReferralValidationState>({ state: "idle" });
+  const [today, setToday] = useState("");
+  const [form, setForm] = useState<BookingFormState>({
+    name: "",
+    studentId: "",
+    phone: "",
+    email: "",
+    seats: initialTrip?.seats ?? 1,
+    referralCode: "",
+    travelDate: initialTrip?.travelDate || "",
   });
 
-  const heroCount = HERO_WALLPAPERS.length;
-
   useEffect(() => {
-    const slider = setInterval(() => {
-      setHeroIndex((current) => (current + 1) % heroCount);
-    }, 5500);
-    return () => clearInterval(slider);
-  }, [heroCount]);
+    const hydrationTimer = window.setTimeout(() => {
+      const currentDate = new Date().toISOString().split("T")[0];
+      let savedProfile: { name?: string; studentId?: string; phone?: string } = {};
 
-  useEffect(() => {
-    const fetchBookings = async () => {
       try {
-        const res = await fetch("/api/bookings");
+        const rawProfile = localStorage.getItem("twh_profile");
+        if (rawProfile) savedProfile = JSON.parse(rawProfile) as typeof savedProfile;
+      } catch {}
+
+      setToday(currentDate);
+      setForm((current) => ({
+        ...current,
+        name: savedProfile.name || current.name,
+        studentId: savedProfile.studentId || current.studentId,
+        phone: savedProfile.phone || current.phone,
+        travelDate: current.travelDate || currentDate,
+      }));
+    }, 0);
+
+    return () => window.clearTimeout(hydrationTimer);
+  }, []);
+
+  useEffect(() => {
+    // PII-free signal for the "seats filling fast" banner — never fetches
+    // raw booking rows (those are admin-only, see GET /api/bookings).
+    const fetchUrgencySignal = async () => {
+      try {
+        const res = await fetch("/api/bookings/urgency");
         const data = await res.json();
-        if (Array.isArray(data?.bookings)) setAllBookings(data.bookings);
+        setUrgencyDestination(typeof data?.destination === "string" ? data.destination : null);
       } catch {}
     };
 
@@ -298,16 +123,16 @@ export default function Home() {
       } catch {}
     };
 
-    fetchBookings();
+    fetchUrgencySignal();
     fetchSettings();
-    const interval = setInterval(fetchBookings, 30000);
+    const interval = setInterval(fetchUrgencySignal, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const isFormValid = () => form.name.trim() && form.studentId.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
-  const getFareForDestination = (destination: string) => resolveRouteFareIfAvailable(destination, settingsText)
-  const today = new Date().toISOString().split("T")[0];
-  const urgencyDisplay = allBookings.find((b) => b.travelDate && b.travelDate >= today && b.seats && b.seats >= 11);
+  const getFareForDestination = (destination: string) => resolveRouteFareIfAvailable(destination, settingsText);
+  const urgencyDisplay = urgencyDestination;
+  const tripSearchReady = Boolean(departureDistrict && destinationUniversity);
 
   const openBooking = (route = "") => {
     setSelectedRoute(route);
@@ -323,6 +148,24 @@ export default function Home() {
     setCustomDestination("");
     setBookingType("custom");
     setError("");
+  };
+
+  const focusTripSearch = () => {
+    tripSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    departureSelectRef.current?.focus({ preventScroll: true });
+  };
+
+  const handleTripSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!tripSearchReady) return;
+
+    const params = new URLSearchParams({
+      departure: departureDistrict,
+      university: destinationUniversity,
+      date: form.travelDate,
+      seats: String(form.seats),
+    });
+    router.push(`/trips?${params.toString()}`);
   };
 
   const validateReferralCode = async (code: string) => {
@@ -381,6 +224,7 @@ export default function Home() {
           seats: form.seats,
           bookingId: normalized.bookingId || result.bookingId || "PENDING",
           fare: finalFare,
+          bookingFeeAmount: normalized.bookingFeeAmount,
         });
         localStorage.setItem("twh_profile", JSON.stringify({ name: form.name.trim(), studentId: form.studentId.trim(), phone: form.phone.trim() }));
         closeBooking();
@@ -397,11 +241,16 @@ export default function Home() {
     setTrackError("");
     setTrackResult(null);
     if (!trackId.trim()) return setTrackError("Please enter a Booking ID.");
+    if (!trackContact.trim()) return setTrackError("Please enter the email or phone number used when booking.");
     setTrackLoading(true);
     try {
-      const res = await fetch(`/api/bookings?trackingId=${encodeURIComponent(trackId.trim())}`);
+      const res = await fetch("/api/track-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: trackId.trim(), contact: trackContact.trim() }),
+      });
       const json = await res.json();
-      if (json?.success && Array.isArray(json.bookings) && json.bookings.length > 0) setTrackResult(json.bookings[0]);
+      if (json?.success && json.booking) setTrackResult(json.booking);
       else setTrackError(String(json?.error || "Booking not found."));
     } catch {
       setTrackError("Network error. Please try again.");
@@ -411,584 +260,98 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-white text-[#101815]">
-      <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-[74px] max-w-7xl items-center justify-between px-4 sm:px-8">
-          <a href="#" className="flex items-center gap-2">
-            <Image src="/logo.png" width={54} height={54} className="h-12 w-12 object-contain" alt="Travel With Hawkins logo" />
-            <div>
-              <div className="text-2xl font-black leading-none text-[#0f3f78]">Travel</div>
-              <div className="text-xs font-semibold leading-none">with Hawkins</div>
-            </div>
-          </a>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <nav className="hidden items-center gap-6 text-sm font-bold lg:flex">
-              {[
-                ["Home", "#"],
-                ["Routes", "#routes"],
-                ["How It Works", "#how-it-works"],
-                ["Support", "#help-center"],
-              ].map(([item, href]) => (
-                <a key={item} href={href} className="text-slate-700 transition hover:text-[#0f3f78]">{item}</a>
-              ))}
-            </nav>
-            <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-2 sm:flex">
-              <button onClick={() => setShowTrack(true)} className="rounded-full px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-white">Track</button>
-            </div>
-            <button onClick={() => openBooking()} className="inline-flex items-center justify-center rounded-full bg-[#0f3f78] px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2d56]">
-              Book Trip
-            </button>
-            <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white lg:hidden" aria-label="Menu">
-              <span className="flex w-5 flex-col gap-1">
-                <span className="h-0.5 rounded bg-[#101815]" />
-                <span className="h-0.5 rounded bg-[#101815]" />
-                <span className="h-0.5 rounded bg-[#101815]" />
-              </span>
-            </button>
-          </div>
+      <SiteHeader onOpenBooking={() => openBooking()} onOpenTrack={() => setShowTrack(true)} />
+
+      {urgencyDisplay && (
+        <div className="bg-amber-50 px-4 py-2 text-center text-sm font-semibold text-amber-800">
+          Seats are filling fast for {urgencyDisplay}. Book early to secure your spot.
         </div>
-        {menuOpen && (
-          <div className="border-t border-slate-100 bg-white px-4 py-3 lg:hidden">
-            {[
-              ["Home", "#"],
-              ["Routes", "#routes"],
-              ["How It Works", "#how-it-works"],
-              ["Support", "#help-center"],
-            ].map(([item, href]) => (
-              <a key={item} href={href} onClick={() => setMenuOpen(false)} className="block rounded-md px-3 py-2 text-sm font-bold hover:bg-blue-50">{item}</a>
-            ))}
-            <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-3">
-              <button onClick={() => { setShowTrack(true); setMenuOpen(false); }} className="rounded-md border border-slate-200 px-3 py-2 text-center text-sm font-bold text-slate-700">Track Booking</button>
-              <button onClick={() => { openBooking(); setMenuOpen(false); }} className="rounded-md bg-[#0f3f78] px-3 py-2 text-center text-sm font-bold text-white">Book Trip</button>
-            </div>
-          </div>
-        )}
-      </header>
+      )}
 
-      {urgencyDisplay && <div className="bg-amber-50 px-4 py-2 text-center text-sm font-semibold text-amber-800">Seats are filling fast for {urgencyDisplay.destination}. Book early to secure your spot.</div>}
+      <HeroSection onOpenBooking={() => openBooking()} />
 
-      <section className="relative min-h-[560px] overflow-visible bg-slate-950 pb-24 text-white md:pb-20">
-        {HERO_WALLPAPERS.map((src, index) => (
-          <Image
-            key={src}
-            src={src}
-            fill
-            priority={index === 0}
-            className={`object-cover transition-opacity duration-1000 ease-in-out ${index === heroIndex ? "opacity-100" : "opacity-0"}`}
-            alt="Students boarding a Travel with Hawkins bus"
-          />
-        ))}
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,20,41,0.84),rgba(15,63,120,0.52),rgba(7,20,41,0.14))]" />
-        <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-[88px] sm:px-8">
-          <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
-            <div className="max-w-2xl">
-              <p className="mb-5 inline-flex rounded-full border border-sky-300/40 bg-sky-400/15 px-3 py-1 text-xs font-black uppercase tracking-[0.24em] text-sky-200">Safe. Reliable. Student Friendly</p>
-              <h1 className="max-w-3xl text-5xl font-black leading-[1.05] tracking-normal md:text-6xl">Book Your Journey Home, The <span className="text-[#6db7ff]">Smart</span> Way</h1>
-              <p className="mt-5 max-w-lg text-lg font-medium text-white/90">Connecting university students with trusted bus operators across Malawi.</p>
-              <div className="mt-7 flex flex-wrap gap-4">
-                <button onClick={() => openBooking()} className="rounded-full bg-[#0f3f78] px-8 py-4 text-sm font-black text-white shadow-lg shadow-slate-950/20 transition hover:bg-[#0a2d56]">Book Trip</button>
-                <a href="#routes" className="rounded-full border border-white/70 px-8 py-4 text-sm font-black text-white/90 transition hover:bg-white/10">Explore Routes</a>
-              </div>
-              <p className="mt-4 text-sm font-medium text-sky-100">Book your trip directly and manage your journey later when the experience is ready.</p>
-              <div className="mt-6 flex items-center gap-3">
-                <div className="flex -space-x-2">
-                  {["ceo.jpg", "designer.jpg", "developer.jpg"].map((img) => (
-                    <Image key={img} src={`/images/team/${img}`} width={36} height={36} className="h-9 w-9 rounded-full border-2 border-white object-cover" alt="" />
-                  ))}
-                </div>
-                <div className="text-sm"><span className="text-amber-400">★★★★★</span><br />Trusted by 5,000+ Students</div>
-              </div>
-            </div>
+      <TripSearchCard
+        formRef={tripSearchRef}
+        departureSelectRef={departureSelectRef}
+        departureDistrict={departureDistrict}
+        onDepartureChange={setDepartureDistrict}
+        destinationUniversity={destinationUniversity}
+        onDestinationChange={setDestinationUniversity}
+        travelDate={form.travelDate}
+        onDateChange={(value) => setForm({ ...form, travelDate: value })}
+        seats={form.seats}
+        onSeatsChange={(value) => setForm({ ...form, seats: value })}
+        today={today}
+        searchReady={tripSearchReady}
+        onSubmit={handleTripSearch}
+      />
 
-            <div className="rounded-[28px] border border-white/20 bg-slate-950/60 p-5 shadow-2xl backdrop-blur-md">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-300">Simple booking</p>
-                  <h2 className="mt-1 text-2xl font-black text-white">Book your trip in minutes</h2>
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-slate-300">Reserve your seat quickly and keep the experience simple while we finish the full account experience.</p>
-              <div className="mt-5 grid gap-3">
-                <button onClick={() => openBooking()} className="rounded-2xl bg-[#0f3f78] px-4 py-3 text-center text-sm font-black text-white transition hover:bg-[#0a2d56]">Book Trip</button>
-                <a href="#routes" className="rounded-2xl border border-white/20 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/10">Explore Routes</a>
-              </div>
-              <div className="mt-5 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-slate-200">
-                <div className="font-semibold text-white">Why book now?</div>
-                <ul className="mt-2 space-y-2 text-sm text-slate-300">
-                  <li>• Secure your seat early</li>
-                  <li>• Keep your travel plans simple</li>
-                  <li>• Get ready for the full trip experience soon</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
+      <StatsStrip />
 
-        <div className="absolute inset-x-4 -bottom-16 mx-auto max-w-6xl rounded-lg bg-white p-4 text-[#101815] shadow-2xl md:-bottom-14">
-          <div className="mb-4 flex gap-6 border-b border-slate-100 px-1 pb-3 text-sm font-bold">
-            <button className="text-[#0f3f78]">One Way</button>
-            <button className="text-slate-500">Round Trip</button>
-          </div>
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_0.85fr_0.85fr_auto]">
-            <select className="template-input" value={selectedRoute.split(" - ")[0] || ""} onChange={(e) => setSelectedRoute(e.target.value ? `${e.target.value} - Mzuzu` : "")}>
-              <option value="">Select departure</option>
-              <option>Mzuzu</option>
-              <option>Lilongwe</option>
-              <option>Blantyre</option>
-              <option>Zomba</option>
-            </select>
-            <select className="template-input" value={selectedRoute} onChange={(e) => setSelectedRoute(e.target.value)}>
-              <option value="">Select destination</option>
-              {POPULAR_ROUTES.map((r) => <option key={r}>{r}</option>)}
-            </select>
-            <input className="template-input" type="date" value={form.travelDate} min={today} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} />
-            <select className="template-input" value={form.seats} onChange={(e) => setForm({ ...form, seats: Number(e.target.value) })}>
-              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} Passenger{n > 1 ? "s" : ""}</option>)}
-            </select>
-            <button onClick={() => openBooking(selectedRoute)} className="rounded-md bg-[#0f3f78] px-7 py-3 text-sm font-black text-white">Book Now</button>
-          </div>
-        </div>
-      </section>
+      <PopularRoutesSection routePrices={routePrices} onBookRoute={openBooking} onCustomize={focusTripSearch} />
 
-      <section className="bg-[#f4f8fd] px-4 pb-6 pt-24">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 md:grid-cols-4">
-          {[
-            ["5,000+", "Students Travelled"],
-            ["25+", "Trusted Bus Companies"],
-            ["120+", "Routes Across Malawi"],
-            ["4.9/5", "Average Student Rating"],
-          ].map(([n, l]) => (
-            <div key={n} className="flex items-center gap-3 border-r border-slate-200 last:border-r-0">
-              <span className="grid h-11 w-11 place-items-center rounded-full bg-[#1f78d1] text-white">*</span>
-              <div><div className="text-2xl font-black text-[#0a2d56]">{n}</div><div className="text-xs font-medium">{l}</div></div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <CustomizeJourneyBanner onCustomize={focusTripSearch} />
 
-      <section id="routes" className="px-4 py-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-4 flex items-end justify-between">
-            <div>
-              <p className="text-xs font-black uppercase text-[#0f3f78]">Popular Routes</p>
-              <h2 className="text-3xl font-black">Top Destinations</h2>
-            </div>
-            <a href="#routes" className="text-sm font-bold text-[#0f3f78]">View all routes →</a>
-          </div>
+      <AccountBenefitsSection />
 
-          <div className="grid gap-5 md:grid-cols-4">
-            {ROUTES_DATA.map((route) => {
-              const fare = routePrices[route.route] || route.fallbackPrice;
-              return (
-              <article key={route.route} className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-                <Image src={route.img} width={420} height={170} className="h-32 w-full object-cover" alt={route.route} />
-                <div className="space-y-3 p-4">
-                  <h3 className="font-black">{route.route}</h3>
-                  <div className="flex justify-between text-xs"><span>{route.buses}</span><span>Fair {formatMwk(fare)}</span></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-500">* {route.rating}</span>
-                    <button
-                      onClick={() => (route.route === "Customized Route" ? openBooking() : openBooking(route.route))}
-                      className="rounded border border-[#0f3f78] px-4 py-1.5 text-xs font-black text-[#0f3f78]"
-                    >
-                      {route.route === "Customized Route" ? "Plan Route" : "Book Now"}
-                    </button>
-                  </div>
-                </div>
-              </article>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+      <WhyChooseUsSection />
 
-      <section id="why-account" className="bg-[#f8fbff] px-4 py-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-6 text-center">
-            <p className="text-xs font-black uppercase text-[#0f3f78]">Why create an account?</p>
-            <h2 className="mt-1 text-3xl font-black text-[#101815]">A smoother trip experience, every time</h2>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {[
-              ["Manage bookings", "Keep your trip history, booking IDs, and travel details in one secure place."],
-              ["Faster repeat travel", "Reuse your student details and travel preferences so your next trip is quicker."],
-              ["Stay informed", "Receive booking updates and trip reminders without digging through your messages."],
-            ].map(([title, body]) => (
-              <div key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">✓</div>
-                <h3 className="text-lg font-black text-[#0f3f78]">{title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <TeamSection />
 
-      <section id="about-us" className="bg-white px-4 py-8">
-        <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1fr_1.5fr]">
-          <div>
-            <p className="text-xs font-black uppercase text-[#0f3f78]">Why Choose Us</p>
-            <h2 className="text-2xl font-black">Built for Students, Designed for Comfort</h2>
-            <ul className="mt-4 space-y-2 text-sm">
-              {["Trusted bus operators", "Safe and comfortable journeys", "Easy booking in seconds", "24/7 customer support", "Affordable prices for students"].map((item) => (
-                <li key={item} className="flex items-start gap-2 font-medium">
-                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0f3f78] text-[10px] font-black text-white">✓</span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div id="how-it-works">
-            <p className="text-xs font-black uppercase text-[#0f3f78]">How It Works</p>
-            <h2 className="text-2xl font-black">Simple Steps to Your Journey</h2>
-            <div className="mt-6 grid gap-5 md:grid-cols-4">
-              {[
-                ["1", "Choose Route", "Select a popular route or enter a custom destination that fits your trip."],
-                ["2", "Book Online", "Fill in your details, choose your travel date and seats, and submit your booking request online."],
-                ["3", "Receive Confirmation", "Your booking is recorded and confirmed through the system, with payment updates shared for your trip."],
-                ["4", "Travel Safely", "Arrive on time, board with your booking details, and enjoy a safe, reliable journey."],
-              ].map(([n, t, d]) => (
-                <div key={n} className="relative">
-                  <div className="mb-3 grid h-8 w-8 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">{n}</div>
-                  <h3 className="font-black">{t}</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{d}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+      <AppBanner />
 
-      <section id="bus-partners" className="px-4 py-8">
-        <div className="mx-auto max-w-6xl text-center">
-          <p className="text-xs font-black uppercase text-[#0f3f78]">Meet Our Team</p>
-          <h2 className="mt-1 text-2xl font-black">The People Behind Travel with Hawkins</h2>
-          <div className="mx-auto mt-6 grid max-w-4xl gap-6 md:grid-cols-3">
-            {[
-              ["C.E.O", "Mwira Mcdonald Mukumbwa", "/images/team/Mwira.jpeg"],
-              ["Lead Systems Analyst", "Hawkins Kalambo.", "/images/team/hawkins.jpeg"],
-              ["Financial Analyst", "Joshua Kalambo", "/images/team/joshua.jpg"],
-            ].map(([role, name, img]) => (
-              <div key={role} className="overflow-hidden rounded-lg border border-slate-200 bg-white text-center shadow-md transition-shadow hover:shadow-xl">
-                <div className="h-56 overflow-hidden bg-slate-50 sm:h-48 md:h-40">
-                  <Image src={img} width={360} height={210} className="h-full w-full object-cover object-[center_4%]" alt={name} />
-                </div>
-                <div className="p-4 text-sm">
-                  <div className="font-black text-[#0f3f78]">{role}</div>
-                  <div className="mt-1">{name}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <FAQSection />
 
-      <section className="px-4 py-8">
-        <div className="relative mx-auto max-h-[420px] max-w-6xl overflow-hidden rounded-lg shadow-2xl">
-          <Image src="/images/playstore.png" width={1600} height={720} className="h-full w-full object-cover" alt="The Travel with Hawkins App - coming soon" />
-        </div>
-      </section>
+      <ContactCardsSection />
 
-      <section id="help-center" className="px-4 pb-12">
-        <div className="mx-auto max-w-6xl">
-          <p className="text-xs font-black uppercase text-[#0f3f78]">Frequently Asked Questions</p>
-          <h2 className="text-2xl font-black">Got Questions? We have Got Answers</h2>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {[
-              {
-                q: "How do I book a bus ticket?",
-                a: "Choose your route or enter a custom destination, fill in your details, select your travel date and seat count, and submit the booking form.",
-              },
-              {
-                q: "Can I cancel or reschedule my booking?",
-                a: "Changes are handled based on availability and timing. Contact us with your booking ID as soon as possible so we can assist you.",
-              },
-              {
-                q: "How will I receive my confirmation?",
-                a: "Once your booking is submitted, the system records it and the admin confirms the payment and trip details for you.",
-              },
-              {
-                q: "What payment methods do you accept?",
-                a: "Payments are confirmed through the booking process and verified by the admin team before your trip is fully confirmed.",
-              },
-              {
-                q: "Is my payment secure?",
-                a: "Yes. Bookings and payment updates are managed through the secure admin-backed system, and receipts are generated for confirmed trips.",
-              },
-              {
-                q: "Who can I contact for support?",
-                a: "You can reach us through the WhatsApp button or email listed in the contact section for booking, payment, or travel support.",
-              },
-            ].map((item) => (
-              <details key={item.q} className="rounded-md border border-slate-200 bg-white px-5 py-3">
-                <summary className="cursor-pointer font-bold">{item.q}</summary>
-                <p className="mt-2 text-sm text-slate-600">{item.a}</p>
-              </details>
-            ))}
-          </div>
-          <p className="mt-6 text-sm font-semibold text-slate-600">
-            Still need help? <a href="#contact" className="font-black text-[#0f3f78] hover:underline">Contact us</a>
-          </p>
-        </div>
-      </section>
-
-      <footer id="contact" className="bg-[#0a2d56] px-4 py-7 text-white sm:py-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="grid gap-5 md:grid-cols-5">
-            <div className="md:col-span-2">
-              <div className="mb-4 flex items-center gap-3">
-                <Image src="/logo.png" width={56} height={56} alt="" />
-                <div>
-                  <div className="text-2xl font-black">Travel</div>
-                  <div className="text-sm">with Hawkins</div>
-                </div>
-              </div>
-              <p className="max-w-xs text-sm text-white/75">Connecting students with trusted bus operators across Malawi.</p>
-            </div>
-
-            <div>
-              <h3 className="mb-3 font-black uppercase">Quick Links</h3>
-              <ul className="space-y-2 text-sm text-white/75">
-                <li><a href="#" className="transition-colors hover:text-white hover:underline">Home</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Routes</a></li>
-                <li><a href="#how-it-works" className="transition-colors hover:text-white hover:underline">How It Works</a></li>
-                <li><a href="#contact" className="transition-colors hover:text-white hover:underline">Contact Us</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="mb-3 font-black uppercase">Help & Support</h3>
-              <ul className="space-y-2 text-sm text-white/75">
-                <li><a href="#help-center" className="transition-colors hover:text-white hover:underline">Help Center</a></li>
-                <li><a href="#how-it-works" className="transition-colors hover:text-white hover:underline">How It Works</a></li>
-                <li><a href="#help-center" className="transition-colors hover:text-white hover:underline">FAQs</a></li>
-                <li><a href="#contact" className="transition-colors hover:text-white hover:underline">Contact Us</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="mb-3 font-black uppercase">Popular Routes</h3>
-              <ul className="space-y-2 text-sm text-white/75">
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Lilongwe</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Blantyre</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Zomba</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Kasungu</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">Mzuzu - Karonga</a></li>
-                <li><a href="#routes" className="transition-colors hover:text-white hover:underline">View All Routes</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="mb-2 font-black uppercase">Direct Contact</h3>
-              <div className="space-y-2.5">
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.05)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-emerald-500/25 hover:shadow-lg"
-                  aria-label="Chat with Travel With Hawkins on WhatsApp"
-                >
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/90 text-white transition-transform duration-300 group-hover:scale-110">
-                    <Image src="/icons/whatsapp.png" width={18} height={18} alt="" />
-                  </span>
-                  <span>Chat with us on WhatsApp</span>
-                </a>
-
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">Call</p>
-                  <a href="tel:+265886470843" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0886 470 843</a>
-                  <a href="tel:+265989127308" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">0989 127 308</a>
-                </div>
-
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">Email</p>
-                  <a href="mailto:travelwithhawkins@gmail.com" className="mt-1 block text-sm font-medium text-white transition-colors hover:text-white hover:underline">travelwithhawkins@gmail.com</a>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <p className="mx-auto mt-8 border-t border-white/10 pt-4 text-center text-xs text-white/60">2026 Travel with Hawkins. All Rights Reserved.</p>
-      </footer>
+      <SiteFooter />
 
       <WhatsAppButton />
 
       {showBooking && (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 sm:items-center">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-lg bg-white p-5 shadow-2xl sm:rounded-lg">
-            <div className="mb-4 flex items-start justify-between">
-              <div><h2 className="text-2xl font-black">Book Trip</h2><p className="text-sm text-slate-600">Destination: <span className="font-bold text-[#0f3f78]">{bookingType === "custom" ? customDestination || "Enter below" : selectedRoute}</span></p></div>
-              <button onClick={closeBooking} className="grid h-8 w-8 place-items-center rounded-md bg-slate-100">x</button>
-            </div>
-            <div className="mb-4 flex gap-2 overflow-x-auto">
-              {POPULAR_ROUTES.map((route) => <button key={route} onClick={() => { setSelectedRoute(route); setBookingType("route"); setCustomDestination(""); }} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${selectedRoute === route ? "border-[#0f3f78] bg-[#0f3f78] text-white" : "border-slate-200"}`}>{route}</button>)}
-            </div>
-            {error && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-            <div className="space-y-5">
-              <div className="space-y-4">
-                <input className="template-input" placeholder="Full Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                <input className="template-input" placeholder="Student ID" value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value })} />
-                <input className="template-input" placeholder="Phone Number" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                <input className="template-input" placeholder="Email Address (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-                <input className="template-input" placeholder="Referral Code (optional)" value={form.referralCode} onChange={(e) => setForm({ ...form, referralCode: e.target.value })} />
-                {referralValidation.state !== "idle" && (
-                  <p className={`text-sm ${referralValidation.state === "valid" ? "text-emerald-600" : referralValidation.state === "checking" ? "text-slate-500" : "text-red-600"}`}>
-                    {referralValidation.message}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-4 border-t border-slate-100 pt-4">
-                {bookingType === "custom" && <input className="template-input" placeholder="Destination (e.g. Mzuzu - Rumphi)" value={customDestination} onChange={(e) => setCustomDestination(e.target.value)} />}
-                <input className="template-input" type="date" min={today} value={form.travelDate} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} />
-                <select className="template-input" value={form.seats} onChange={(e) => setForm({ ...form, seats: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n} seat{n > 1 ? "s" : ""}</option>)}</select>
-              </div>
-              <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
-                <p className="font-semibold text-[#0f3f78]">Booking is available now</p>
-                <p className="mt-1">You can continue as a guest and receive your booking confirmation right away.</p>
-              </div>
-              <button onClick={handleBooking} disabled={loading || !isFormValid()} className="w-full rounded-md bg-[#0f3f78] py-3.5 font-black text-white disabled:bg-slate-300">{loading ? "Processing..." : "Confirm Booking"}</button>
-            </div>
-          </div>
-        </div>
+        <BookingModal
+          bookingType={bookingType}
+          selectedRoute={selectedRoute}
+          customDestination={customDestination}
+          onSelectRoute={(route) => {
+            setSelectedRoute(route);
+            setBookingType("route");
+            setCustomDestination("");
+          }}
+          onCustomDestinationChange={setCustomDestination}
+          error={error}
+          form={form}
+          onFormChange={setForm}
+          referralValidation={referralValidation}
+          today={today}
+          loading={loading}
+          isFormValid={Boolean(isFormValid())}
+          onSubmit={handleBooking}
+          onClose={closeBooking}
+        />
       )}
 
       {showTrack && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between"><div><h2 className="text-2xl font-black">Track Booking</h2><p className="text-sm text-slate-600">Enter your Booking ID to check status.</p></div><button onClick={() => { setShowTrack(false); setTrackResult(null); setTrackError(""); }} className="grid h-8 w-8 place-items-center rounded-md bg-slate-100">x</button></div>
-            {trackError && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{trackError}</div>}
-            <input className="template-input" placeholder="Enter Booking ID" value={trackId} onChange={(e) => setTrackId(e.target.value)} />
-            <button onClick={trackBooking} disabled={trackLoading} className="mt-3 w-full rounded-md bg-[#0f3f78] py-3.5 font-black text-white disabled:bg-slate-300">{trackLoading ? "Searching..." : "Check Status"}</button>
-            {trackResult && (
-              <div className="mt-4">
-                <StepperTimeline currentStatus={trackResult.status || "Booked"} />
-                <div className="mb-3 flex flex-wrap gap-2"><StatusBadge status={trackResult.status || "Booked"} /><PaymentBadge status={String(trackResult.paymentStatus ?? "Pending")} /></div>
-                <div className="space-y-2 rounded-md border border-blue-100 bg-blue-50 p-4 text-sm">
-                  {[
-                    ["name", trackResult.name],
-                    ["status", trackResult.status || "Booked"],
-                    ["destination", trackResult.destination],
-                    ["travelDate", trackResult.travelDate],
-                    ["seats", trackResult.seats],
-                    ["bookingType", trackResult.bookingType],
-                    [
-                      "fare",
-                      (() => {
-                        const displayFare =
-                          typeof trackResult.fare === "number" && Number.isFinite(trackResult.fare) && trackResult.fare > 0
-                            ? trackResult.fare
-                            : resolveRouteFareIfAvailable(String(trackResult.destination || ""), settingsText);
-                        return displayFare != null ? formatMwk(displayFare) : "Pending";
-                      })(),
-                    ],
-                  ].map(([label, value]) => <div key={String(label)}><p className="text-[10px] uppercase text-slate-500">{String(label)}</p><p className="font-bold">{String(value ?? "-")}</p></div>)}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <TrackModal
+          trackId={trackId}
+          onTrackIdChange={setTrackId}
+          trackContact={trackContact}
+          onTrackContactChange={setTrackContact}
+          trackLoading={trackLoading}
+          trackError={trackError}
+          trackResult={trackResult}
+          settingsText={settingsText}
+          onTrack={trackBooking}
+          onClose={() => {
+            setShowTrack(false);
+            setTrackResult(null);
+            setTrackError("");
+            setTrackContact("");
+          }}
+        />
       )}
 
-      {successData && (
-        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-950/75 px-4 py-6 backdrop-blur-sm sm:py-10" role="dialog" aria-modal="true" aria-labelledby="booking-confirmation-title">
-          <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-[28px] bg-[#f8fafc] shadow-[0_32px_90px_rgba(2,8,23,0.38)]">
-            <div className="relative overflow-hidden bg-[#0f3f78] px-6 py-7 text-white sm:px-8">
-              <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-300/15" />
-              <div className="absolute -bottom-24 right-28 h-40 w-40 rounded-full bg-white/5" />
-              <button
-                onClick={() => setSuccessData(null)}
-                className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full border border-white/20 bg-white/10 text-xl leading-none text-white transition hover:bg-white/20"
-                aria-label="Close booking confirmation"
-              >
-                ×
-              </button>
-              <div className="relative flex items-start gap-4 pr-10">
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-emerald-400 text-2xl font-black text-[#062e23] shadow-lg shadow-emerald-950/20">✓</div>
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-200">Booking confirmed</p>
-                  <h2 id="booking-confirmation-title" className="mt-1 text-2xl font-black sm:text-3xl">You’re ready for your trip</h2>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-blue-100">
-                    Your seat has been reserved. Keep your booking reference handy when contacting our team.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-6 p-5 sm:p-8 lg:grid-cols-[1.08fr_0.92fr]">
-              <div className="space-y-6">
-                <section className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
-                  <div className="border-b border-blue-100 bg-blue-50/70 px-5 py-4">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0f3f78]">Journey details</p>
-                  </div>
-                  <div className="space-y-5 p-5">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Route</p>
-                      <div className="mt-2 flex items-center gap-3">
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">A</span>
-                        <div className="h-px flex-1 border-t border-dashed border-slate-300" />
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-500 text-sm font-black text-white">B</span>
-                      </div>
-                      <p className="mt-2 text-base font-black text-slate-900">{successData.route}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Travel date</p>
-                        <p className="mt-1 text-sm font-bold text-slate-900">{formatTravelDate(successData.travelDate)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Seats</p>
-                        <p className="mt-1 text-sm font-bold text-slate-900">{successData.seats} reserved</p>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <PremiumBoardingPass name={successData.name} studentId={successData.studentId} phone={successData.phone} destination={successData.route} travelDate={successData.travelDate} seats={successData.seats} bookingId={successData.bookingId} bookingType={successData.bookingType} fare={successData.fare} />
-              </div>
-
-              <aside className="space-y-5">
-                <div className="rounded-2xl bg-[#071f3d] p-6 text-white shadow-xl shadow-blue-950/15">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-200">Route fare</p>
-                    <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-200">Payment pending</span>
-                  </div>
-                  <p className="mt-4 text-3xl font-black tracking-tight">
-                    {successData.fare != null ? formatMwk(successData.fare) : "To be confirmed"}
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-slate-300">
-                    {successData.fare != null
-                      ? "This is the fare assigned to your selected route."
-                      : "Our team will confirm the fare for this custom trip."}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">What happens next?</p>
-                  <ol className="mt-4 space-y-4">
-                    {[
-                      ["1", "Save your reference", "Use it to track your booking at any time."],
-                      ["2", "Wait for payment details", "Our team will share payment instructions with you."],
-                      ["3", "Arrive ready to travel", "Bring your student ID and booking reference."],
-                    ].map(([number, title, description]) => (
-                      <li key={number} className="flex gap-3">
-                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-black text-[#0f3f78]">{number}</span>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{title}</p>
-                          <p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-
-                <button onClick={() => setSuccessData(null)} className="w-full rounded-xl bg-[#0f3f78] px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-950/10 transition hover:bg-[#0a2d56]">
-                  Done
-                </button>
-              </aside>
-            </div>
-          </div>
-        </div>
-      )}
+      {successData && <BookingSuccessModal successData={successData} onClose={() => setSuccessData(null)} />}
     </main>
   );
 }

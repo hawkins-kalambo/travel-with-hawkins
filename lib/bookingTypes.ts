@@ -1,3 +1,5 @@
+import type { BookingFeeStatus, FareStatus, PaymentMethod } from "@/lib/paymentTypes";
+
 export type JourneyStatus =
   | "Booked"
   | "Confirmed"
@@ -7,6 +9,8 @@ export type JourneyStatus =
   | "Cancelled"
   | string;
 
+// Legacy single payment field. New code should prefer bookingFeeStatus /
+// fareStatus, which are tracked independently — see lib/paymentTypes.ts.
 export type PaymentStatus =
   | "Pending"
   | "Payment Confirmed"
@@ -42,6 +46,19 @@ export type BookingRecord = {
   receiptNumber?: string;
   receiptSent?: boolean;
   paymentNotes?: string;
+
+  // Booking fee (compulsory, confirms the seat) — independent of fare.
+  bookingFeeAmount?: number;
+  bookingFeeStatus?: BookingFeeStatus;
+  bookingFeePaidAt?: string;
+  bookingExpiresAt?: string;
+
+  // Transport fare (optional online payment, or cash) — independent of the booking fee.
+  fareStatus?: FareStatus;
+  farePaymentMethod?: PaymentMethod;
+  farePaidAt?: string;
+  fareCashCollectedBy?: string;
+  fareCashCollectedAt?: string;
 
   createdAt?: string;
   updatedAt?: string;

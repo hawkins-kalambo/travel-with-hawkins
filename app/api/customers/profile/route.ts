@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { getCustomerProfile, updateCustomerProfile } from "@/lib/customerAuth";
+import { getCustomerProfile, updateCustomerProfile } from "@/lib/customerAuthAdmin";
 import { normalizeAppRole } from "@/lib/permissions";
 
 export async function GET(req: NextRequest) {

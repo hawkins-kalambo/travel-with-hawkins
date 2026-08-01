@@ -1,3 +1,5 @@
+import type { BookingFeeStatus, FareStatus, PaymentMethod } from "@/lib/paymentTypes";
+
 export type JourneyStatus =
   | "Booked"
   | "Confirmed"
@@ -43,6 +45,19 @@ export type BookingRecord = {
   receiptSent?: boolean;
   paymentNotes?: string;
 
+  // Booking fee (compulsory, confirms the seat) — independent of fare.
+  bookingFeeAmount?: number;
+  bookingFeeStatus?: BookingFeeStatus;
+  bookingFeePaidAt?: string;
+  bookingExpiresAt?: string;
+
+  // Transport fare (optional online payment, or cash) — independent of the booking fee.
+  fareStatus?: FareStatus;
+  farePaymentMethod?: PaymentMethod;
+  farePaidAt?: string;
+  fareCashCollectedBy?: string;
+  fareCashCollectedAt?: string;
+
   createdAt?: string;
   updatedAt?: string;
   timestamp?: unknown;
@@ -67,6 +82,15 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   receipt_number: "receiptNumber",
   receipt_sent: "receiptSent",
   payment_notes: "paymentNotes",
+  booking_fee_amount: "bookingFeeAmount",
+  booking_fee_status: "bookingFeeStatus",
+  booking_fee_paid_at: "bookingFeePaidAt",
+  booking_expires_at: "bookingExpiresAt",
+  fare_status: "fareStatus",
+  fare_payment_method: "farePaymentMethod",
+  fare_paid_at: "farePaidAt",
+  fare_cash_collected_by: "fareCashCollectedBy",
+  fare_cash_collected_at: "fareCashCollectedAt",
 };
 
 const CAMEL_TO_SNAKE: Record<string, string> = {
@@ -89,6 +113,15 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   receiptNumber: "receipt_number",
   receiptSent: "receipt_sent",
   paymentNotes: "payment_notes",
+  bookingFeeAmount: "booking_fee_amount",
+  bookingFeeStatus: "booking_fee_status",
+  bookingFeePaidAt: "booking_fee_paid_at",
+  bookingExpiresAt: "booking_expires_at",
+  fareStatus: "fare_status",
+  farePaymentMethod: "fare_payment_method",
+  farePaidAt: "fare_paid_at",
+  fareCashCollectedBy: "fare_cash_collected_by",
+  fareCashCollectedAt: "fare_cash_collected_at",
 };
 
 function toSafeString(value: unknown): string | undefined {
@@ -111,6 +144,15 @@ function toSafePositiveNumber(value: unknown): number | undefined {
   if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}
+
+function toSafeNonNegativeNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
   }
   return undefined;
 }
@@ -143,6 +185,15 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
         else normalized.receiptSent = undefined;
       }
       else if (camelKey === "paymentNotes") normalized.paymentNotes = toSafeString(value);
+      else if (camelKey === "bookingFeeAmount") normalized.bookingFeeAmount = toSafeNonNegativeNumber(value);
+      else if (camelKey === "bookingFeeStatus") normalized.bookingFeeStatus = (toSafeString(value) as BookingFeeStatus | undefined) || "unpaid";
+      else if (camelKey === "bookingFeePaidAt") normalized.bookingFeePaidAt = toSafeString(value);
+      else if (camelKey === "bookingExpiresAt") normalized.bookingExpiresAt = toSafeString(value);
+      else if (camelKey === "fareStatus") normalized.fareStatus = (toSafeString(value) as FareStatus | undefined) || "unpaid";
+      else if (camelKey === "farePaymentMethod") normalized.farePaymentMethod = toSafeString(value) as PaymentMethod | undefined;
+      else if (camelKey === "farePaidAt") normalized.farePaidAt = toSafeString(value);
+      else if (camelKey === "fareCashCollectedBy") normalized.fareCashCollectedBy = toSafeString(value);
+      else if (camelKey === "fareCashCollectedAt") normalized.fareCashCollectedAt = toSafeString(value);
     } else if (key === "id") {
       normalized.bookingId = toSafeString(value);
     } else if (key in CAMEL_TO_SNAKE) {
@@ -167,6 +218,15 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
         else normalized.receiptSent = undefined;
       }
       else if (camelKey === "paymentNotes") normalized.paymentNotes = toSafeString(value);
+      else if (camelKey === "bookingFeeAmount") normalized.bookingFeeAmount = toSafeNonNegativeNumber(value);
+      else if (camelKey === "bookingFeeStatus") normalized.bookingFeeStatus = (toSafeString(value) as BookingFeeStatus | undefined) || "unpaid";
+      else if (camelKey === "bookingFeePaidAt") normalized.bookingFeePaidAt = toSafeString(value);
+      else if (camelKey === "bookingExpiresAt") normalized.bookingExpiresAt = toSafeString(value);
+      else if (camelKey === "fareStatus") normalized.fareStatus = (toSafeString(value) as FareStatus | undefined) || "unpaid";
+      else if (camelKey === "farePaymentMethod") normalized.farePaymentMethod = toSafeString(value) as PaymentMethod | undefined;
+      else if (camelKey === "farePaidAt") normalized.farePaidAt = toSafeString(value);
+      else if (camelKey === "fareCashCollectedBy") normalized.fareCashCollectedBy = toSafeString(value);
+      else if (camelKey === "fareCashCollectedAt") normalized.fareCashCollectedAt = toSafeString(value);
     } else if (key === "name") {
       normalized.name = toSafeString(value);
     } else if (key === "phone") {
@@ -230,6 +290,14 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
     normalized.paymentStatus = "Pending";
   }
 
+  if (!normalized.bookingFeeStatus) {
+    normalized.bookingFeeStatus = "unpaid";
+  }
+
+  if (!normalized.fareStatus) {
+    normalized.fareStatus = "unpaid";
+  }
+
   return normalized;
 }
 
@@ -255,7 +323,7 @@ export function toSupabaseBookingPayload(
     // Journey status only
     status,
 
-    // Payment status independent
+    // Payment status independent (legacy combined field)
     payment_status: "Pending",
 
     fare: toSafePositiveNumber(input.fare),
@@ -265,7 +333,21 @@ export function toSupabaseBookingPayload(
     referral_source: toSafeString(input.referralSource),
     commission_amount: toSafePositiveNumber(input.commissionAmount),
     referral_status: toSafeString(input.referralStatus) ?? "pending",
+
+    // Booking fee / fare split (see db/migrations/2026_08_01_payments_wallet_audit_foundation.sql)
+    booking_fee_amount: toSafeNonNegativeNumber(input.bookingFeeAmount),
+    booking_fee_status: "unpaid",
+    fare_status: "unpaid",
+    booking_expires_at: toSafeString(input.bookingExpiresAt),
   };
+}
+
+// How long an unpaid booking holds its place before the (not-yet-built) expiry
+// job would release it. Not yet configurable via system settings — Phase 7.
+export const DEFAULT_BOOKING_FEE_EXPIRY_HOURS = 48;
+
+export function computeBookingExpiryIso(fromDate: Date = new Date()): string {
+  return new Date(fromDate.getTime() + DEFAULT_BOOKING_FEE_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
 }
 
 export function generateBookingId(): string {

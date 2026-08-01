@@ -12,6 +12,7 @@ import {
   generateTripId,
   normalizeBookingRecord,
   toSupabaseBookingPayload,
+  computeBookingExpiryIso,
   type BookingRecord,
 } from "@/lib/bookingUtils";
 
@@ -225,7 +226,17 @@ async function sendUserConfirmationEmail(
   return "sent";
 }
 
-export async function GET(req: Request) {
+// Admin-only: lists all bookings, or looks up one by booking_id. Guests and
+// customers must use POST /api/track-booking instead, which verifies the
+// booking's own email/phone before returning anything.
+export async function GET(req: NextRequest) {
+  const response = NextResponse.next();
+  const { authorized, error: authError } = await requireAdminUser(req, response);
+
+  if (!authorized) {
+    return jsonError(authError || "Unauthorized", 401);
+  }
+
   try {
     const url = new URL(req.url);
     const trackingId = url.searchParams.get("trackingId");
@@ -324,11 +335,17 @@ export async function POST(req: Request) {
 
     const bookingId = generateBookingId();
     const tripId = generateTripId(destination, travelDate);
-    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = extractRouteSettingsData(settingsData ?? null);
     const routeFare = resolveRouteFareIfAvailable(destination, routesText);
     const payloadFare = getPositiveNumber(payload.fare);
     const fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : payloadFare;
+
+    // Booking fee is always resolved server-side from settings — the client
+    // never gets to decide what it owes.
+    const bookingFeeAmount = getPositiveNumber((settingsData as Record<string, unknown> | null)?.booking_fee) ?? 0;
+    const bookingExpiresAt = computeBookingExpiryIso();
+
     let ambassadorId: string | undefined;
     let referralSource: string | undefined;
     let commissionAmount = 0;
@@ -373,6 +390,8 @@ export async function POST(req: Request) {
       referralSource,
       commissionAmount,
       referralStatus: referralCode ? "pending" : undefined,
+      bookingFeeAmount,
+      bookingExpiresAt,
     };
 
     const bookingPayload = toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked");
