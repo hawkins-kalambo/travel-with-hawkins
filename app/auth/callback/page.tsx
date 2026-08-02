@@ -36,9 +36,11 @@ function AuthCallbackContent() {
             .maybeSingle();
 
           if (!profileData) {
-            // Create customer profile for OAuth user
-            const fullName = data.user.user_metadata?.full_name || data.user.email?.split("@")[0] || "User";
+            // Create customer profile for OAuth user, pulling in whatever
+            // Google already gave us so the profile shows up pre-filled.
+            const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split("@")[0] || "User";
             const phone = data.user.user_metadata?.phone || "";
+            const profilePictureUrl = data.user.user_metadata?.avatar_url || data.user.user_metadata?.picture || null;
 
             await supabase.from("customer_profiles").insert([
               {
@@ -46,9 +48,13 @@ function AuthCallbackContent() {
                 full_name: fullName,
                 email: data.user.email,
                 phone: phone,
+                profile_picture_url: profilePictureUrl,
                 customer_type: "public_traveler",
                 customer_number: `CUST-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-                email_verified: Boolean(data.user.email_confirmed_at),
+                // Google has already verified this address, so this account
+                // never needs to go through our own OTP flow.
+                email_verified: true,
+                email_verified_at: new Date().toISOString(),
                 account_status: "active",
               },
             ]);

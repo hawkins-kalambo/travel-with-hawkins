@@ -174,9 +174,19 @@ export default function CustomerShell({
                     onClick={() => setMenuOpen((open) => !open)}
                     className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white py-1.5 pl-1.5 pr-3 hover:bg-slate-50"
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#0A4D8C] to-[#F7931E] text-xs font-bold text-white">
-                      {initials || "YOU"}
-                    </span>
+                    {profile?.profilePictureUrl ? (
+                      <Image
+                        src={profile.profilePictureUrl}
+                        width={36}
+                        height={36}
+                        className="h-9 w-9 rounded-full object-cover"
+                        alt="Profile picture"
+                      />
+                    ) : (
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#0A4D8C] to-[#F7931E] text-xs font-bold text-white">
+                        {initials || "YOU"}
+                      </span>
+                    )}
                     <span className="text-sm font-semibold text-slate-700">{profile?.fullName?.split(" ")[0] || "Account"}</span>
                     <ChevronDown size={16} className="text-slate-400" />
                   </button>

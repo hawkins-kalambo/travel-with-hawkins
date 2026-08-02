@@ -49,30 +49,32 @@ function safeError(error: unknown): { errorName: string; errorMessage: string } 
   };
 }
 
-export async function sendBookingConfirmationSms({
-  bookingId,
-  name,
+async function deliverSms({
   phone,
+  message,
+  logLabel,
+  logContext,
 }: {
-  bookingId: string;
-  name: string;
   phone: string;
+  message: string;
+  logLabel: string;
+  logContext: Record<string, unknown>;
 }): Promise<SmsNotificationResult> {
   const username = process.env.AFRICASTALKING_USERNAME;
   const apiKey = process.env.AFRICASTALKING_API_KEY;
   const maskedDestination = maskPhoneNumber(phone);
   const environment = username?.toLowerCase() === "sandbox" ? "sandbox" : "production";
 
-  logInfo("Booking SMS configuration checked", {
-    bookingId,
+  logInfo(`${logLabel} configuration checked`, {
+    ...logContext,
     usernamePresent: Boolean(username),
     apiKeyPresent: Boolean(apiKey),
     sandboxMode: environment === "sandbox",
   });
 
   if (!username || !apiKey) {
-    logWarn("Booking SMS skipped because Africa's Talking is not configured", {
-      bookingId,
+    logWarn(`${logLabel} skipped because Africa's Talking is not configured`, {
+      ...logContext,
       destination: maskedDestination,
     });
     return {
@@ -83,14 +85,11 @@ export async function sendBookingConfirmationSms({
     };
   }
 
-  logInfo("Booking SMS send attempted", {
-    bookingId,
+  logInfo(`${logLabel} send attempted`, {
+    ...logContext,
     destination: maskedDestination,
     environment,
   });
-
-  const firstName = sanitizeCustomerName(name);
-  const message = `Hello ${firstName}, your Travel With Hawkins booking request has been received. We will contact you shortly.`;
 
   try {
     const sms = AfricasTalking({ username, apiKey }).SMS;
@@ -110,7 +109,7 @@ export async function sendBookingConfirmationSms({
             ? "rejected"
             : "other";
     const diagnostic = {
-      bookingId,
+      ...logContext,
       destination: maskedDestination,
       providerStatus,
       providerStatusCode: recipient?.statusCode,
@@ -118,9 +117,9 @@ export async function sendBookingConfirmationSms({
     };
 
     if (success) {
-      logInfo("Booking SMS accepted by Africa's Talking", diagnostic);
+      logInfo(`${logLabel} accepted by Africa's Talking`, diagnostic);
     } else {
-      logWarn("Booking SMS was not accepted by Africa's Talking", diagnostic);
+      logWarn(`${logLabel} was not accepted by Africa's Talking`, diagnostic);
     }
 
     return {
@@ -132,8 +131,8 @@ export async function sendBookingConfirmationSms({
       messageId: recipient?.messageId,
     };
   } catch (error) {
-    logError("Booking SMS delivery request failed", {
-      bookingId,
+    logError(`${logLabel} delivery request failed`, {
+      ...logContext,
       destination: maskedDestination,
       ...safeError(error),
     });
@@ -144,4 +143,41 @@ export async function sendBookingConfirmationSms({
       status: "request_failed",
     };
   }
+}
+
+export async function sendBookingConfirmationSms({
+  bookingId,
+  name,
+  phone,
+}: {
+  bookingId: string;
+  name: string;
+  phone: string;
+}): Promise<SmsNotificationResult> {
+  const firstName = sanitizeCustomerName(name);
+  const message = `Hello ${firstName}, your Travel With Hawkins booking request has been received. We will contact you shortly.`;
+
+  return deliverSms({
+    phone,
+    message,
+    logLabel: "Booking SMS",
+    logContext: { bookingId },
+  });
+}
+
+export async function sendOtpSms({
+  phone,
+  otp,
+}: {
+  phone: string;
+  otp: string;
+}): Promise<SmsNotificationResult> {
+  const message = `Your Travel with Hawkins verification code is ${otp}. It expires in 10 minutes.`;
+
+  return deliverSms({
+    phone,
+    message,
+    logLabel: "OTP SMS",
+    logContext: {},
+  });
 }

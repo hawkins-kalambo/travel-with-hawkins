@@ -14,6 +14,8 @@ export default function CustomerProfilePage() {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
   const [formData, setFormData] = useState({
     fullName: "",
     phone: "",
@@ -73,6 +75,54 @@ export default function CustomerProfilePage() {
       ...prev,
       [name]: value,
     }));
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setAvatarError("");
+
+    if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(file.type)) {
+      setAvatarError("Please upload a JPEG, PNG, or WEBP image");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError("Image must be smaller than 5MB");
+      return;
+    }
+
+    setAvatarUploading(true);
+
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch("/api/customers/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profilePictureBase64: base64 }),
+      });
+
+      const result = await res.json();
+
+      if (!result.success) {
+        setAvatarError(result.error || "Failed to upload profile picture");
+        return;
+      }
+
+      setProfile(result.profile);
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : "Failed to upload profile picture");
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -166,6 +216,51 @@ export default function CustomerProfilePage() {
             {success}
           </div>
         )}
+
+        {/* Profile Picture */}
+        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+          <h2 className="mb-6 text-xl font-bold text-slate-900">Profile Picture</h2>
+
+          <div className="flex items-center gap-6">
+            {profile?.profilePictureUrl ? (
+              <Image
+                src={profile.profilePictureUrl}
+                width={80}
+                height={80}
+                className="h-20 w-20 rounded-full object-cover"
+                alt="Profile picture"
+              />
+            ) : (
+              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-[#0A4D8C] to-[#F7931E] text-xl font-bold text-white">
+                {(profile?.fullName || "You")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase())
+                  .join("")}
+              </div>
+            )}
+
+            <div>
+              <label
+                htmlFor="avatarUpload"
+                className="inline-block cursor-pointer rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                {avatarUploading ? "Uploading..." : "Upload photo"}
+              </label>
+              <input
+                id="avatarUpload"
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                onChange={handleAvatarChange}
+                disabled={avatarUploading}
+                className="hidden"
+              />
+              <p className="mt-2 text-xs text-slate-500">JPEG, PNG, or WEBP. Max 5MB.</p>
+              {avatarError && <p className="mt-2 text-xs text-red-600">{avatarError}</p>}
+            </div>
+          </div>
+        </div>
 
         {/* Account Information */}
         <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">

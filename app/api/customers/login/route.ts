@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { success: false, error: result.error || "Login failed" },
+        { success: false, error: result.error || "Login failed", code: result.code },
         { status: 401 }
       );
     }

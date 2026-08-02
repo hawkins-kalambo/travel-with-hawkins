@@ -22,6 +22,7 @@ export default function CustomerRegisterPage() {
     faculty: "",
     programme: "",
     yearOfStudy: "",
+    otpChannel: "email" as "email" | "sms",
   });
 
   const [loading, setLoading] = useState(false);
@@ -75,6 +76,7 @@ export default function CustomerRegisterPage() {
           faculty: formData.faculty || undefined,
           programme: formData.programme || undefined,
           yearOfStudy: formData.yearOfStudy ? parseInt(formData.yearOfStudy) : undefined,
+          otpChannel: formData.otpChannel,
         }),
       });
 
@@ -86,7 +88,9 @@ export default function CustomerRegisterPage() {
         return;
       }
 
-      setSuccessMessage(result.message || "Registration successful! Please check your email to verify your account.");
+      setSuccessMessage(result.message || "Registration successful! Please check your email for a verification code.");
+      const registeredEmail = formData.email;
+      const registeredChannel = result.otpChannel || formData.otpChannel;
       setFormData({
         fullName: "",
         email: "",
@@ -99,11 +103,12 @@ export default function CustomerRegisterPage() {
         faculty: "",
         programme: "",
         yearOfStudy: "",
+        otpChannel: "email",
       });
 
       setTimeout(() => {
-        router.push("/customer/login?registered=true");
-      }, 2000);
+        router.push(`/customer/verify-email?email=${encodeURIComponent(registeredEmail)}&channel=${registeredChannel}`);
+      }, 1500);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -247,6 +252,49 @@ export default function CustomerRegisterPage() {
                 required
                 className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-[#0A4D8C] focus:ring-4 focus:ring-[#0A4D8C]/10"
               />
+            </div>
+
+            {/* Verification code delivery */}
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">
+                How should we send your verification code? *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label
+                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                    formData.otpChannel === "email"
+                      ? "border-[#0A4D8C] bg-[#0A4D8C]/5 text-[#0A4D8C]"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="otpChannel"
+                    value="email"
+                    checked={formData.otpChannel === "email"}
+                    onChange={handleChange}
+                    className="sr-only"
+                  />
+                  Email
+                </label>
+                <label
+                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                    formData.otpChannel === "sms"
+                      ? "border-[#0A4D8C] bg-[#0A4D8C]/5 text-[#0A4D8C]"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="otpChannel"
+                    value="sms"
+                    checked={formData.otpChannel === "sms"}
+                    onChange={handleChange}
+                    className="sr-only"
+                  />
+                  SMS
+                </label>
+              </div>
             </div>
 
             {/* Customer Type */}

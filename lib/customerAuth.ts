@@ -14,6 +14,7 @@ export type CustomerRegistrationData = {
   faculty?: string;
   programme?: string;
   yearOfStudy?: number;
+  otpChannel?: "email" | "sms";
 };
 
 export type CustomerLoginData = {

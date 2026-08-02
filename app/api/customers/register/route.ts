@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const { email, password, confirmPassword, fullName, phone, customerType, studentId, university, faculty, programme, yearOfStudy } = body;
+    const { email, password, confirmPassword, fullName, phone, customerType, studentId, university, faculty, programme, yearOfStudy, otpChannel } = body;
 
     // Validate required fields
     if (!email || !password || !confirmPassword || !fullName || !phone) {
@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const resolvedOtpChannel = otpChannel === "sms" ? "sms" : "email";
+
     const result = await registerCustomer({
       email,
       password,
@@ -35,6 +37,7 @@ export async function POST(req: NextRequest) {
       faculty,
       programme,
       yearOfStudy,
+      otpChannel: resolvedOtpChannel,
     });
 
     if (!result.success) {
@@ -47,7 +50,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       userId: result.userId,
-      message: "Registration successful. Please check your email to verify your account.",
+      otpChannel: resolvedOtpChannel,
+      message:
+        resolvedOtpChannel === "sms"
+          ? "Registration successful! Please check your phone for a verification code."
+          : "Registration successful! Please check your email for a verification code.",
     });
   } catch (error) {
     console.error("POST /api/customers/register error", error);

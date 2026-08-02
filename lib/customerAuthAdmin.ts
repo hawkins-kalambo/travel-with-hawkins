@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabase } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { generateAndSendOtp, type OtpChannel } from "@/lib/customerOtp";
 import type { CustomerProfile, CustomerRegistrationData, CustomerLoginData } from "@/lib/customerAuth";
 
 // ================= CUSTOMER REGISTRATION =================
@@ -17,17 +17,20 @@ export async function registerCustomer(data: CustomerRegistrationData): Promise<
       return { success: false, error: "Password must be at least 8 characters long" };
     }
 
-    // Create Supabase auth user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    // Create Supabase auth user via the admin API rather than the public
+    // signUp() call. The admin API never triggers Supabase's own
+    // confirmation email, so the only verification email a customer gets
+    // is our own OTP email below (email_confirm is flipped to true once
+    // they verify that code, see lib/customerOtp.ts::verifyOtp).
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: data.email.trim().toLowerCase(),
       password: data.password,
-      options: {
-        data: {
-          full_name: data.fullName,
-          phone: data.phone,
-          customer_type: data.customerType,
-          role: "customer",
-        },
+      email_confirm: false,
+      user_metadata: {
+        full_name: data.fullName,
+        phone: data.phone,
+        customer_type: data.customerType,
+        role: "customer",
       },
     });
 
@@ -113,6 +116,12 @@ export async function registerCustomer(data: CustomerRegistrationData): Promise<
       console.warn("Settings creation warning", settingsError);
     }
 
+    const otpChannel: OtpChannel = data.otpChannel === "sms" ? "sms" : "email";
+    const otpResult = await generateAndSendOtp(userId, data.email, data.fullName, otpChannel, data.phone);
+    if (!otpResult.success) {
+      console.warn("Failed to send registration OTP", otpResult.error);
+    }
+
     return { success: true, userId };
   } catch (error) {
     console.error("Registration error", error);
@@ -125,7 +134,7 @@ export async function registerCustomer(data: CustomerRegistrationData): Promise<
 export async function loginCustomer(
   data: CustomerLoginData,
   supabaseClient: SupabaseClient
-): Promise<{ success: boolean; userId?: string; error?: string }> {
+): Promise<{ success: boolean; userId?: string; error?: string; code?: string }> {
   try {
     const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
       email: data.email.trim().toLowerCase(),
@@ -141,6 +150,23 @@ export async function loginCustomer(
     }
 
     const userId = authData.user?.id;
+
+    if (userId) {
+      const { data: customerProfile } = await supabaseAdmin
+        .from("customer_profiles")
+        .select("email_verified")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (customerProfile && !customerProfile.email_verified) {
+        await supabaseClient.auth.signOut();
+        return {
+          success: false,
+          error: "Please verify your email before signing in.",
+          code: "EMAIL_NOT_VERIFIED",
+        };
+      }
+    }
 
     // Update last login
     if (userId) {

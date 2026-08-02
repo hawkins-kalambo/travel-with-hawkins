@@ -1,8 +1,38 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { getCustomerProfile, updateCustomerProfile } from "@/lib/customerAuthAdmin";
 import { normalizeAppRole } from "@/lib/permissions";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+async function uploadCustomerProfileImage(base64: string, customerId: string) {
+  const matches = base64.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/);
+  if (!matches) return null;
+
+  const mime = matches[1];
+  const ext = matches[2] === "png" ? "png" : matches[2] === "webp" ? "webp" : "jpg";
+  const path = `customers/${customerId}/${randomUUID()}.${ext}`;
+  const buffer = Buffer.from(matches[3], "base64");
+
+  try {
+    const { error } = await supabaseAdmin.storage.from("customer-profiles").upload(path, buffer, {
+      contentType: mime,
+      upsert: false,
+    });
+
+    if (error) {
+      console.warn("Customer profile image upload skipped", error.message);
+      return null;
+    }
+
+    const { data: urlData } = await supabaseAdmin.storage.from("customer-profiles").getPublicUrl(path);
+    return urlData?.publicUrl ?? null;
+  } catch (error) {
+    console.warn("Customer profile image upload failed", error);
+    return null;
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -51,6 +81,18 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
+
+    if (typeof body.profilePictureBase64 === "string" && body.profilePictureBase64) {
+      const uploadedUrl = await uploadCustomerProfileImage(body.profilePictureBase64, authResult.user.id);
+      if (!uploadedUrl) {
+        return NextResponse.json(
+          { success: false, error: "Failed to upload profile picture" },
+          { status: 400 }
+        );
+      }
+      body.profilePictureUrl = uploadedUrl;
+      delete body.profilePictureBase64;
+    }
 
     const result = await updateCustomerProfile(authResult.user.id, body);
 

@@ -51,12 +51,14 @@ function CustomerLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered");
+  const verified = searchParams.get("verified");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -66,12 +68,15 @@ function CustomerLoginContent() {
   useEffect(() => {
     if (registered) {
       setSuccessMessage("Registration successful! Please log in with your credentials.");
+    } else if (verified) {
+      setSuccessMessage("Email verified! You can now log in.");
     }
-  }, [registered]);
+  }, [registered, verified]);
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
+    setUnverifiedEmail("");
     setLoading(true);
 
     try {
@@ -84,7 +89,11 @@ function CustomerLoginContent() {
       const result = await response.json();
 
       if (!result.success) {
-        setError(result.error || "Login failed");
+        if (result.code === "EMAIL_NOT_VERIFIED") {
+          setUnverifiedEmail(email);
+        } else {
+          setError(result.error || "Login failed");
+        }
         setLoading(false);
         return;
       }
@@ -184,6 +193,18 @@ function CustomerLoginContent() {
               {error && (
                 <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   {error}
+                </div>
+              )}
+
+              {unverifiedEmail && (
+                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  Please verify your email before signing in.{" "}
+                  <Link
+                    href={`/customer/verify-email?email=${encodeURIComponent(unverifiedEmail)}`}
+                    className="font-semibold underline"
+                  >
+                    Verify now
+                  </Link>
                 </div>
               )}
 
