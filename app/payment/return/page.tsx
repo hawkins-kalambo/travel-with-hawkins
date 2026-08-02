@@ -5,8 +5,18 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
+import { formatMwk } from "@/lib/routePricing";
+import WhatsAppButton from "../../components/WhatsAppButton";
 
 type StatusOutcome = "checking" | "paid" | "pending" | "failed" | "error";
+
+type PaymentSummary = {
+  paymentType?: string;
+  destination?: string;
+  travelDate?: string;
+  fare?: number;
+  receiptNumber?: string;
+};
 
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLLS = 5;
@@ -17,6 +27,7 @@ function ReturnContent() {
 
   const [outcome, setOutcome] = useState<StatusOutcome>(txRef ? "checking" : "error");
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [receiptName, setReceiptName] = useState<string>("receipt.pdf");
   const downloadedRef = useRef(false);
@@ -47,6 +58,14 @@ function ReturnContent() {
           setBookingId(result.bookingId || null);
 
           const receipt = result.receipt as BookingRecord | null | undefined;
+          setSummary({
+            paymentType: result.paymentType,
+            destination: receipt?.destination,
+            travelDate: receipt?.travelDate,
+            fare: receipt?.fare,
+            receiptNumber: receipt?.receiptNumber,
+          });
+
           if (receipt && !downloadedRef.current) {
             downloadedRef.current = true;
             try {
@@ -113,35 +132,77 @@ function ReturnContent() {
           <>
             <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full bg-emerald-100 text-3xl text-emerald-600">✓</div>
             <h1 className="text-xl font-black text-slate-900">Payment confirmed</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              {bookingId ? (
-                <>
-                  Your payment for booking <span className="font-bold text-slate-900">{bookingId}</span> was successful.
-                </>
-              ) : (
-                "Your payment was successful."
-              )}
-            </p>
+            <p className="mt-2 text-sm text-slate-600">Thank you for booking with Travel With Hawkins — see you on board!</p>
+
+            {(summary || bookingId) && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left text-sm">
+                {summary?.paymentType && (
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Payment</span>
+                    <span className="font-bold text-slate-900">{summary.paymentType === "booking_fee" ? "Booking Fee" : "Transport Fare"}</span>
+                  </div>
+                )}
+                {summary?.fare != null && (
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Amount paid</span>
+                    <span className="font-bold text-slate-900">{formatMwk(summary.fare)}</span>
+                  </div>
+                )}
+                {bookingId && (
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Booking ID</span>
+                    <span className="font-bold text-slate-900">{bookingId}</span>
+                  </div>
+                )}
+                {summary?.destination && (
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Destination</span>
+                    <span className="font-bold text-slate-900">{summary.destination}</span>
+                  </div>
+                )}
+                {summary?.travelDate && (
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Travel date</span>
+                    <span className="font-bold text-slate-900">{summary.travelDate}</span>
+                  </div>
+                )}
+                {summary?.receiptNumber && (
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Receipt No.</span>
+                    <span className="font-bold text-slate-900">{summary.receiptNumber}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Link href="/" className="mt-5 inline-block w-full rounded-xl bg-[#0f3f78] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0a2d56]">
+              Back to Home
+            </Link>
+
+            {bookingId && (
+              <Link
+                href={`/payment?bookingId=${encodeURIComponent(bookingId)}`}
+                className="mt-3 inline-block w-full rounded-xl border-2 border-[#0f3f78] px-6 py-3 text-sm font-black text-[#0f3f78] transition hover:bg-slate-50"
+              >
+                Track This Booking
+              </Link>
+            )}
 
             {receiptUrl ? (
               <>
-                <p className="mt-3 text-xs text-slate-500">Your receipt has downloaded automatically.</p>
+                <p className="mt-4 text-xs text-slate-500">Your receipt has downloaded automatically.</p>
                 <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
                   <iframe src={receiptUrl} title="Payment receipt" className="h-72 w-full" />
                 </div>
                 <a
                   href={receiptUrl}
                   download={receiptName}
-                  className="mt-4 inline-block w-full rounded-xl border-2 border-[#0f3f78] px-6 py-3 text-sm font-black text-[#0f3f78] transition hover:bg-slate-50"
+                  className="mt-4 inline-block w-full rounded-xl border-2 border-slate-300 px-6 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                 >
                   Download receipt again
                 </a>
               </>
             ) : null}
-
-            <Link href="/" className="mt-3 inline-block w-full rounded-xl bg-[#0f3f78] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0a2d56]">
-              Back to homepage
-            </Link>
           </>
         )}
 
@@ -152,6 +213,7 @@ function ReturnContent() {
             <p className="mt-2 text-sm text-slate-600">
               Your payment is taking longer than usual to confirm. Use the Track Booking page in a few minutes to check its status.
             </p>
+            <p className="mt-3 text-xs text-slate-500">Need help now? Tap the WhatsApp button to chat with our support team.</p>
             <Link href="/" className="mt-6 inline-block w-full rounded-xl bg-[#0f3f78] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0a2d56]">
               Back to homepage
             </Link>
@@ -165,12 +227,15 @@ function ReturnContent() {
             <p className="mt-2 text-sm text-slate-600">
               We couldn&apos;t confirm this payment. If money left your account, please contact support with your booking ID before trying again.
             </p>
+            <p className="mt-3 text-xs text-slate-500">Tap the WhatsApp button to reach our support team directly.</p>
             <Link href="/" className="mt-6 inline-block w-full rounded-xl bg-[#0f3f78] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0a2d56]">
               Back to homepage
             </Link>
           </>
         )}
       </div>
+
+      {(outcome === "pending" || outcome === "failed" || outcome === "error") && <WhatsAppButton />}
     </div>
   );
 }
