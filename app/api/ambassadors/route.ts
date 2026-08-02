@@ -5,6 +5,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendEmail } from "@/lib/resend";
 import { buildAmbassadorWelcomeEmailHtml } from "@/lib/ambassadorEmail";
+import { generateReferralCode } from "@/lib/ambassadorCode";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -97,13 +98,6 @@ async function uploadProfileImage(base64: string) {
   }
 }
 
-function slugify(value: string): string {
-  return value
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "")
-    .slice(0, 16);
-}
-
 function generateTemporaryPassword() {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
   const random = randomBytes(12);
@@ -151,7 +145,12 @@ export async function POST(req: NextRequest) {
       return jsonError("fullName, phone, and email are required", 400);
     }
 
-    const finalCode = (referralCode || slugify(fullName || "HAWKINS") + "01").trim().toUpperCase();
+    // Fixes AMB-022 from docs/ambassador-system-audit.md — an admin can
+    // still supply a custom code, but the auto-generated default now uses
+    // the same TH-<UNI>-00001 format (and collision-retry logic) as the
+    // application-approval flow, instead of a separate SLUG(name)+"01"
+    // scheme that always produced the same "01" suffix.
+    const finalCode = referralCode ? referralCode.trim().toUpperCase() : await generateReferralCode(university);
 
     const { data: existingCode, error: existingCodeError } = await supabaseAdmin
       .from("ambassadors")

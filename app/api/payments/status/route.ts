@@ -23,7 +23,7 @@ function jsonError(message: string, status = 400) {
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") || "local";
-  if (isRateLimited(`payments:status:${ip}`)) {
+  if (await isRateLimited(`payments:status:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }
 

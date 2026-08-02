@@ -32,7 +32,7 @@ function statusFor(reason: string): number {
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") || "local";
-  if (isRateLimited(`payments:fare:select-cash:${ip}`)) {
+  if (await isRateLimited(`payments:fare:select-cash:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }
 

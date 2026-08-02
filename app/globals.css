@@ -187,10 +187,38 @@ input::placeholder, select::placeholder, textarea::placeholder {
   color: var(--white);
   font-weight: 700;
   padding: 0.875rem 1.25rem;
-  box-shadow: 0 16px 36px rgba(249, 115, 22, 0.18);
+  box-shadow: 0 16px 36px rgba(15, 63, 120, 0.24);
   transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 20px 42px rgba(249, 115, 22, 0.22); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 20px 42px rgba(15, 63, 120, 0.3); }
+.btn-primary:disabled,
+.btn-primary[data-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  background: var(--white);
+  color: var(--danger);
+  font-weight: 600;
+  padding: 0.8rem 1.1rem;
+  transition: background 180ms ease, transform 180ms ease;
+}
+.btn-danger:hover { background: rgba(220, 38, 38, 0.08); transform: translateY(-1px); }
+.btn-danger--solid {
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--white);
+}
+.btn-danger--solid:hover { background: #b91c1c; }
 
 .btn-secondary {
   display: inline-flex;
@@ -241,6 +269,11 @@ input::placeholder, select::placeholder, textarea::placeholder {
   border: 1px solid rgba(231, 76, 60, 0.2);
   background: rgba(231, 76, 60, 0.12);
   color: var(--danger);
+}
+.badge-neutral {
+  border: 1px solid var(--gray-200);
+  background: var(--gray-100);
+  color: var(--gray-600);
 }
 
 .hero-overlay {

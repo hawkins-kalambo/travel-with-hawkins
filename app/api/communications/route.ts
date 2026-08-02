@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser, requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
+import { getAnnouncementsForRole } from "@/lib/communicationServer";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -51,12 +52,16 @@ export async function GET(req: NextRequest) {
         .eq("profile_id", profileId)
         .order("created_at", { ascending: false })
         .limit(25),
+      // Fixes a bug found while auditing the communications system:
+      // ordering a parent query by a column on an embedded/nested resource
+      // (`communication_conversations.updated_at`) isn't supported by
+      // PostgREST — it was silently sorting by an unrelated same-named
+      // column instead. Sorted client-side below.
       supabaseAdmin
         .from("communication_conversation_participants")
         .select("conversation_id, starred, archived, last_read_at, communication_conversations(id, title, conversation_type, updated_at)")
         .eq("profile_id", profileId)
         .eq("deleted", false)
-        .order("updated_at", { ascending: false })
         .limit(15),
       supabaseAdmin
         .from("communication_support_tickets")
@@ -64,16 +69,23 @@ export async function GET(req: NextRequest) {
         .eq("requester_id", profileId)
         .order("created_at", { ascending: false })
         .limit(15),
-      supabaseAdmin
-        .from("communication_announcements")
-        .select("id, title, body, audience, pinned, published_at, expires_at")
-        .order("pinned", { ascending: false })
-        .order("published_at", { ascending: false })
-        .limit(15),
+      // Fixes a bug found while auditing the communications system: this
+      // previously fetched every announcement regardless of `audience`,
+      // meaning admin-only broadcasts were returned to (and, until the
+      // ambassador page fix below, just never rendered for) every caller.
+      // getAnnouncementsForRole() applies the same audience scoping the
+      // admin composer UI offers (everyone/admins/ambassadors).
+      Promise.resolve({ data: await getAnnouncementsForRole(role), error: null }),
     ]);
 
     const notifications = notificationsResult.status === "fulfilled" ? notificationsResult.value.data ?? [] : [];
-    const conversations = conversationsResult.status === "fulfilled" ? conversationsResult.value.data ?? [] : [];
+    const rawConversations =
+      conversationsResult.status === "fulfilled"
+        ? ((conversationsResult.value.data ?? []) as unknown as Array<{ communication_conversations?: { updated_at?: string | null } | null }>)
+        : [];
+    const conversations = rawConversations
+      .slice()
+      .sort((a, b) => (b.communication_conversations?.updated_at || "").localeCompare(a.communication_conversations?.updated_at || ""));
     const tickets = ticketsResult.status === "fulfilled" ? ticketsResult.value.data ?? [] : [];
     const announcements = announcementsResult.status === "fulfilled" ? announcementsResult.value.data ?? [] : [];
 
@@ -165,12 +177,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Fixes a security gap found while auditing the communications system:
+    // this endpoint previously let ANY authenticated user (customer,
+    // ambassador) write an arbitrary notification — attacker-controlled
+    // type/title/message/priority — into any OTHER user's inbox, just by
+    // supplying a `profile_id` in the body. Only admins may target someone
+    // other than themselves now.
+    const { authorized: isAdminCaller } = await requireAdminUser(req, response);
+
     const body = (await req.json()) as Record<string, unknown>;
     const type = typeof body.type === "string" ? body.type : "system";
     const title = typeof body.title === "string" ? body.title : "Notice";
     const message = typeof body.message === "string" ? body.message : "";
-    const profileId = body.profile_id;
-    const targetProfileId = typeof profileId === "string" ? profileId : authUser.user.id;
+    const requestedProfileId = typeof body.profile_id === "string" ? body.profile_id : undefined;
+    const targetProfileId = isAdminCaller && requestedProfileId ? requestedProfileId : authUser.user.id;
 
     const { error } = await supabaseAdmin.from("communication_notifications").insert({
       profile_id: targetProfileId,

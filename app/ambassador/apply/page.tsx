@@ -3,6 +3,7 @@
 import { DragEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { authFetch } from "@/lib/auth";
+import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
 
 type ApplicationForm = {
   full_name: string;
@@ -54,7 +55,6 @@ export default function AmbassadorApplyPage() {
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [dragActive, setDragActive] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -91,6 +91,7 @@ export default function AmbassadorApplyPage() {
         return null;
       case "phone":
         if (!value) return "Please enter your phone number.";
+        if (!normalizeMalawiPhone(String(value))) return "Please enter a valid Malawi phone number (e.g. 099 123 4567).";
         return null;
       case "university":
         if (!value) return "Please enter your university.";
@@ -171,7 +172,6 @@ export default function AmbassadorApplyPage() {
     setMessage(null);
     if (!file) {
       setProfileFile(null);
-      setUploadProgress(0);
       if (profilePreview && profilePreview.startsWith("blob:")) {
         URL.revokeObjectURL(profilePreview);
       }
@@ -192,19 +192,13 @@ export default function AmbassadorApplyPage() {
       URL.revokeObjectURL(profilePreview);
     }
 
+    // The file is only actually uploaded later, on form submit — this just
+    // validates and previews it locally, so there's no real "progress" to
+    // report here. A fake setInterval-based progress bar previously lived
+    // here, animating regardless of any real upload happening.
     setProfileFile(file);
     const previewUrl = URL.createObjectURL(file);
     setProfilePreview(previewUrl);
-    setUploadProgress(0);
-
-    let progress = 0;
-    const timer = window.setInterval(() => {
-      progress += 18;
-      setUploadProgress(Math.min(100, progress));
-      if (progress >= 100) {
-        window.clearInterval(timer);
-      }
-    }, 100);
   };
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -251,6 +245,7 @@ export default function AmbassadorApplyPage() {
         leadership_experience: form.leadership_experience,
         marketing_experience: form.marketing_experience,
         communities: form.communities,
+        termsAccepted: form.agree,
       };
 
       if (profileFile) {
@@ -298,7 +293,7 @@ export default function AmbassadorApplyPage() {
             <h1 className="text-3xl font-bold text-slate-900">Application submitted</h1>
             <p className="mt-4 text-slate-600">Thank you for your interest. Our team will review your application and contact you within 3–5 business days.</p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <a href="/" className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-[#0A4D8C] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#083a6b]">Return Home</a>
+              <a href="/" className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return Home</a>
               <a href="/book" className="inline-flex min-w-[160px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Explore Trips</a>
             </div>
           </div>
@@ -324,7 +319,7 @@ export default function AmbassadorApplyPage() {
             <a className="text-sm text-slate-600 hover:text-slate-900" href="/">Home</a>
             <a className="text-sm text-slate-600 hover:text-slate-900" href="/book">Book</a>
             <a className="text-sm text-slate-600 hover:text-slate-900" href="/about">About</a>
-            <a className="rounded-full border border-[#0A4D8C] bg-[#EDF7FF] px-4 py-2 text-sm font-semibold text-[#0A4D8C] transition hover:bg-[#0A4D8C] hover:text-white" href="/ambassador/apply">Apply</a>
+            <a className="rounded-full border border-primary-700 bg-[#EDF7FF] px-4 py-2 text-sm font-semibold text-primary-700 transition hover:bg-primary-700 hover:text-white" href="/ambassador/apply">Apply</a>
           </div>
         </div>
       </nav>
@@ -332,25 +327,25 @@ export default function AmbassadorApplyPage() {
       <header className="mx-auto max-w-7xl px-4 pt-10 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
           <div className="space-y-6">
-            <p className="inline-flex rounded-full bg-[#E8F1FF] px-4 py-2 text-sm font-semibold text-[#0A4D8C]">Ambassador application</p>
+            <p className="inline-flex rounded-full bg-[#E8F1FF] px-4 py-2 text-sm font-semibold text-primary-700">Ambassador application</p>
             <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">Join Malawi’s top student travel team with a simple four-step application.</h1>
             <p className="max-w-2xl text-lg leading-8 text-slate-600">Break the process into easy sections, review your details before submitting, and track your progress as you apply.</p>
             <div className="flex flex-wrap gap-3">
-              <span className="rounded-full bg-[#F1F5FF] px-4 py-2 text-sm font-semibold text-[#0A4D8C]">Fast startup-style onboarding</span>
+              <span className="rounded-full bg-[#F1F5FF] px-4 py-2 text-sm font-semibold text-primary-700">Fast startup-style onboarding</span>
               <span className="rounded-full bg-[#FFF4E5] px-4 py-2 text-sm font-semibold text-[#F7931E]">Designed for mobile-first applicants</span>
             </div>
           </div>
           <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-xl">
             <div className="grid gap-5">
               <div className="rounded-3xl bg-[#F8FAFF] p-5">
-                <p className="text-sm uppercase tracking-[0.2em] text-[#0A4D8C]">Application progress</p>
+                <p className="text-sm uppercase tracking-[0.2em] text-primary-700">Application progress</p>
                 <p className="mt-3 text-2xl font-semibold text-slate-900">Step {step} of 4</p>
               </div>
               <div className="rounded-3xl bg-white p-6 shadow-sm">
                 <p className="text-sm font-semibold text-slate-900">What happens next</p>
                 <ol className="mt-4 space-y-3 text-sm text-slate-600">
                   <li className="flex gap-3">
-                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0A4D8C] text-xs font-semibold text-white">1</span>
+                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-700 text-xs font-semibold text-white">1</span>
                     Submit your application and profile details.
                   </li>
                   <li className="flex gap-3">
@@ -420,7 +415,7 @@ export default function AmbassadorApplyPage() {
                           value={form.whatsapp_number}
                           onChange={(event) => setField("whatsapp_number", event.target.value)}
                           onBlur={() => touchField("whatsapp_number")}
-                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-[#0A4D8C] focus:bg-white"
+                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-primary-700 focus:bg-white"
                           placeholder="+265 999 123 456"
                         />
                       </FieldGroup>
@@ -496,7 +491,7 @@ export default function AmbassadorApplyPage() {
                           value={form.leadership_experience}
                           onChange={(event) => setField("leadership_experience", event.target.value)}
                           rows={4}
-                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-[#0A4D8C] focus:bg-white"
+                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-primary-700 focus:bg-white"
                           placeholder="Student council, event leadership, or club roles"
                         />
                       </FieldGroup>
@@ -505,7 +500,7 @@ export default function AmbassadorApplyPage() {
                           value={form.marketing_experience}
                           onChange={(event) => setField("marketing_experience", event.target.value)}
                           rows={4}
-                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-[#0A4D8C] focus:bg-white"
+                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-primary-700 focus:bg-white"
                           placeholder="Paid or volunteer marketing, sales, or promotions"
                         />
                       </FieldGroup>
@@ -515,7 +510,7 @@ export default function AmbassadorApplyPage() {
                         value={form.communities}
                         onChange={(event) => setField("communities", event.target.value)}
                         rows={3}
-                        className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-[#0A4D8C] focus:bg-white"
+                        className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-primary-700 focus:bg-white"
                         placeholder="Clubs, sports, societies, or student groups"
                       />
                     </FieldGroup>
@@ -526,14 +521,14 @@ export default function AmbassadorApplyPage() {
                           <p className="text-sm font-semibold text-slate-900">Profile photo</p>
                           <p className="text-sm text-slate-500">Upload a clear headshot for your ambassador profile.</p>
                         </div>
-                        <span className="rounded-full bg-[#EDF7FF] px-3 py-1 text-xs font-semibold text-[#0A4D8C]">JPG, PNG, WebP • max 5MB</span>
+                        <span className="rounded-full bg-[#EDF7FF] px-3 py-1 text-xs font-semibold text-primary-700">JPG, PNG, WebP • max 5MB</span>
                       </div>
                       <div
                         onDragOver={handleDragOver}
                         onDragLeave={handleDragLeave}
                         onDrop={handleDrop}
                         className={`group relative rounded-[30px] border-2 ${
-                          dragActive ? "border-[#0A4D8C] bg-[#F1F5FF]" : "border-dashed border-slate-300 bg-slate-50"
+                          dragActive ? "border-primary-700 bg-[#F1F5FF]" : "border-dashed border-slate-300 bg-slate-50"
                         } p-6 transition`}
                       >
                         <div className="flex flex-col items-center justify-center gap-4 text-center">
@@ -551,7 +546,7 @@ export default function AmbassadorApplyPage() {
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            className="rounded-full border border-[#0A4D8C] bg-white px-5 py-2 text-sm font-semibold text-[#0A4D8C] transition hover:bg-[#0A4D8C] hover:text-white"
+                            className="rounded-full border border-primary-700 bg-white px-5 py-2 text-sm font-semibold text-primary-700 transition hover:bg-primary-700 hover:text-white"
                           >
                             Select photo
                           </button>
@@ -565,14 +560,16 @@ export default function AmbassadorApplyPage() {
                         />
                       </div>
                       {profileFile && (
-                        <div className="mt-3 flex items-center justify-between rounded-3xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
-                          <div>{profileFile.name} • {(profileFile.size / 1024 / 1024).toFixed(2)} MB</div>
-                          <button type="button" onClick={() => handleFileChange(null)} className="font-semibold text-[#0A4D8C] hover:text-[#083a6b]">Remove</button>
-                        </div>
-                      )}
-                      {uploadProgress > 0 && (
-                        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
-                          <div className="h-2 rounded-full bg-[#0A4D8C] transition-all" style={{ width: `${uploadProgress}%` }} />
+                        <div className="mt-3 flex items-center justify-between rounded-3xl bg-gray-100 px-4 py-3 text-sm text-gray-700">
+                          <div className="flex items-center gap-2">
+                            <span className="text-success">✓</span>
+                            <span>
+                              {profileFile.name} • {(profileFile.size / 1024 / 1024).toFixed(2)} MB
+                            </span>
+                          </div>
+                          <button type="button" onClick={() => handleFileChange(null)} className="font-semibold text-primary-700 hover:text-primary-800">
+                            Remove
+                          </button>
                         </div>
                       )}
                     </div>
@@ -583,7 +580,7 @@ export default function AmbassadorApplyPage() {
                         checked={form.agree}
                         onChange={(event) => setField("agree", event.target.checked)}
                         onBlur={() => touchField("agree")}
-                        className="mt-1 h-4 w-4 rounded border-slate-300 text-[#0A4D8C] focus:ring-[#0A4D8C]"
+                        className="mt-1 h-4 w-4 rounded border-slate-300 text-primary-700 focus:ring-primary-700"
                       />
                       <div className="text-sm leading-6 text-slate-700">
                         I confirm that I will represent Travel with Hawkins professionally and uphold the company’s values.
@@ -665,7 +662,7 @@ export default function AmbassadorApplyPage() {
                     onClick={nextStep}
                     disabled={!validateStep(step) || loading}
                     className={`inline-flex h-12 items-center justify-center rounded-full px-6 text-sm font-semibold text-white transition ${
-                      validateStep(step) && !loading ? "bg-[#0A4D8C] hover:bg-[#083a6b]" : "bg-slate-300 cursor-not-allowed"
+                      validateStep(step) && !loading ? "bg-primary-700 hover:bg-primary-800" : "bg-slate-300 cursor-not-allowed"
                     }`}
                   >
                     Next
@@ -675,7 +672,7 @@ export default function AmbassadorApplyPage() {
                     type="submit"
                     disabled={loading}
                     className={`inline-flex h-12 items-center justify-center rounded-full px-6 text-sm font-semibold text-white transition ${
-                      loading ? "bg-slate-300" : "bg-gradient-to-r from-[#0A4D8C] to-[#155ea6] hover:from-[#083a6b] hover:to-[#0f4f87]"
+                      loading ? "bg-slate-300" : "bg-gradient-to-r from-primary-700 to-[#155ea6] hover:from-primary-800 hover:to-[#0f4f87]"
                     }`}
                   >
                     {loading ? "Submitting…" : "Submit application"}
@@ -688,22 +685,22 @@ export default function AmbassadorApplyPage() {
           <aside className="hidden rounded-[32px] border border-slate-200 bg-white p-6 shadow-lg lg:block">
             <div className="space-y-6">
               <div className="rounded-3xl bg-[#F5FAFF] p-6">
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0A4D8C]">What you’ll build</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-primary-700">What you’ll build</p>
                 <p className="mt-4 text-sm leading-7 text-slate-700">The ambassador application is designed to feel fast, transparent, and organized. Each step is short, keeping you focused on the details that matter.</p>
               </div>
               <div className="rounded-3xl bg-white p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-900">Why join Travel with Hawkins?</h2>
                 <ul className="mt-4 space-y-3 text-sm text-slate-600">
                   <li className="flex items-start gap-3">
-                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0A4D8C] text-white">✓</span>
+                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-700 text-white">✓</span>
                     Earn commissions on student referrals.
                   </li>
                   <li className="flex items-start gap-3">
-                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0A4D8C] text-white">✓</span>
+                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-700 text-white">✓</span>
                     Build leadership and marketing experience.
                   </li>
                   <li className="flex items-start gap-3">
-                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0A4D8C] text-white">✓</span>
+                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-700 text-white">✓</span>
                     Receive training and ambassador support.
                   </li>
                 </ul>
@@ -717,7 +714,7 @@ export default function AmbassadorApplyPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[#0A4D8C]">Need help with your application?</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.3em] text-primary-700">Need help with your application?</p>
               <h2 className="mt-3 text-3xl font-black text-slate-900">Contact the Travel with Hawkins team</h2>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">If you have questions about the ambassador application, profile photo upload, or next steps, get in touch with us directly.</p>
             </div>
@@ -725,18 +722,18 @@ export default function AmbassadorApplyPage() {
               <div className="space-y-4 text-sm text-slate-700">
                 <div>
                   <p className="font-semibold text-slate-900">Email</p>
-                  <a href="mailto:travelwithhawkins@gmail.com" className="mt-1 block text-[#0A4D8C] hover:underline">travelwithhawkins@gmail.com</a>
+                  <a href="mailto:travelwithhawkins@gmail.com" className="mt-1 block text-primary-700 hover:underline">travelwithhawkins@gmail.com</a>
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Phone</p>
-                  <a href="tel:+265886470843" className="mt-1 block text-[#0A4D8C] hover:underline">+265 886 470 843</a>
-                  <a href="tel:+265989127308" className="mt-1 block text-[#0A4D8C] hover:underline">+265 989 127 308</a>
+                  <a href="tel:+265886470843" className="mt-1 block text-primary-700 hover:underline">+265 886 470 843</a>
+                  <a href="tel:+265989127308" className="mt-1 block text-primary-700 hover:underline">+265 989 127 308</a>
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">WhatsApp</p>
-                  <a href="https://wa.me/265989127308" target="_blank" rel="noreferrer" className="mt-1 block text-[#0A4D8C] hover:underline">Chat on WhatsApp</a>
+                  <a href="https://wa.me/265989127308" target="_blank" rel="noreferrer" className="mt-1 block text-primary-700 hover:underline">Chat on WhatsApp</a>
                 </div>
-                <a href="/" className="inline-flex rounded-full bg-[#0A4D8C] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#083a6b]">Return home</a>
+                <a href="/" className="inline-flex rounded-full bg-primary-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return home</a>
               </div>
             </div>
           </div>
@@ -763,9 +760,9 @@ function ProgressStepper({ currentStep }: { currentStep: number }) {
               <div
                 className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold ${
                   isComplete
-                    ? "border-[#0A4D8C] bg-[#0A4D8C] text-white"
+                    ? "border-primary-700 bg-primary-700 text-white"
                     : isActive
-                    ? "border-[#0A4D8C] bg-[#E8F1FF] text-[#0A4D8C]"
+                    ? "border-primary-700 bg-[#E8F1FF] text-primary-700"
                     : "border-slate-200 bg-white text-slate-500"
                 }`}
               >
@@ -783,7 +780,7 @@ function ProgressStepper({ currentStep }: { currentStep: number }) {
 }
 
 function inputClass(hasError: boolean) {
-  return `rounded-3xl border px-4 py-3 text-slate-900 outline-none transition focus:border-[#0A4D8C] focus:bg-white ${
+  return `rounded-3xl border px-4 py-3 text-slate-900 outline-none transition focus:border-primary-700 focus:bg-white ${
     hasError ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50"
   }`;
 }

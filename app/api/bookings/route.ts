@@ -7,6 +7,9 @@ import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { sendBookingConfirmationSms } from "@/lib/africasTalking";
 import { validateBookingInput } from "@/lib/bookingValidation";
+import { isSelfReferral } from "@/lib/selfReferral";
+import { normalizeJourneyStatus } from "@/lib/statusUtils";
+import { shouldReverseCommission, isCommissionNeedingManualReview, buildCommissionReversalUpdate } from "@/lib/commissionLifecycle";
 import {
   generateBookingId,
   generateTripId,
@@ -349,11 +352,12 @@ export async function POST(req: Request) {
     let ambassadorId: string | undefined;
     let referralSource: string | undefined;
     let commissionAmount = 0;
+    let selfReferralBlocked = false;
 
     if (referralCode) {
       const { data: ambassadorData, error: ambassadorError } = await supabase
         .from("ambassadors")
-        .select("id, referral_code, status")
+        .select("id, referral_code, status, phone, email")
         .eq("referral_code", referralCode.toUpperCase())
         .maybeSingle();
 
@@ -365,9 +369,18 @@ export async function POST(req: Request) {
         return jsonError("Invalid referral code", 400);
       }
 
-      ambassadorId = ambassadorData.id;
-      referralSource = `referral:${ambassadorData.referral_code}`;
-      commissionAmount = await resolveCommissionAmount(destination, fare, routesText);
+      if (isSelfReferral(phone, email, ambassadorData.phone, ambassadorData.email)) {
+        // Don't reject the booking — just don't attribute it. The
+        // customer isn't doing anything wrong from their own perspective;
+        // this only stops an ambassador collecting commission on their
+        // own trip. See lib/selfReferral.ts and AMB-003 in the audit.
+        selfReferralBlocked = true;
+        logWarn("Blocked self-referral attempt", { referralCode: ambassadorData.referral_code, ambassadorId: ambassadorData.id });
+      } else {
+        ambassadorId = ambassadorData.id;
+        referralSource = `referral:${ambassadorData.referral_code}`;
+        commissionAmount = await resolveCommissionAmount(destination, fare, routesText);
+      }
     }
 
     const normalizedPayload = {
@@ -389,7 +402,7 @@ export async function POST(req: Request) {
       ambassadorId,
       referralSource,
       commissionAmount,
-      referralStatus: referralCode ? "pending" : undefined,
+      referralStatus: selfReferralBlocked ? "self_referral_blocked" : referralCode ? "pending" : undefined,
       bookingFeeAmount,
       bookingExpiresAt,
     };
@@ -528,7 +541,38 @@ export async function PATCH(req: NextRequest) {
 
     const record = normalizeBookingRecord((data as Record<string, unknown>) ?? {});
 
-    return NextResponse.json({ success: true, booking: record, message: "Booking updated" });
+    // Commission reversal on cancellation (AMB-002). Only ever moves a
+    // pending/approved commission to cancelled — a commission already
+    // marked paid is left untouched (real money may have moved) and
+    // surfaced for manual admin review instead of being silently reversed.
+    let commissionReversal: { reversed: boolean; needsManualReview?: boolean } | undefined;
+    if (status && normalizeJourneyStatus(status) === "Cancelled") {
+      const { data: referral, error: referralLookupError } = await supabase
+        .from("referrals")
+        .select("id, commission_status")
+        .eq("booking_id", bookingId)
+        .maybeSingle();
+
+      if (!referralLookupError && referral) {
+        if (shouldReverseCommission("Cancelled", referral.commission_status)) {
+          const { error: reversalError } = await supabase
+            .from("referrals")
+            .update(buildCommissionReversalUpdate("Booking cancelled"))
+            .eq("id", referral.id);
+
+          if (reversalError) {
+            logError("Failed to reverse commission for cancelled booking", { bookingId, referralId: referral.id, error: reversalError.message });
+          } else {
+            commissionReversal = { reversed: true };
+          }
+        } else if (isCommissionNeedingManualReview("Cancelled", referral.commission_status)) {
+          commissionReversal = { reversed: false, needsManualReview: true };
+          logWarn("Booking cancelled but its commission was already paid — needs manual admin review", { bookingId, referralId: referral.id });
+        }
+      }
+    }
+
+    return NextResponse.json({ success: true, booking: record, message: "Booking updated", commissionReversal });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Unknown error");
   }

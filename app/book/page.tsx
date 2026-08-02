@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Home from "../page";
 import { MALAWI_DISTRICTS, MALAWI_PUBLIC_UNIVERSITIES } from "@/lib/tripSearchData";
+import { sanitizeReferralCode } from "@/lib/referralStorage";
 
 export const metadata: Metadata = {
   title: "Book Student Transport",
@@ -16,6 +17,7 @@ type BookPageProps = {
     university?: string | string[];
     date?: string | string[];
     seats?: string | string[];
+    ref?: string | string[];
   }>;
 };
 
@@ -46,5 +48,11 @@ export default async function BookPage({ searchParams }: BookPageProps) {
       }
     : undefined;
 
-  return <Home initialTrip={initialTrip} />;
+  // Ambassador referral links are generated as /book?ref=CODE (see
+  // app/api/ambassadors/route.ts, app/api/applications/review/route.ts).
+  // Sanitized here server-side so Home never has to trust an unvalidated
+  // query string value.
+  const initialReferralCode = sanitizeReferralCode(firstValue(params.ref)) ?? null;
+
+  return <Home initialTrip={initialTrip} initialReferralCode={initialReferralCode} />;
 }

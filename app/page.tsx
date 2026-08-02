@@ -21,6 +21,7 @@ import BookingSuccessModal, { type BookingSuccessData } from "./components/home/
 import WhatsAppButton from "./components/WhatsAppButton";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { REFERRAL_STORAGE_KEY, resolveInitialReferral, type ReferralSource } from "@/lib/referralStorage";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -41,9 +42,10 @@ type HomeProps = {
     travelDate?: string;
     seats?: number;
   };
+  initialReferralCode?: string | null;
 };
 
-export default function Home({ initialTrip }: HomeProps = {}) {
+export default function Home({ initialTrip, initialReferralCode }: HomeProps = {}) {
   const router = useRouter();
   const tripSearchRef = useRef<HTMLFormElement>(null);
   const departureSelectRef = useRef<HTMLSelectElement>(null);
@@ -66,6 +68,7 @@ export default function Home({ initialTrip }: HomeProps = {}) {
   const [settingsText, setSettingsText] = useState<string | Record<string, unknown>>("");
   const [successData, setSuccessData] = useState<BookingSuccessData | null>(null);
   const [referralValidation, setReferralValidation] = useState<ReferralValidationState>({ state: "idle" });
+  const [referralSource, setReferralSource] = useState<ReferralSource | null>(null);
   const [today, setToday] = useState("");
   const [form, setForm] = useState<BookingFormState>({
     name: "",
@@ -168,6 +171,12 @@ export default function Home({ initialTrip }: HomeProps = {}) {
     router.push(`/trips?${params.toString()}`);
   };
 
+  const clearStoredReferral = () => {
+    try {
+      localStorage.removeItem(REFERRAL_STORAGE_KEY);
+    } catch {}
+  };
+
   const validateReferralCode = async (code: string) => {
     if (!code.trim()) {
       setReferralValidation({ state: "idle" });
@@ -183,8 +192,8 @@ export default function Home({ initialTrip }: HomeProps = {}) {
       });
       const result = await res.json();
       if (result?.success && result?.valid) {
-        const ambassadorName = result?.ambassador?.full_name || "the ambassador";
-        setReferralValidation({ state: "valid", message: `✓ Valid referral code. Referred by ${ambassadorName}.` });
+        const ambassadorName = result?.ambassador?.full_name || "your ambassador";
+        setReferralValidation({ state: "valid", message: `Valid referral code — referred by ${ambassadorName}.`, ambassadorName });
         return true;
       }
       setReferralValidation({ state: "invalid", message: result?.message || "Invalid referral code." });
@@ -195,20 +204,77 @@ export default function Home({ initialTrip }: HomeProps = {}) {
     }
   };
 
+  useEffect(() => {
+    // Capture ?ref=CODE from an ambassador's referral link (app/book/page.tsx
+    // already sanitizes it server-side) and persist it so attribution
+    // survives navigation/refresh — previously nothing did this at all
+    // (see docs/ambassador-system-audit.md, AMB-001). A fresh link always
+    // overwrites a previously stored code (last-click-wins); otherwise a
+    // non-expired stored code is reused. Deferred via setTimeout(0), same
+    // pattern as the profile-hydration effect above, so this stays a
+    // "subscribe to external state on mount" effect rather than calling
+    // setState synchronously in the effect body.
+    const referralTimer = window.setTimeout(() => {
+      let storedRaw: string | null = null;
+      try {
+        storedRaw = localStorage.getItem(REFERRAL_STORAGE_KEY);
+      } catch {}
+
+      const resolved = resolveInitialReferral({ urlCode: initialReferralCode, storedRaw });
+      if (!resolved) return;
+
+      if (resolved.nextStoredValue) {
+        try {
+          localStorage.setItem(REFERRAL_STORAGE_KEY, resolved.nextStoredValue);
+        } catch {}
+      }
+
+      setForm((current) => (current.referralCode ? current : { ...current, referralCode: resolved.code }));
+      setReferralSource(resolved.source);
+      void validateReferralCode(resolved.code);
+    }, 0);
+
+    return () => window.clearTimeout(referralTimer);
+  }, [initialReferralCode]);
+
+  // Removes an ambassador's referral link/badge from the booking without
+  // blocking checkout — used both when the customer explicitly dismisses
+  // it and when an auto-captured code turns out to be stale (see below).
+  const removeReferral = () => {
+    setForm((current) => ({ ...current, referralCode: "" }));
+    setReferralSource(null);
+    setReferralValidation({ state: "idle" });
+    clearStoredReferral();
+  };
+
   const handleBooking = async () => {
     setError("");
     if (!isFormValid()) return setError("Please fill all required fields.");
     if (bookingType === "custom" && !customDestination.trim()) return setError("Please enter your destination.");
-    if (!(await validateReferralCode(form.referralCode || ""))) {
-      return setError("Please use a valid referral code or leave the field empty.");
+
+    let finalReferralCode = form.referralCode?.trim() || "";
+    if (finalReferralCode) {
+      const isValid = await validateReferralCode(finalReferralCode);
+      if (!isValid) {
+        if (referralSource === "link") {
+          // The code was auto-captured from a shared link, not typed by
+          // this customer — a stale/suspended/expired link shouldn't block
+          // an otherwise-valid booking. Drop it silently and continue.
+          finalReferralCode = "";
+          removeReferral();
+        } else {
+          return setError("Please use a valid referral code or leave the field empty.");
+        }
+      }
     }
+
     setLoading(true);
     const destination = bookingType === "custom" ? customDestination.trim() : selectedRoute;
     const fare = getFareForDestination(destination);
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType, referralCode: form.referralCode?.trim() || undefined }),
+        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType, referralCode: finalReferralCode || undefined }),
       });
       const result = await res.json();
       if (result?.success) {
@@ -321,8 +387,20 @@ export default function Home({ initialTrip }: HomeProps = {}) {
           onCustomDestinationChange={setCustomDestination}
           error={error}
           form={form}
-          onFormChange={setForm}
+          onFormChange={(nextForm) => {
+            if (nextForm.referralCode !== form.referralCode) {
+              // The customer is now editing the field themselves — an
+              // auto-captured link code becomes a manually-entered one,
+              // which changes how a validation failure is handled later
+              // (see handleBooking: manual entries block checkout on an
+              // invalid code, auto-captured ones don't).
+              setReferralSource("manual");
+            }
+            setForm(nextForm);
+          }}
           referralValidation={referralValidation}
+          referralSource={referralSource}
+          onRemoveReferral={removeReferral}
           today={today}
           loading={loading}
           isFormValid={Boolean(isFormValid())}

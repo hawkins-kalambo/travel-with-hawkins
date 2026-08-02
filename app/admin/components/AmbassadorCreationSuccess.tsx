@@ -2,6 +2,7 @@
 
 import { jsPDF } from "jspdf";
 import { useState } from "react";
+import Button from "@/app/components/ui/Button";
 
 type SuccessProps = {
   ambassadorName: string;
@@ -26,15 +27,15 @@ export default function AmbassadorCreationSuccess({
   onResendEmail,
   onGenerateNewPassword,
 }: SuccessProps) {
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const copyText = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setMessage(`${label} copied to clipboard.`);
+      setMessage({ type: "success", text: `${label} copied to clipboard.` });
     } catch {
-      setMessage(`Unable to copy ${label}. Use manual copy instead.`);
+      setMessage({ type: "error", text: `Unable to copy ${label}. Use manual copy instead.` });
     }
   };
 
@@ -77,9 +78,9 @@ export default function AmbassadorCreationSuccess({
     setMessage(null);
     try {
       await onResendEmail();
-      setMessage("Welcome email resent successfully.");
+      setMessage({ type: "success", text: "Welcome email resent successfully." });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to resend welcome email.");
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Unable to resend welcome email." });
     } finally {
       setBusy(false);
     }
@@ -90,10 +91,10 @@ export default function AmbassadorCreationSuccess({
     setMessage(null);
     try {
       const newPassword = await onGenerateNewPassword();
-      setMessage("New temporary password generated.");
+      setMessage({ type: "success", text: "New temporary password generated and copied to clipboard." });
       await navigator.clipboard.writeText(newPassword);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to generate a new temporary password.");
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Unable to generate a new temporary password." });
     } finally {
       setBusy(false);
     }
@@ -103,16 +104,24 @@ export default function AmbassadorCreationSuccess({
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#0f3f78]">Ambassador created</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary-700">Ambassador created</p>
           <h2 className="mt-2 text-2xl font-black text-slate-900">Creation success</h2>
           <p className="mt-2 text-sm text-slate-500">The credentials below are available until this screen is closed.</p>
         </div>
-        <button onClick={onClose} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        <Button variant="secondary" onClick={onClose}>
           Finish
-        </button>
+        </Button>
       </div>
 
-      {message ? <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm text-sky-900">{message}</div> : null}
+      {message ? (
+        <div
+          className={`mt-4 rounded-2xl border p-4 text-sm ${
+            message.type === "success" ? "border-success/20 bg-success/10 text-success" : "border-danger/20 bg-danger/10 text-danger"
+          }`}
+        >
+          {message.text}
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
@@ -147,40 +156,32 @@ export default function AmbassadorCreationSuccess({
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {temporaryPassword ? (
-          <button type="button" onClick={() => void copyText(temporaryPassword, "Temporary password")} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            Copy Password
-          </button>
+          <Button onClick={() => void copyText(temporaryPassword, "Temporary password")}>Copy Password</Button>
         ) : null}
-        <button
-          type="button"
+        <Button
           onClick={() =>
             void copyText(
               `Name: ${ambassadorName}\nEmail: ${email}${temporaryPassword ? `\nPassword: ${temporaryPassword}` : ""}\nReferral Code: ${referralCode}\nReferral Link: ${referralLink}\nLogin URL: ${loginUrl}`,
               "Login details"
             )
           }
-          className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
         >
           Copy Login Details
-        </button>
-        <button type="button" onClick={() => void copyText(referralLink, "Referral link")} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          Copy Referral Link
-        </button>
-        <button type="button" onClick={downloadPdf} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          Download Credentials (PDF)
-        </button>
+        </Button>
+        <Button onClick={() => void copyText(referralLink, "Referral link")}>Copy Referral Link</Button>
+        <Button onClick={downloadPdf}>Download Credentials (PDF)</Button>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <button type="button" onClick={handleResend} disabled={busy} className="rounded-2xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+        <Button variant="secondary" onClick={handleResend} disabled={busy}>
           Send Welcome Email Again
-        </button>
-        <button type="button" onClick={async () => { await handleGenerateNewPassword(); }} disabled={busy} className="rounded-2xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+        </Button>
+        <Button variant="secondary" onClick={async () => { await handleGenerateNewPassword(); }} disabled={busy}>
           Generate New Temporary Password
-        </button>
-        <button type="button" onClick={() => window.print()} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        </Button>
+        <Button variant="secondary" onClick={() => window.print()}>
           Print
-        </button>
+        </Button>
       </div>
     </div>
   );

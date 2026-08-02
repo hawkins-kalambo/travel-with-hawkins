@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser, requireAdminUser } from "@/lib/supabaseServer";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { publishCommunicationEvent } from "@/lib/communicationEngine";
+import { listTickets, createTicket, updateTicket } from "@/lib/supportTickets";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -15,15 +14,8 @@ export async function GET(req: NextRequest) {
 
   const { authorized } = await requireAdminUser(req, response);
   try {
-    const query = supabaseAdmin.from("communication_support_tickets").select("*, profiles(full_name, email)").order("created_at", { ascending: false });
-
-    if (!authorized) {
-      query.eq("requester_id", authUser.user.id);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await listTickets(authUser.user.id, authorized);
     if (error) throw error;
-
     return NextResponse.json({ success: true, tickets: data ?? [] });
   } catch (err) {
     console.error("GET /api/communication/tickets error", err);
@@ -46,29 +38,8 @@ export async function POST(req: NextRequest) {
       return jsonError("Subject and description are required", 400);
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("communication_support_tickets")
-      .insert({
-        subject,
-        description,
-        category,
-        requester_id: authUser.user.id,
-      })
-      .select()
-      .single();
-
+    const { data, error } = await createTicket({ requesterId: authUser.user.id, subject, description, category });
     if (error) throw error;
-
-    await publishCommunicationEvent({
-      type: "support_ticket_created",
-      actor_id: authUser.user.id,
-      payload: {
-        requester_id: authUser.user.id,
-        ticket_id: data?.id ?? "",
-        subject,
-        assignee_ids: [],
-      },
-    });
 
     return NextResponse.json({ success: true, ticket: data });
   } catch (err) {
@@ -85,37 +56,17 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const ticketId = typeof body.id === "string" ? body.id : "";
-    const updates: Record<string, unknown> = {};
+    if (!ticketId) return jsonError("Ticket ID is required", 400);
 
-    if (typeof body.status === "string") updates.status = body.status;
-    if (typeof body.priority === "string") updates.priority = body.priority;
-    if (typeof body.assignee_id === "string") updates.assignee_id = body.assignee_id;
-
-    if (!ticketId || Object.keys(updates).length === 0) {
-      return jsonError("Ticket ID and at least one update field required", 400);
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("communication_support_tickets")
-      .update(updates)
-      .eq("id", ticketId)
-      .select()
-      .single();
+    const { data, error } = await updateTicket({
+      ticketId,
+      actorId: user.id,
+      status: typeof body.status === "string" ? body.status : undefined,
+      priority: typeof body.priority === "string" ? body.priority : undefined,
+      assigneeId: typeof body.assignee_id === "string" ? body.assignee_id : undefined,
+    });
 
     if (error) throw error;
-
-    if (updates.assignee_id) {
-      await publishCommunicationEvent({
-        type: "support_ticket_assigned",
-        actor_id: user.id,
-        payload: {
-          assignee_id: String(updates.assignee_id),
-          ticket_id: ticketId,
-          subject: String(data?.subject ?? "Support ticket"),
-        },
-      });
-    }
-
     return NextResponse.json({ success: true, ticket: data });
   } catch (err) {
     console.error("PATCH /api/communication/tickets error", err);

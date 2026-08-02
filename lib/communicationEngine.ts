@@ -2,22 +2,21 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type CommunicationNotificationPriority = "low" | "normal" | "high";
 
+// Kept to exactly the set of types publishCommunicationEvent actually
+// produces below — a prior version declared several values
+// (ambassador_approved, ambassador_suspended, commission_generated,
+// password_reset, system_message) that no code path ever emitted.
 export type CommunicationNotificationType =
-  | "ambassador_approved"
-  | "ambassador_suspended"
   | "ambassador_rejected"
   | "booking_created"
   | "booking_cancelled"
-  | "commission_generated"
   | "commission_approved"
   | "commission_paid"
   | "referral_linked"
-  | "password_reset"
   | "new_application"
   | "application_approved"
   | "profile_updated"
   | "support_ticket_assigned"
-  | "system_message"
   | "support_ticket_created";
 
 export interface CreateCommunicationNotificationParams {
@@ -169,7 +168,23 @@ export async function publishCommunicationEvent(event: CommunicationEvent): Prom
     }
     case "commission_approved":
     case "commission_paid": {
-      const profileId = String(event.payload.profile_id || event.payload.ambassador_id || "");
+      // Defense-in-depth: the caller (app/api/commissions/route.ts) always
+      // resolves and passes the real profile_id today, but this used to
+      // silently fall back to `ambassador_id` — the `ambassadors.id`
+      // surrogate key, which is never equal to a `profiles.id`/auth user
+      // id — meaning every commission notification was written under a
+      // profile_id no session would ever match. If a future caller ever
+      // makes that same mistake again, resolve it properly here instead
+      // of repeating the bug.
+      let profileId = String(event.payload.profile_id || "");
+      if (!profileId && event.payload.ambassador_id) {
+        const { data: ambassadorRow } = await supabaseAdmin
+          .from("ambassadors")
+          .select("user_id, profile_id")
+          .eq("id", String(event.payload.ambassador_id))
+          .maybeSingle();
+        profileId = String(ambassadorRow?.user_id || ambassadorRow?.profile_id || "");
+      }
       const amount = Number(event.payload.commission_amount ?? 0);
       const bookingId = String(event.payload.booking_id || event.payload.bookingId || "");
       if (!profileId) return;
@@ -266,7 +281,6 @@ export async function publishCommunicationEvent(event: CommunicationEvent): Prom
     }
     case "new_application": {
       const adminIds = await getAdminProfileIds();
-      const subject = String(event.payload.subject || "New ambassador application");
       const applicantName = String(event.payload.full_name || event.payload.name || "Applicant");
       const applicationId = String(event.payload.application_id || event.payload.applicationId || "");
       if (adminIds.length === 0) return;

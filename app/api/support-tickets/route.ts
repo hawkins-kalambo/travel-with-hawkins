@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAdminUser, requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { listTickets, createTicket, updateTicket } from "@/lib/supportTickets";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -14,17 +14,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const { authorized } = await requireAdminUser(req, response);
-    const query = supabaseAdmin
-      .from("communication_support_tickets")
-      .select("*, profiles(full_name, email)")
-      .order("created_at", { ascending: false });
-
-    if (!authorized) {
-      // Non-admins only see their own tickets
-      query.eq("requester_id", authUser.user.id);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await listTickets(authUser.user.id, authorized);
 
     if (error) {
       if (error.message?.includes("does not exist")) {
@@ -55,16 +45,7 @@ export async function POST(req: NextRequest) {
       return jsonError("Subject and description are required", 400);
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("communication_support_tickets")
-      .insert({
-        subject,
-        description,
-        category,
-        requester_id: authUser.user.id,
-      })
-      .select()
-      .single();
+    const { data, error } = await createTicket({ requesterId: authUser.user.id, subject, description, category });
 
     if (error) {
       if (error.message?.includes("does not exist")) {
@@ -88,22 +69,21 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const ticketId = typeof body.id === "string" ? body.id : "";
-    const updates: Record<string, unknown> = {};
+    if (!ticketId) return jsonError("Ticket ID is required", 400);
 
-    if (body.status) updates.status = body.status;
-    if (body.priority) updates.priority = body.priority;
-    if (body.assignee_id) updates.assignee_id = body.assignee_id;
-
-    if (!ticketId || Object.keys(updates).length === 0) {
-      return jsonError("Ticket ID and at least one update field required", 400);
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("communication_support_tickets")
-      .update(updates)
-      .eq("id", ticketId)
-      .select()
-      .single();
+    // Fixes a bug found while auditing the communications system: this
+    // route previously updated status/priority/assignee directly and
+    // never called publishCommunicationEvent, so admin-side ticket
+    // assignment — the only place in the whole app an admin could actually
+    // assign a ticket — never notified the assignee. Delegating to the
+    // same updateTicket() the ambassador-facing route uses closes that gap.
+    const { data, error } = await updateTicket({
+      ticketId,
+      actorId: user.id,
+      status: typeof body.status === "string" ? body.status : undefined,
+      priority: typeof body.priority === "string" ? body.priority : undefined,
+      assigneeId: typeof body.assignee_id === "string" ? body.assignee_id : undefined,
+    });
 
     if (error) throw error;
     return NextResponse.json({ success: true, ticket: data });

@@ -22,7 +22,17 @@ export async function getProfileSummary(profileId: string): Promise<ProfileSumma
   return data ?? null;
 }
 
-export async function getAnnouncementsForRole(role: string): Promise<unknown[]> {
+export type AnnouncementRow = {
+  id: string;
+  title: string;
+  body: string;
+  audience: string;
+  pinned: boolean;
+  published_at?: string | null;
+  expires_at?: string | null;
+};
+
+export async function getAnnouncementsForRole(role: string): Promise<AnnouncementRow[]> {
   const audiences = ["everyone"];
   if (role === "admin" || role === "super_admin") audiences.push("admins");
   if (role === "ambassador") audiences.push("ambassadors");
@@ -43,23 +53,35 @@ export async function getAnnouncementsForRole(role: string): Promise<unknown[]> 
   return data ?? [];
 }
 
-export async function getConversationSummary(profileId: string): Promise<unknown[]> {
+type ConversationSummaryRow = {
+  conversation_id: string;
+  communication_conversations?: { updated_at?: string | null } | null;
+};
+
+export async function getConversationSummary(profileId: string): Promise<ConversationSummaryRow[]> {
+  // PostgREST can't order a parent query by a column on an embedded/nested
+  // resource the way `.order("communication_conversations.updated_at")`
+  // implies — that either errors (caught below, degrading to an empty
+  // list) or, worse, silently sorts by an unrelated same-named column on
+  // the base table instead. Fetch, then sort client-side by the embedded
+  // conversation's own updated_at.
   const { data, error } = await supabaseAdmin
     .from("communication_conversation_participants")
-    .select(
-      "conversation_id, starred, archived, last_read_at, communication_conversations(id, title, conversation_type, updated_at)"
-    )
+    .select("conversation_id, starred, archived, last_read_at, communication_conversations(id, title, conversation_type, updated_at)")
     .eq("profile_id", profileId)
     .eq("deleted", false)
-    .order("communication_conversations.updated_at", { ascending: false })
-    .limit(5);
+    .limit(20);
 
   if (error) {
     console.warn("Failed to load conversation summary", error);
     return [];
   }
 
-  return data ?? [];
+  const rows = (data ?? []) as unknown as ConversationSummaryRow[];
+  return rows
+    .slice()
+    .sort((a, b) => (b.communication_conversations?.updated_at || "").localeCompare(a.communication_conversations?.updated_at || ""))
+    .slice(0, 5);
 }
 
 export async function getNotificationSummary(profileId: string): Promise<unknown[]> {

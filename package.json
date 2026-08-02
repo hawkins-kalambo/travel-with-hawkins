@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint --config eslint.config.mjs .",
-    "test": "node --test lib/phoneNumbers.test.mjs lib/payments/reference.test.ts lib/payments/verification-validator.test.ts",
+    "test": "node --test lib/phoneNumbers.test.mjs lib/payments/reference.test.ts lib/payments/verification-validator.test.ts lib/referralStorage.test.ts lib/selfReferral.test.ts lib/commissionLifecycle.test.ts lib/ambassadorCode.test.ts",
     "typecheck": "tsc --noEmit",
     "repair:ambassadors": "node scripts/repair_ambassadors_user_id.js"
   },

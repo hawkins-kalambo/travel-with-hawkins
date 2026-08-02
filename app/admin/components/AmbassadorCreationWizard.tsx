@@ -50,6 +50,31 @@ function stepLabel(step: number) {
   }
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateStep(step: number, payload: WizardPayload): Record<string, string> {
+  const errors: Record<string, string> = {};
+
+  if (step === 1) {
+    if (!payload.fullName.trim()) errors.fullName = "Full name is required.";
+    if (!payload.studentId.trim()) errors.studentId = "Student ID is required.";
+    if (!payload.email.trim()) errors.email = "Email is required.";
+    else if (!EMAIL_PATTERN.test(payload.email.trim())) errors.email = "Enter a valid email address.";
+    if (!payload.phone.trim()) errors.phone = "Phone number is required.";
+  }
+
+  if (step === 2) {
+    if (!payload.referralCode.trim()) errors.referralCode = "Referral code is required.";
+    if (!payload.university.trim()) errors.university = "Campus assignment is required.";
+  }
+
+  return errors;
+}
+
+function fieldClass(hasError: boolean) {
+  return hasError ? "input-field border-danger focus:border-danger" : "input-field";
+}
+
 export default function AmbassadorCreationWizard({ initialReferralCode = "", onSubmit, onCancel }: WizardProps) {
   const [step, setStep] = useState(1);
   const [payload, setPayload] = useState<WizardPayload>({
@@ -71,6 +96,7 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const referralLink = useMemo(() => {
     if (!payload.referralCode) return "—";
@@ -80,9 +106,25 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
 
   const updateField = (field: keyof WizardPayload, value: string | undefined) => {
     setPayload((current) => ({ ...current, [field]: value ?? "" }));
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   };
 
-  const nextStep = () => setStep((current) => Math.min(4, current + 1));
+  const nextStep = () => {
+    const errors = validateStep(step, payload);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("Fix the highlighted fields to continue.");
+      return;
+    }
+    setFieldErrors({});
+    setError(null);
+    setStep((current) => Math.min(4, current + 1));
+  };
   const prevStep = () => setStep((current) => Math.max(1, current - 1));
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,6 +146,13 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
   };
 
   const submit = async () => {
+    const combinedErrors = { ...validateStep(1, payload), ...validateStep(2, payload) };
+    if (Object.keys(combinedErrors).length > 0) {
+      setFieldErrors(combinedErrors);
+      setError("Fix the highlighted fields before creating the ambassador.");
+      setStep(1);
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -119,7 +168,7 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#0f3f78]">New ambassador</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary-700">New ambassador</p>
           <h2 className="mt-2 text-2xl font-black text-slate-900">Create ambassador</h2>
           <p className="mt-2 text-sm text-slate-500">Use the wizard to capture details, preview credentials, and confirm creation.</p>
         </div>
@@ -131,10 +180,22 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
       {step === 1 && (
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="input-field" placeholder="Full Name" value={payload.fullName} onChange={(e) => updateField("fullName", e.target.value)} />
-            <input className="input-field" placeholder="Student ID" value={payload.studentId} onChange={(e) => updateField("studentId", e.target.value)} />
-            <input className="input-field" type="email" placeholder="Email" value={payload.email} onChange={(e) => updateField("email", e.target.value)} />
-            <input className="input-field" placeholder="Phone" value={payload.phone} onChange={(e) => updateField("phone", e.target.value)} />
+            <div>
+              <input className={fieldClass(!!fieldErrors.fullName)} placeholder="Full Name" value={payload.fullName} onChange={(e) => updateField("fullName", e.target.value)} />
+              {fieldErrors.fullName && <p className="mt-1 text-xs text-danger">{fieldErrors.fullName}</p>}
+            </div>
+            <div>
+              <input className={fieldClass(!!fieldErrors.studentId)} placeholder="Student ID" value={payload.studentId} onChange={(e) => updateField("studentId", e.target.value)} />
+              {fieldErrors.studentId && <p className="mt-1 text-xs text-danger">{fieldErrors.studentId}</p>}
+            </div>
+            <div>
+              <input className={fieldClass(!!fieldErrors.email)} type="email" placeholder="Email" value={payload.email} onChange={(e) => updateField("email", e.target.value)} />
+              {fieldErrors.email && <p className="mt-1 text-xs text-danger">{fieldErrors.email}</p>}
+            </div>
+            <div>
+              <input className={fieldClass(!!fieldErrors.phone)} placeholder="Phone" value={payload.phone} onChange={(e) => updateField("phone", e.target.value)} />
+              {fieldErrors.phone && <p className="mt-1 text-xs text-danger">{fieldErrors.phone}</p>}
+            </div>
             <input className="input-field" placeholder="WhatsApp Number" value={payload.whatsappNumber} onChange={(e) => updateField("whatsappNumber", e.target.value)} />
             <input className="input-field" placeholder="Faculty" value={payload.faculty} onChange={(e) => updateField("faculty", e.target.value)} />
             <input className="input-field" placeholder="Programme" value={payload.program} onChange={(e) => updateField("program", e.target.value)} />
@@ -151,8 +212,14 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
       {step === 2 && (
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="input-field" placeholder="Referral Code" value={payload.referralCode} onChange={(e) => updateField("referralCode", e.target.value)} />
-            <input className="input-field" placeholder="Campus Assignment" value={payload.university} onChange={(e) => updateField("university", e.target.value)} />
+            <div>
+              <input className={fieldClass(!!fieldErrors.referralCode)} placeholder="Referral Code" value={payload.referralCode} onChange={(e) => updateField("referralCode", e.target.value)} />
+              {fieldErrors.referralCode && <p className="mt-1 text-xs text-danger">{fieldErrors.referralCode}</p>}
+            </div>
+            <div>
+              <input className={fieldClass(!!fieldErrors.university)} placeholder="Campus Assignment" value={payload.university} onChange={(e) => updateField("university", e.target.value)} />
+              {fieldErrors.university && <p className="mt-1 text-xs text-danger">{fieldErrors.university}</p>}
+            </div>
             <input className="input-field" placeholder="Route Assignment (optional)" value={payload.routeAssignment} onChange={(e) => updateField("routeAssignment", e.target.value)} />
             <select className="input-field" value={payload.status} onChange={(e) => updateField("status", e.target.value)}>
               <option value="active">Active</option>
@@ -241,11 +308,11 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
 
         <div className="flex gap-3">
           {step < 4 ? (
-            <button type="button" onClick={nextStep} className="rounded-2xl bg-[#0f3f78] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0a2d56]">
+            <button type="button" onClick={nextStep} className="rounded-2xl bg-primary-700 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-800">
               Continue
             </button>
           ) : (
-            <button type="button" onClick={submit} disabled={busy} className="rounded-2xl bg-[#0f3f78] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0a2d56] disabled:opacity-50">
+            <button type="button" onClick={submit} disabled={busy} className="rounded-2xl bg-primary-700 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-800 disabled:opacity-50">
               {busy ? "Creating…" : "Create Ambassador"}
             </button>
           )}

@@ -6,6 +6,7 @@ import { randomBytes } from "crypto";
 import { sendEmail } from "@/lib/resend";
 import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
 import { publishCommunicationEvent } from "@/lib/communicationEngine";
+import { generateReferralCode } from "@/lib/ambassadorCode";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -152,35 +153,58 @@ export async function POST(req: NextRequest) {
   const { authorized, user: adminUser, error } = await requireAdminUser(req, response);
   if (!authorized) return jsonError(error || "Unauthorized", 401);
 
+  // If the approve flow claims the application (status -> 'approved') but
+  // then fails partway through account creation, we must not leave the
+  // application stuck in 'approved' with no real ambassador account behind
+  // it — revert it back to 'pending' in the catch block below so an admin
+  // can retry.
+  let claimedApplicationIdPendingRevert: string | null = null;
+
   try {
     const body = (await req.json()) as { applicationId?: string; action?: "approve" | "reject"; rejectionReason?: string };
     const { applicationId, action, rejectionReason } = body;
     if (!applicationId || !action) return jsonError("applicationId and action are required", 400);
 
-    const { data: application, error: appErr } = await supabaseAdmin
+    const { data: existingApplication, error: appErr } = await supabaseAdmin
       .from("ambassador_applications")
       .select("*")
       .eq("id", applicationId)
       .maybeSingle();
 
     if (appErr) return jsonError(appErr.message || "Unable to load application", 500);
-    if (!application) return jsonError("Application not found", 404);
+    if (!existingApplication) return jsonError("Application not found", 404);
 
     if (action === "reject") {
-      const { error: updateErr } = await supabaseAdmin
+      // Fixes AMB-011 from docs/ambassador-system-audit.md — a rejection
+      // reason was previously optional (collected via window.prompt, which
+      // could be cancelled/left blank).
+      const reason = typeof rejectionReason === "string" ? rejectionReason.trim() : "";
+      if (reason.length < 5) {
+        return jsonError("Please provide a rejection reason (at least 5 characters).", 400);
+      }
+
+      // Fixes AMB-010 from docs/ambassador-system-audit.md — this UPDATE is
+      // an atomic compare-and-swap (WHERE status = 'pending'). If a second
+      // admin request already processed this application, zero rows match
+      // and `updated` comes back null instead of silently re-processing.
+      const { data: updated, error: updateErr } = await supabaseAdmin
         .from("ambassador_applications")
-        .update({ status: "rejected", reviewed_at: new Date().toISOString(), reviewed_by_id: adminUser?.id, rejection_reason: rejectionReason ?? null })
-        .eq("id", applicationId);
+        .update({ status: "rejected", reviewed_at: new Date().toISOString(), reviewed_by_id: adminUser?.id, rejection_reason: reason })
+        .eq("id", applicationId)
+        .eq("status", "pending")
+        .select()
+        .maybeSingle();
 
       if (updateErr) return jsonError(updateErr.message || "Failed to reject application", 500);
+      if (!updated) return jsonError("This application has already been processed.", 409);
 
       // optional: send rejection email
-      if (application.email) {
+      if (updated.email) {
         try {
           await sendEmail({
-            to: application.email,
+            to: updated.email,
             subject: "Your Travel with Hawkins Ambassador Application",
-            html: `<p>Hi ${application.full_name},</p><p>Thank you for your application. After review, we are unable to move forward with your application at this time.</p><p>Reason: ${rejectionReason ?? "Not specified"}</p>`,
+            html: `<p>Hi ${updated.full_name},</p><p>Thank you for your application. After review, we are unable to move forward with your application at this time.</p><p>Reason: ${reason}</p>`,
           });
         } catch (e) {
           console.warn("Failed to send rejection email", e);
@@ -191,6 +215,23 @@ export async function POST(req: NextRequest) {
     }
 
     // APPROVE flow
+    // Claim the application first, atomically (compare-and-swap on
+    // status = 'pending'), before any account-creation side effects run —
+    // this is what actually prevents two concurrent approvals of the same
+    // application from both proceeding (AMB-010). Everything below reads
+    // from `application` (the claimed row), not the original `existingApplication`.
+    const { data: application, error: claimErr } = await supabaseAdmin
+      .from("ambassador_applications")
+      .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by_id: adminUser?.id })
+      .eq("id", applicationId)
+      .eq("status", "pending")
+      .select()
+      .maybeSingle();
+
+    if (claimErr) return jsonError(claimErr.message || "Unable to process application", 500);
+    if (!application) return jsonError("This application has already been processed.", 409);
+    claimedApplicationIdPendingRevert = applicationId;
+
     // 1. Create auth user
     const email = normalizeEmail(application.email);
     const fullName = String(application.full_name);
@@ -202,35 +243,7 @@ export async function POST(req: NextRequest) {
     let passwordToSend: string | null = null;
     const accountAlreadyExists = Boolean(userId);
 
-    // generate referral code in TH-<UNI>-00001 format
-    const uniCodeRaw = (university || "MZU").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase();
-    const uniCode = (uniCodeRaw + "XXX").slice(0, 3);
-
-    // determine numeric suffix
-    const { data: existing, error: existingErr } = await supabaseAdmin
-      .from("ambassadors")
-      .select("referral_code")
-      .like("referral_code", `TH-${uniCode}-%`);
-
-    if (existingErr) {
-      console.warn("Failed to fetch existing ambassadors for code generation", existingErr);
-    }
-
-    const nextNumber = (Array.isArray(existing) ? existing.length : 0) + 1;
-    const suffix = String(nextNumber).padStart(5, "0");
-    let finalReferralCode = `TH-${uniCode}-${suffix}`;
-
-    // ensure unique
-    let tries = 0;
-    while (tries < 5) {
-      const { data: check, error: checkErr } = await supabaseAdmin.from("ambassadors").select("id").eq("referral_code", finalReferralCode).maybeSingle();
-      if (checkErr) break;
-      if (!check) break;
-      // collision, increment
-      const num = parseInt(suffix, 10) + tries + 1;
-      finalReferralCode = `TH-${uniCode}-${String(num).padStart(5, "0")}`;
-      tries++;
-    }
+    const finalReferralCode = await generateReferralCode(university);
 
     const usernameBase = buildAmbassadorUsername(fullName, email);
     const username = await ensureUniqueUsername(usernameBase);
@@ -357,11 +370,8 @@ export async function POST(req: NextRequest) {
       ambassadorData = ambassadorInsertResponse.data as AmbassadorRecord;
     }
 
-    // update application status
-    const { error: updateAppErr } = await supabaseAdmin.from("ambassador_applications").update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by_id: adminUser?.id }).eq("id", applicationId);
-    if (updateAppErr) {
-      console.warn("Failed to update application status", updateAppErr);
-    }
+    // Application status was already claimed atomically above, before
+    // account creation started — nothing left to update here.
 
     await logAmbassadorActivity({
       ambassadorId: ambassadorData?.id ?? null,
@@ -434,6 +444,19 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("POST /api/applications/review error", err);
+
+    if (claimedApplicationIdPendingRevert) {
+      try {
+        await supabaseAdmin
+          .from("ambassador_applications")
+          .update({ status: "pending", reviewed_at: null, reviewed_by_id: null })
+          .eq("id", claimedApplicationIdPendingRevert)
+          .eq("status", "approved");
+      } catch (revertErr) {
+        console.error("Failed to revert application status after a failed approval", revertErr);
+      }
+    }
+
     return jsonError(err instanceof Error ? err.message : String(err), 500);
   }
 }

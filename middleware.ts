@@ -84,13 +84,21 @@ export async function middleware(request: NextRequest) {
     (isCustomerApiRoute && !isPublicCustomerRoute);
 
   if (pathname.startsWith("/api/bookings") && method === "POST") {
-    if (isRateLimited(rateLimitKey)) {
+    if (await isRateLimited(rateLimitKey)) {
+      return NextResponse.json({ success: false, error: "Too many requests" }, { status: 429 });
+    }
+  }
+
+  // Fixes AMB-008 from docs/ambassador-system-audit.md — the public
+  // ambassador application endpoint had no rate limiting at all.
+  if (pathname === "/api/applications" && method === "POST") {
+    if (await isRateLimited(rateLimitKey)) {
       return NextResponse.json({ success: false, error: "Too many requests" }, { status: 429 });
     }
   }
 
   if (isProtectedApiRoute) {
-    if (isRateLimited(rateLimitKey)) {
+    if (await isRateLimited(rateLimitKey)) {
       return NextResponse.json({ success: false, error: "Too many requests" }, { status: 429 });
     }
   }

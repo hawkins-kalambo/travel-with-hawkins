@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
+import { attachBookingPaymentStatus } from "@/lib/bookingPaymentStatus";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -14,7 +15,6 @@ export async function GET(req: NextRequest) {
   if (error || !user) return jsonError("Unauthorized", 401);
 
   const emailLower = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
-  const profileName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name.trim() : "";
 
   let profileData = null as { id: string; role?: string } | null;
   const { data, error: profileError } = await supabaseAdmin
@@ -44,16 +44,30 @@ export async function GET(req: NextRequest) {
   const query = supabaseAdmin.from("referrals").select("*, ambassadors(id, full_name, referral_code)").order("created_at", { ascending: false });
 
   if (isAdmin) {
-    console.log("referrals: returning admin view for", emailLower || user.id);
     const { data, error: fetchError } = await query;
     if (fetchError) return jsonError(fetchError.message || "Unable to load referrals", 500);
-    return NextResponse.json({ success: true, referrals: data ?? [] });
+    const withPaymentStatus = await attachBookingPaymentStatus((data ?? []) as Array<Record<string, unknown>>);
+    return NextResponse.json({ success: true, referrals: withPaymentStatus });
   }
 
   if (profileData?.role === "ambassador") {
+    // Fixes AMB-013 from docs/ambassador-system-audit.md: resolve the
+    // caller's own ambassador row from their verified session id first
+    // (the same reliable pattern lib/supabaseServer.ts already uses for
+    // role resolution), falling back to email only for legacy rows that
+    // predate user_id being populated. The previous full_name string-match
+    // fallback is removed entirely — two ambassadors sharing a common name
+    // could otherwise have their referral lists cross-resolved.
     let ambassadorId: string | undefined;
 
-    if (emailLower) {
+    const { data: ambassadorByUserId } = await supabaseAdmin
+      .from("ambassadors")
+      .select("id")
+      .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+      .maybeSingle();
+    ambassadorId = ambassadorByUserId?.id;
+
+    if (!ambassadorId && emailLower) {
       const { data: ambassadorByEmail } = await supabaseAdmin
         .from("ambassadors")
         .select("id")
@@ -62,22 +76,14 @@ export async function GET(req: NextRequest) {
       ambassadorId = ambassadorByEmail?.id;
     }
 
-    if (!ambassadorId && profileName) {
-      const { data: ambassadorByName } = await supabaseAdmin
-        .from("ambassadors")
-        .select("id")
-        .eq("full_name", profileName)
-        .maybeSingle();
-      ambassadorId = ambassadorByName?.id;
-    }
-
     if (!ambassadorId) {
       return NextResponse.json({ success: true, referrals: [] });
     }
 
     const { data, error: fetchError } = await query.eq("ambassador_id", ambassadorId);
     if (fetchError) return jsonError(fetchError.message || "Unable to load referrals", 500);
-    return NextResponse.json({ success: true, referrals: data ?? [] });
+    const withPaymentStatus = await attachBookingPaymentStatus((data ?? []) as Array<Record<string, unknown>>);
+    return NextResponse.json({ success: true, referrals: withPaymentStatus });
   }
 
   return NextResponse.json({ success: true, referrals: [] });

@@ -4,10 +4,11 @@ import { FormEvent, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { authFetch, supabase } from "@/lib/auth";
+import Spinner from "@/app/components/ui/Spinner";
 
-async function handleForgotPassword(email: string) {
+async function handleForgotPassword(email: string): Promise<{ type: "success" | "error"; text: string }> {
   if (!email) {
-    return { success: false, message: "Please enter your email address first." };
+    return { type: "error", text: "Please enter your email address first." };
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
@@ -16,10 +17,10 @@ async function handleForgotPassword(email: string) {
   });
 
   if (error) {
-    return { success: false, message: error.message || "Unable to send reset email." };
+    return { type: "error", text: error.message || "Unable to send reset email." };
   }
 
-  return { success: true, message: "Password reset link sent. Please check your inbox." };
+  return { type: "success", text: "Password reset link sent. Please check your inbox." };
 }
 
 export default function AmbassadorLoginPage() {
@@ -28,7 +29,7 @@ export default function AmbassadorLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [resetMessage, setResetMessage] = useState("");
+  const [resetMessage, setResetMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -53,23 +54,18 @@ export default function AmbassadorLoginPage() {
         return;
       }
 
-      console.debug("AmbassadorLogin: session", data.session);
       const profileRes = await authFetch("/api/profile", { method: "GET" });
-      console.debug("AmbassadorLogin: /api/profile status", profileRes.status);
       if (!profileRes.ok) {
-        console.error("AmbassadorLogin: /api/profile failed", await profileRes.text());
         setErrorMsg("Unable to load ambassador profile right now.");
         setLoading(false);
         return;
       }
 
       const profileData = await profileRes.json();
-      console.debug("AmbassadorLogin: profileData", profileData);
       const role = profileData?.profile?.role;
       const status = String(profileData?.profile?.status || "active").toLowerCase();
 
       if (role !== "ambassador") {
-        console.warn("AmbassadorLogin: role mismatch", { role, profile: profileData?.profile });
         await supabase.auth.signOut();
         setErrorMsg("This login is not assigned to an ambassador account.");
         setLoading(false);
@@ -104,7 +100,7 @@ export default function AmbassadorLoginPage() {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(10,77,140,0.08)] lg:flex-row">
-        <div className="flex flex-1 flex-col justify-center bg-[linear-gradient(135deg,#0A4D8C_0%,#0f3f78_55%,#F7931E_100%)] p-8 text-white sm:p-12 lg:w-[45%]">
+        <div className="flex flex-1 flex-col justify-center bg-[linear-gradient(135deg,var(--primary-700)_0%,var(--primary-800)_55%,#F7931E_100%)] p-8 text-white sm:p-12 lg:w-[45%]">
           <div className="flex items-center gap-3">
             <Image src="/logo.png" width={56} height={56} className="rounded-full object-cover" alt="Travel with Hawkins logo" />
             <div>
@@ -127,7 +123,7 @@ export default function AmbassadorLoginPage() {
         <div className="flex flex-1 items-center justify-center p-6 sm:p-8 lg:p-10">
           <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="mb-6 text-center lg:text-left">
-              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[#0A4D8C]">Ambassador Portal</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary-700">Ambassador Portal</p>
               <h2 className="mt-2 text-2xl font-black text-slate-900">Sign in to your account</h2>
               <p className="mt-2 text-sm text-slate-600">Use the same Travel with Hawkins credentials provided by the team.</p>
             </div>
@@ -145,7 +141,7 @@ export default function AmbassadorLoginPage() {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="Enter your ambassador email"
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-[#0A4D8C] focus:ring-4 focus:ring-[#0A4D8C]/10"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary-700 focus:ring-4 focus:ring-primary-700/10"
                   autoComplete="email"
                 />
               </div>
@@ -158,7 +154,7 @@ export default function AmbassadorLoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter your password"
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-[#0A4D8C] focus:ring-4 focus:ring-[#0A4D8C]/10"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary-700 focus:ring-4 focus:ring-primary-700/10"
                   autoComplete="current-password"
                 />
               </div>
@@ -167,10 +163,9 @@ export default function AmbassadorLoginPage() {
                 <button
                   type="button"
                   onClick={async () => {
-                    const result = await handleForgotPassword(email);
-                    setResetMessage(result.message);
+                    setResetMessage(await handleForgotPassword(email));
                   }}
-                  className="text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]"
+                  className="text-sm font-semibold text-primary-700 hover:text-primary-800"
                 >
                   Forgot Password?
                 </button>
@@ -179,13 +174,16 @@ export default function AmbassadorLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full rounded-2xl bg-[#0A4D8C] px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-[#083a6b] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary-700 px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-primary-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
+                {loading && <Spinner size="sm" className="text-white" />}
                 {loading ? "Signing in..." : "Login"}
               </button>
             </form>
 
-            {resetMessage ? <p className="mt-4 text-sm text-slate-700">{resetMessage}</p> : null}
+            {resetMessage ? (
+              <p className={`mt-4 text-sm font-medium ${resetMessage.type === "success" ? "text-success" : "text-danger"}`}>{resetMessage.text}</p>
+            ) : null}
 
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
               <p className="font-semibold text-slate-800">Are you a new ambassador?</p>

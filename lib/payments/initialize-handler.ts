@@ -42,7 +42,7 @@ function statusFor(reason: string): number {
 
 export async function handleInitializeRequest(req: NextRequest, paymentType: PayChanguPaymentPurpose): Promise<NextResponse> {
   const ip = req.headers.get("x-forwarded-for") || "local";
-  if (isRateLimited(`payments:${paymentType}:initialize:${ip}`)) {
+  if (await isRateLimited(`payments:${paymentType}:initialize:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }
 
