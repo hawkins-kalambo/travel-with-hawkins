@@ -8,11 +8,24 @@ async function getUserRole(user: { id: string; user_metadata?: Record<string, un
   return resolveAdminRole(user);
 }
 
-export async function middleware(request: NextRequest) {
+const CANONICAL_HOST = "travelwithhawkins.com";
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
   const ip = request.headers.get("x-forwarded-for") || "local";
   const rateLimitKey = `${method}:${pathname}:${ip}`;
+
+  // Keep the *.vercel.app deployment URL out of users' hands — everything
+  // should be reached via the custom domain. API routes are excluded so
+  // server-to-server callers (e.g. the PayChangu webhook, if ever pointed
+  // at the vercel.app URL) aren't silently broken by a redirect they may
+  // not follow.
+  const hostname = request.nextUrl.hostname;
+  if (hostname.endsWith(".vercel.app") && !pathname.startsWith("/api/")) {
+    const canonicalUrl = new URL(pathname + request.nextUrl.search, `https://${CANONICAL_HOST}`);
+    return NextResponse.redirect(canonicalUrl, 308);
+  }
 
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
@@ -169,5 +182,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*", "/admin/:path*", "/ambassador/:path*", "/customer/:path*", "/reset-password", "/update-password", "/auth/:path*"],
+  // Broadened from the previous auth-only route list so the vercel.app
+  // host check above runs on every page, not just protected ones.
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml).*)"],
 };
