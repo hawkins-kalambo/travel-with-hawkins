@@ -86,14 +86,36 @@ export async function POST(req: NextRequest) {
 
     if (!senderIsAdmin) {
       // Route customer-initiated conversations to every admin so the message
-      // actually lands in someone's inbox.
-      const { data: adminProfiles } = await supabaseAdmin
-        .from("profiles")
-        .select("id")
-        .in("role", ["admin", "super_admin"]);
+      // actually lands in someone's inbox. Admins live in the dedicated
+      // `admins` table (see lib/supabaseServer.ts::getAdminRoleFromDatabase),
+      // not as profiles.role = "admin"/"super_admin" rows — querying profiles
+      // here always came back empty, so customer messages were saved but
+      // never reached anyone.
+      const { data: adminRows } = await supabaseAdmin.from("admins").select("id, email, full_name");
+      const adminIds = (adminRows ?? []).map((admin) => admin.id).filter(Boolean);
 
-      for (const admin of adminProfiles ?? []) {
-        if (admin?.id) participantIds.add(admin.id);
+      if (adminIds.length > 0) {
+        // communication_conversation_participants.profile_id is a foreign
+        // key to profiles.id, but admins authenticate via the admins table
+        // directly and don't always have a matching profiles row — backfill
+        // a minimal one so adding them as a participant doesn't violate the
+        // FK and silently fail the whole conversation insert.
+        const { data: existingProfiles } = await supabaseAdmin.from("profiles").select("id").in("id", adminIds);
+        const existingProfileIds = new Set((existingProfiles ?? []).map((p) => p.id));
+        const missingProfiles = (adminRows ?? [])
+          .filter((admin) => admin.id && !existingProfileIds.has(admin.id))
+          .map((admin) => ({ id: admin.id, full_name: admin.full_name || admin.email, email: admin.email, role: "admin" }));
+
+        if (missingProfiles.length > 0) {
+          const { error: backfillError } = await supabaseAdmin.from("profiles").insert(missingProfiles);
+          if (backfillError) {
+            console.warn("Failed to backfill profiles for admin participants", backfillError.message);
+          }
+        }
+
+        for (const adminId of adminIds) {
+          participantIds.add(adminId);
+        }
       }
     }
 
