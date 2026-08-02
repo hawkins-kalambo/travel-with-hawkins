@@ -76,7 +76,7 @@ export default function PremiumBoardingPass(props: PremiumBoardingPassProps) {
       doc.setFontSize(8.5);
       doc.setTextColor("#374151");
       doc.text(`Passenger: ${props.name}`, leftX, boxY);
-      doc.text(`Student ID: ${props.studentId}`, leftX, boxY + 14);
+      doc.text(`Student ID: ${props.studentId || "N/A"}`, leftX, boxY + 14);
       doc.text(`Phone: ${props.phone}`, leftX, boxY + 28);
 
       doc.setFont("helvetica", "bold");
@@ -127,7 +127,7 @@ export default function PremiumBoardingPass(props: PremiumBoardingPassProps) {
       <div className="grid gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
         {[
           ["Passenger", props.name],
-          ["Student ID", props.studentId],
+          ["Student ID", props.studentId || "N/A"],
           ["Phone", props.phone],
           ["Seats reserved", `${props.seats} seat${props.seats === 1 ? "" : "s"}`],
         ].map(([label, value]) => (

@@ -12,6 +12,7 @@ import {
   CheckCheck,
   Loader2,
   ChevronLeft,
+  Plus,
 } from "lucide-react";
 import { getCurrentUser, authFetch } from "@/lib/auth";
 import type { CustomerProfile } from "@/lib/customerAuth";
@@ -96,6 +97,12 @@ export default function CustomerMessagesPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
 
+  const [composing, setComposing] = useState(false);
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeError, setComposeError] = useState("");
+
   const unreadCount = notifications.filter((item) => !item.read_at).length;
 
   const loadCommunications = async () => {
@@ -138,6 +145,7 @@ export default function CustomerMessagesPage() {
   }, [router]);
 
   const openConversation = async (conversationId: string) => {
+    setComposing(false);
     setSelectedId(conversationId);
     setThreadLoading(true);
     try {
@@ -178,6 +186,39 @@ export default function CustomerMessagesPage() {
       setError("Unable to send message");
     } finally {
       setSending(false);
+    }
+  };
+
+  const startCompose = () => {
+    setSelectedId(null);
+    setComposeError("");
+    setComposing(true);
+  };
+
+  const sendNewMessage = async () => {
+    if (!composeSubject.trim() || !composeBody.trim()) return;
+    setComposeSending(true);
+    setComposeError("");
+    try {
+      const res = await authFetch("/api/communication/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: composeSubject.trim(), body: composeBody.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.conversation?.id) {
+        setComposing(false);
+        setComposeSubject("");
+        setComposeBody("");
+        await loadCommunications();
+        await openConversation(data.conversation.id);
+      } else {
+        setComposeError(data?.error || "Unable to send message");
+      }
+    } catch {
+      setComposeError("Unable to send message");
+    } finally {
+      setComposeSending(false);
     }
   };
 
@@ -262,8 +303,15 @@ export default function CustomerMessagesPage() {
       {tab === "messages" ? (
         <div className="grid gap-5 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm lg:grid-cols-[340px_1fr]">
           {/* Conversation list */}
-          <div className={`border-slate-200 lg:border-r ${selectedId ? "hidden lg:block" : "block"}`}>
-            <div className="border-b border-slate-200 p-4">
+          <div className={`border-slate-200 lg:border-r ${selectedId || composing ? "hidden lg:block" : "block"}`}>
+            <div className="space-y-3 border-b border-slate-200 p-4">
+              <button
+                onClick={startCompose}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0A4D8C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#083a6b]"
+              >
+                <Plus size={16} />
+                New message
+              </button>
               <div className="relative">
                 <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -280,7 +328,7 @@ export default function CustomerMessagesPage() {
                 <div className="p-8 text-center">
                   <InboxIcon className="mx-auto mb-3 h-9 w-9 text-slate-300" strokeWidth={1.5} />
                   <p className="text-sm text-slate-500">No conversations yet.</p>
-                  <p className="mt-1 text-xs text-slate-400">Messages from our team will appear here.</p>
+                  <p className="mt-1 text-xs text-slate-400">Send our team a message and it&apos;ll show up here.</p>
                 </div>
               ) : (
                 filteredConversations.map((conversation) => {
@@ -317,12 +365,62 @@ export default function CustomerMessagesPage() {
           </div>
 
           {/* Thread view */}
-          <div className={`flex min-h-[65vh] flex-col ${selectedId ? "block" : "hidden lg:flex"}`}>
-            {!selectedId ? (
+          <div className={`flex min-h-[65vh] flex-col ${selectedId || composing ? "block" : "hidden lg:flex"}`}>
+            {composing ? (
+              <>
+                <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
+                  <button onClick={() => setComposing(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden">
+                    <ChevronLeft size={18} />
+                  </button>
+                  <p className="font-bold text-slate-900">New message to our team</p>
+                </div>
+                <div className="flex-1 space-y-4 overflow-y-auto p-5">
+                  {composeError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{composeError}</div>
+                  ) : null}
+                  <label className="block text-sm font-semibold text-slate-700">
+                    <span className="mb-1.5 block text-xs">Subject</span>
+                    <input
+                      value={composeSubject}
+                      onChange={(e) => setComposeSubject(e.target.value)}
+                      placeholder="What's this about?"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-[#0A4D8C]/40"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-slate-700">
+                    <span className="mb-1.5 block text-xs">Message</span>
+                    <textarea
+                      value={composeBody}
+                      onChange={(e) => setComposeBody(e.target.value)}
+                      rows={6}
+                      placeholder="Write your message to the Travel with Hawkins team..."
+                      className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#0A4D8C]/40"
+                    />
+                  </label>
+                </div>
+                <div className="border-t border-slate-200 p-4">
+                  <button
+                    onClick={() => void sendNewMessage()}
+                    disabled={composeSending || !composeSubject.trim() || !composeBody.trim()}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#0A4D8C] py-3 text-sm font-semibold text-white transition hover:bg-[#083a6b] disabled:opacity-50"
+                  >
+                    {composeSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    Send message
+                  </button>
+                </div>
+              </>
+            ) : !selectedId ? (
               <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
                 <MessageCircle className="mb-3 h-10 w-10 text-slate-300" strokeWidth={1.5} />
                 <p className="text-sm font-semibold text-slate-600">Select a conversation</p>
-                <p className="mt-1 text-xs text-slate-400">Choose a conversation from the list to read and reply.</p>
+                <p className="mt-1 text-xs text-slate-400">Choose a conversation from the list to read and reply, or start a new one.</p>
+                <button
+                  onClick={startCompose}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#0A4D8C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#083a6b]"
+                >
+                  <Plus size={16} />
+                  New message
+                </button>
               </div>
             ) : (
               <>

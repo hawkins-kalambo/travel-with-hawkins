@@ -3,11 +3,11 @@ import { IconRoute } from "../Icon";
 import { formatMwk } from "@/lib/routePricing";
 
 export const ROUTES_DATA = [
-  { route: "Mzuzu - Lilongwe", buses: "Travel With Us today", fallbackPrice: 70000, rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },
-  { route: "Mzuzu - Blantyre", buses: "Travel With Us today", fallbackPrice: 120000, rating: "4.7 (98+)", img: "/images/routes/mzuzu-blantyre.jpg" },
-  { route: "Mzuzu - Zomba", buses: "Travel With Us today", fallbackPrice: 110000, rating: "4.6 (76+)", img: "/images/routes/mzuzu-zomba.jpeg" },
-  { route: "Mzuzu - Kasungu", buses: "Travel With Us Today", fallbackPrice: 60000, rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
-  { route: "Mzuzu - Karonga", buses: "Travel With Us Today", fallbackPrice: 45000, rating: "4.5 (50+)", img: "/images/routes/mzuzu-karonga.jpg" },
+  { route: "Lilongwe - Mzuzu", buses: "Travel With Us today", fallbackPrice: 70000, rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },
+  { route: "Blantyre - Mzuzu", buses: "Travel With Us today", fallbackPrice: 120000, rating: "4.7 (98+)", img: "/images/routes/mzuzu-blantyre.jpg" },
+  { route: "Zomba - Mzuzu", buses: "Travel With Us today", fallbackPrice: 110000, rating: "4.6 (76+)", img: "/images/routes/mzuzu-zomba.jpeg" },
+  { route: "Kasungu - Mzuzu", buses: "Travel With Us Today", fallbackPrice: 60000, rating: "4.6 (60+)", img: "/images/routes/mzuzu-kasungu.jpg" },
+  { route: "Karonga - Mzuzu", buses: "Travel With Us Today", fallbackPrice: 45000, rating: "4.5 (50+)", img: "/images/routes/mzuzu-karonga.jpg" },
 ];
 
 type PopularRoutesSectionProps = {

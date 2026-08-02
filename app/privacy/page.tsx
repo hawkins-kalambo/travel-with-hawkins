@@ -138,8 +138,8 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
       <p>
         If you have questions about this Privacy Policy or how your data is handled, reach us through the WhatsApp
         button on this site, by email at{" "}
-        <a href="mailto:travelwithhawkins@gmail.com" className="font-semibold text-emerald-700 hover:underline">
-          travelwithhawkins@gmail.com
+        <a href="mailto:contact@travelwithhawkins.com" className="font-semibold text-emerald-700 hover:underline">
+          contact@travelwithhawkins.com
         </a>
         , or by phone.
       </p>

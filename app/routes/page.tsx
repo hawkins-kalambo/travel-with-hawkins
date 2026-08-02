@@ -3,18 +3,18 @@ import WhatsAppButton from "../components/WhatsAppButton";
 
 export const metadata: Metadata = {
   title: "Routes & Destinations",
-  description: "Browse student transport routes across Malawi, including Mzuzu to Lilongwe, Blantyre, Zomba, Kasungu, and Karonga.",
+  description: "Browse student transport routes across Malawi, including Lilongwe to Mzuzu, Blantyre to Mzuzu, Zomba to Mzuzu, Kasungu to Mzuzu, and Karonga to Mzuzu.",
   alternates: {
     canonical: "/routes",
   },
 };
 
 const routes = [
-  { name: "Mzuzu to Lilongwe", detail: "Reliable daily student transport between the two major cities." },
-  { name: "Mzuzu to Blantyre", detail: "Comfortable intercity travel for students and families." },
-  { name: "Mzuzu to Zomba", detail: "Flexible scheduling for academic and personal travel." },
-  { name: "Mzuzu to Kasungu", detail: "Affordable transport for short and mid-distance travel." },
-  { name: "Mzuzu to Karonga", detail: "Trusted long-distance trips across northern Malawi." },
+  { name: "Lilongwe to Mzuzu", detail: "Reliable daily student transport between the two major cities." },
+  { name: "Blantyre to Mzuzu", detail: "Comfortable intercity travel for students and families." },
+  { name: "Zomba to Mzuzu", detail: "Flexible scheduling for academic and personal travel." },
+  { name: "Kasungu to Mzuzu", detail: "Affordable transport for short and mid-distance travel." },
+  { name: "Karonga to Mzuzu", detail: "Trusted long-distance trips across northern Malawi." },
 ];
 
 export default function RoutesPage() {

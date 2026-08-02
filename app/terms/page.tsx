@@ -138,8 +138,8 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
       <p>
         For booking support, payment queries, cancellations, or general questions, you can reach us through the
         WhatsApp button on this site, by email at{" "}
-        <a href="mailto:travelwithhawkins@gmail.com" className="font-semibold text-[#0f3f78] hover:underline">
-          travelwithhawkins@gmail.com
+        <a href="mailto:contact@travelwithhawkins.com" className="font-semibold text-[#0f3f78] hover:underline">
+          contact@travelwithhawkins.com
         </a>
         , or by phone. We aim to respond as quickly as possible during business hours.
       </p>

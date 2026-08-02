@@ -1,7 +1,7 @@
 import { IconMail, IconPhone, IconWhatsApp } from "../Icon";
 import { whatsappUrl } from "../WhatsAppButton";
 
-const CONTACT_EMAIL = "travelwithhawkins@gmail.com";
+const CONTACT_EMAIL = "contact@travelwithhawkins.com";
 const CONTACT_PHONES = [
   { href: "tel:+265886470843", label: "0886 470 843" },
   { href: "tel:+265989127308", label: "0989 127 308" },

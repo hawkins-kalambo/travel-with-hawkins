@@ -54,7 +54,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   const [departureDistrict, setDepartureDistrict] = useState("Lilongwe");
   const [destinationUniversity, setDestinationUniversity] = useState("Mzuzu University (MZUNI)");
   const [customDestination, setCustomDestination] = useState(initialTrip?.destination ?? "");
-  const [showBooking, setShowBooking] = useState(Boolean(initialTrip?.destination));
+  const [showBooking, setShowBooking] = useState(Boolean(initialTrip?.destination || initialReferralCode));
   const [showTrack, setShowTrack] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -132,7 +132,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     return () => clearInterval(interval);
   }, []);
 
-  const isFormValid = () => form.name.trim() && form.studentId.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
+  const isFormValid = () => form.name.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
   const getFareForDestination = (destination: string) => resolveRouteFareIfAvailable(destination, settingsText);
   const urgencyDisplay = urgencyDestination;
   const tripSearchReady = Boolean(departureDistrict && destinationUniversity);

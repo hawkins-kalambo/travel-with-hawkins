@@ -62,9 +62,6 @@ export function validateBookingInput(payload: Record<string, unknown>): BookingV
   if (!DATE_PATTERN.test(travelDate) || Number.isNaN(Date.parse(`${travelDate}T00:00:00Z`))) {
     return { success: false, error: "Please enter a valid travel date." };
   }
-  if (!studentId) {
-    return { success: false, error: "Please enter a valid student ID." };
-  }
   if (!Number.isInteger(seats) || seats < 1 || seats > 10) {
     return { success: false, error: "Seats must be a whole number between 1 and 10." };
   }

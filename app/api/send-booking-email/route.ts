@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
           <p><b>Booking ID:</b> ${bookingId || "N/A"}</p>
           <p><b>Name:</b> ${name}</p>
-          <p><b>Student ID:</b> ${studentId}</p>
+          <p><b>Student ID:</b> ${studentId || "N/A"}</p>
           <p><b>Phone:</b> ${phone}</p>
           <p><b>Destination:</b> ${destination}</p>
           <p><b>Travel Date:</b> ${travelDate}</p>

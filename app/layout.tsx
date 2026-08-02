@@ -53,7 +53,7 @@ const organizationSchema = {
   url: siteUrl,
   logo: `${siteUrl}/logo.png`,
   description: siteDescription,
-  email: "travelwithhawkins@gmail.com",
+  email: "contact@travelwithhawkins.com",
   telephone: ["+265886470843", "+265989127308"],
   contactPoint: [
     {

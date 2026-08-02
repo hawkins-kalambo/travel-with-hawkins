@@ -722,7 +722,7 @@ export default function AmbassadorApplyPage() {
               <div className="space-y-4 text-sm text-slate-700">
                 <div>
                   <p className="font-semibold text-slate-900">Email</p>
-                  <a href="mailto:travelwithhawkins@gmail.com" className="mt-1 block text-primary-700 hover:underline">travelwithhawkins@gmail.com</a>
+                  <a href="mailto:contact@travelwithhawkins.com" className="mt-1 block text-primary-700 hover:underline">contact@travelwithhawkins.com</a>
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Phone</p>

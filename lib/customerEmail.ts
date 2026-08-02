@@ -33,7 +33,7 @@ export function buildOtpEmailHtml(options: { fullName: string; otp: string }) {
                 </table>
 
                 <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#64748b;">If you didn't create a Travel with Hawkins account, you can safely ignore this email.</p>
-                <p style="margin:10px 0 0;font-size:13px;line-height:1.7;color:#64748b;">Need help? Contact us at <a href="mailto:travelwithhawkins@gmail.com" style="color:#0f3f78;text-decoration:none;">travelwithhawkins@gmail.com</a> or +265 989 127 308.</p>
+                <p style="margin:10px 0 0;font-size:13px;line-height:1.7;color:#64748b;">Need help? Contact us at <a href="mailto:contact@travelwithhawkins.com" style="color:#0f3f78;text-decoration:none;">contact@travelwithhawkins.com</a> or +265 989 127 308.</p>
               </td>
             </tr>
             <tr>
