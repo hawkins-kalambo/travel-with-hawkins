@@ -34,7 +34,7 @@ function statusBadgeClasses(status?: string) {
   const normalized = (status || "").toLowerCase();
   if (normalized === "completed") return "bg-emerald-50 text-emerald-700 border border-emerald-200";
   if (normalized === "cancelled") return "bg-red-50 text-red-700 border border-red-200";
-  if (normalized === "boarding" || normalized === "arrived") return "bg-amber-50 text-amber-700 border border-amber-200";
+  if (normalized === "boarding" || normalized === "departed" || normalized === "arrived") return "bg-amber-50 text-amber-700 border border-amber-200";
   return "bg-blue-50 text-blue-700 border border-blue-200";
 }
 

@@ -145,6 +145,21 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     setShowBooking(true);
   };
 
+  useEffect(() => {
+    // Lets other pages (e.g. the Payment page's "Haven't booked yet?" CTA)
+    // deep-link straight into the booking modal via /?openBooking=1. Deferred
+    // via setTimeout(0), same pattern as the profile-hydration effect above,
+    // so this stays a "subscribe to external state on mount" effect rather
+    // than calling setState synchronously in the effect body.
+    const openBookingTimer = window.setTimeout(() => {
+      if (new URLSearchParams(window.location.search).get("openBooking") === "1") {
+        openBooking();
+      }
+    }, 0);
+
+    return () => window.clearTimeout(openBookingTimer);
+  }, []);
+
   const closeBooking = () => {
     setShowBooking(false);
     setSelectedRoute("");

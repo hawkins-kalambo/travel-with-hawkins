@@ -10,6 +10,7 @@ const NAV_LINKS: Array<[string, string]> = [
   ["Routes", "/#routes"],
   ["Customize", "/#customize"],
   ["How It Works", "/#how-it-works"],
+  ["Payment", "/payment"],
   ["Support", "/#help-center"],
 ];
 

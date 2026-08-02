@@ -1,16 +1,16 @@
 import type { JourneyStatus, PaymentStatus } from "@/lib/bookingTypes";
 
-export const JOURNEY_STATUS_VALUES = ["Booked", "Confirmed", "Boarding", "Arrived", "Completed", "Cancelled"] as const;
+export const JOURNEY_STATUS_VALUES = ["Booked", "Confirmed", "Boarding", "Departed", "Arrived", "Completed", "Cancelled"] as const;
 export const PAYMENT_STATUS_VALUES = ["Pending", "Payment Confirmed", "Failed"] as const;
 
 const JOURNEY_STATUS_NORMALIZATION: Record<string, JourneyStatus> = {
   booked: "Booked",
   confirmed: "Confirmed",
   boarding: "Boarding",
+  departed: "Departed",
   arrived: "Arrived",
   completed: "Completed",
   cancelled: "Cancelled",
-  departed: "Boarding",
   "in route": "Boarding",
   "en route": "Boarding",
 };

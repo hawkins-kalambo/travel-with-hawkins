@@ -4,6 +4,7 @@ export type JourneyStatus =
   | "Booked"
   | "Confirmed"
   | "Boarding"
+  | "Departed"
   | "Arrived"
   | "Completed"
   | "Cancelled"

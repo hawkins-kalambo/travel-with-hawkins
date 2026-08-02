@@ -4,6 +4,7 @@ export type JourneyStatus =
   | "Booked"
   | "Confirmed"
   | "Boarding"
+  | "Departed"
   | "Arrived"
   | "Completed"
   | "Cancelled"
@@ -257,7 +258,9 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       const rawStatus = toSafeString(value)?.toLowerCase();
       if (rawStatus === "pending") {
         normalized.status = "Booked";
-      } else if (rawStatus === "departed" || rawStatus === "en route" || rawStatus === "in route") {
+      } else if (rawStatus === "departed") {
+        normalized.status = "Departed";
+      } else if (rawStatus === "en route" || rawStatus === "in route") {
         normalized.status = "Boarding";
       } else {
         normalized.status = (toSafeString(value) as JourneyStatus | undefined) || "Booked";
