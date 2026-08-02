@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getErrorMessage } from "@/lib/communicationServer";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     });
   } catch (err) {
     console.error("GET /api/communication/conversations/[id] error", err);
-    return jsonError(err instanceof Error ? err.message : "Unable to load messages", 500);
+    return jsonError(getErrorMessage(err, "Unable to load messages"), 500);
   }
 }
 
@@ -159,6 +160,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     return NextResponse.json({ success: true, message: data });
   } catch (err) {
     console.error("POST /api/communication/conversations/[id] error", err);
-    return jsonError(err instanceof Error ? err.message : "Unable to send message", 500);
+    return jsonError(getErrorMessage(err, "Unable to send message"), 500);
   }
 }

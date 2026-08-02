@@ -55,6 +55,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Google OAuth signups (app/auth/callback) only ever wrote customer_profiles,
+    // never the shared `profiles` table — which several features (messaging,
+    // role resolution) treat as a required foreign key / source of truth. Self-heal
+    // it here since this endpoint runs on every dashboard load right after login.
+    const { data: baseProfile } = await supabaseAdmin.from("profiles").select("id").eq("id", authResult.user.id).maybeSingle();
+    if (!baseProfile) {
+      const { error: backfillError } = await supabaseAdmin.from("profiles").insert({
+        id: authResult.user.id,
+        full_name: profile.fullName,
+        email: profile.email,
+        phone: profile.phone || null,
+        role: "customer",
+      });
+      if (backfillError && !backfillError.message.includes("duplicate")) {
+        console.warn("Failed to backfill profiles row for customer", backfillError.message);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       profile,

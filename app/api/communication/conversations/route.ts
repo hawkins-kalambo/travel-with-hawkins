@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminLikeRole, normalizeAppRole } from "@/lib/permissions";
+import { getErrorMessage } from "@/lib/communicationServer";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, conversations: data ?? [] });
   } catch (err) {
     console.error("GET /api/communication/conversations error", err);
-    return jsonError(err instanceof Error ? err.message : "Unable to load conversations", 500);
+    return jsonError(getErrorMessage(err, "Unable to load conversations"), 500);
   }
 }
 
@@ -64,6 +65,30 @@ export async function POST(req: NextRequest) {
     // conversations that reach the support team (recipientId is ignored for them).
     if (recipientId && !senderIsAdmin) {
       return jsonError("Only admins can message a specific recipient", 403);
+    }
+
+    if (!senderProfile) {
+      // communication_conversations.created_by and communication_messages.sender_id
+      // are both foreign keys to profiles.id. Customers who signed up via Google
+      // OAuth never get a profiles row (app/auth/callback only writes
+      // customer_profiles) — without this, every insert below fails with an FK
+      // violation that the catch block below can't even surface properly.
+      const { data: customerProfile } = await supabaseAdmin
+        .from("customer_profiles")
+        .select("full_name, email")
+        .eq("id", senderId)
+        .maybeSingle();
+
+      const { error: backfillSenderError } = await supabaseAdmin.from("profiles").insert({
+        id: senderId,
+        full_name: customerProfile?.full_name || "Customer",
+        email: customerProfile?.email || authUser.user.email,
+        role: "customer",
+      });
+
+      if (backfillSenderError && !backfillSenderError.message.includes("duplicate")) {
+        console.warn("Failed to backfill profiles row for sender", backfillSenderError.message);
+      }
     }
 
     const { data: conversationData, error: conversationError } = await supabaseAdmin
@@ -167,6 +192,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, conversation: conversationData, message: messageData });
   } catch (err) {
     console.error("POST /api/communication/conversations error", err);
-    return jsonError(err instanceof Error ? err.message : "Unable to start conversation", 500);
+    return jsonError(getErrorMessage(err, "Unable to start conversation"), 500);
   }
 }

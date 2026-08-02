@@ -1,5 +1,18 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+// Supabase/Postgres errors thrown from query builders are plain objects with
+// a `.message`, not `Error` instances — `err instanceof Error` misses them
+// and callers fell back to a generic message, hiding the real failure (e.g.
+// a foreign key violation) behind something unhelpful like "Unable to send
+// message".
+export function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string") {
+    return (err as { message: string }).message;
+  }
+  return fallback;
+}
+
 export type ProfileSummary = {
   id: string;
   full_name?: string | null;
