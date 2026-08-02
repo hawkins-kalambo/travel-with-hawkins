@@ -135,6 +135,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const suspensionReason = getColumnName(typeof body.suspension_reason === "string" ? body.suspension_reason : undefined);
     const profileImageBase64 = typeof body.profileImageBase64 === "string" ? body.profileImageBase64 : undefined;
     const profileImageUrl = getColumnName(typeof body.profile_image_url === "string" ? body.profile_image_url : undefined);
+    const isVerified = typeof body.is_verified === "boolean" ? body.is_verified : undefined;
 
     let resolvedImageUrl = profileImageUrl;
     if (profileImageBase64) {
@@ -151,6 +152,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (status) updatePayload.status = status;
     if (suspensionReason !== undefined) updatePayload.suspension_reason = suspensionReason;
     if (resolvedImageUrl !== undefined) updatePayload.profile_image_url = resolvedImageUrl;
+    if (isVerified !== undefined) updatePayload.is_verified = isVerified;
 
     if (Object.keys(updatePayload).length === 1) {
       return jsonError("No changes were provided", 400);
@@ -167,8 +169,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await logAmbassadorActivity({
       ambassadorId: id,
-      activityType: status ? "status_changed" : "profile_updated",
-      description: status ? `Admin updated ambassador status to ${status}` : "Admin updated ambassador profile details",
+      activityType: isVerified !== undefined ? "verification_changed" : status ? "status_changed" : "profile_updated",
+      description:
+        isVerified !== undefined
+          ? isVerified
+            ? "Admin verified this ambassador based on performance"
+            : "Admin removed verified status from this ambassador"
+          : status
+            ? `Admin updated ambassador status to ${status}`
+            : "Admin updated ambassador profile details",
     });
 
     return NextResponse.json({ success: true, ambassador: data });

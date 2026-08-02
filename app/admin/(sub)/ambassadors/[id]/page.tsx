@@ -70,6 +70,8 @@ export default function AdminAmbassadorProfilePage() {
   const [profileImageBase64, setProfileImageBase64] = useState<string | null>(null);
   const [pendingPasswordAction, setPendingPasswordAction] = useState<"send-reset" | "temporary-password" | null>(null);
   const [pendingStatusAction, setPendingStatusAction] = useState<"suspended" | "active" | null>(null);
+  const [verificationUpdating, setVerificationUpdating] = useState(false);
+  const [pendingVerificationAction, setPendingVerificationAction] = useState<"verify" | "unverify" | null>(null);
 
   const loadDetails = async () => {
     try {
@@ -138,6 +140,27 @@ export default function AdminAmbassadorProfilePage() {
     } finally {
       setStatusUpdating(false);
       setPendingStatusAction(null);
+    }
+  };
+
+  const updateVerification = async (nextVerified: boolean) => {
+    if (!ambassador?.id) return;
+    setVerificationUpdating(true);
+    try {
+      const res = await authFetch(`/api/ambassadors/${ambassador.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_verified: nextVerified }),
+      });
+      const body = (await res.json()) as { success?: boolean; error?: string; ambassador?: AmbassadorDetails };
+      if (!res.ok || body.success !== true) throw new Error(body.error || "Unable to update verification status");
+      setAmbassador(body.ambassador || ambassador);
+      setMessage({ type: "success", text: nextVerified ? "Ambassador marked as verified." : "Verified status removed." });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Unable to update verification status" });
+    } finally {
+      setVerificationUpdating(false);
+      setPendingVerificationAction(null);
     }
   };
 
@@ -247,6 +270,15 @@ export default function AdminAmbassadorProfilePage() {
                   <Button variant="primary" onClick={() => setPendingStatusAction("active")} disabled={statusUpdating}>
                     Reactivate
                   </Button>
+                  {ambassador?.is_verified ? (
+                    <Button variant="muted" onClick={() => setPendingVerificationAction("unverify")} disabled={verificationUpdating}>
+                      Remove verification
+                    </Button>
+                  ) : (
+                    <Button variant="primary" onClick={() => setPendingVerificationAction("verify")} disabled={verificationUpdating}>
+                      Verify ambassador
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -354,8 +386,8 @@ export default function AdminAmbassadorProfilePage() {
                   <p className="mt-1 font-semibold text-gray-800">{ambassador?.status || "active"}</p>
                 </div>
                 <div className="rounded-2xl border border-gray-200 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Authentication status</p>
-                  <p className="mt-1 font-semibold text-gray-800">{ambassador?.is_verified ? "Verified via Supabase Auth" : "Pending verification"}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Verification status</p>
+                  <p className="mt-1 font-semibold text-gray-800">{ambassador?.is_verified ? "Verified by admin" : "Not yet verified"}</p>
                 </div>
               </div>
             </div>
@@ -411,6 +443,22 @@ export default function AdminAmbassadorProfilePage() {
           if (pendingStatusAction) return updateStatus(pendingStatusAction);
         }}
         onCancel={() => setPendingStatusAction(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingVerificationAction !== null}
+        title={pendingVerificationAction === "verify" ? "Verify this ambassador?" : "Remove verified status?"}
+        description={
+          pendingVerificationAction === "verify"
+            ? `Mark ${ambassador?.full_name || "this ambassador"} as a verified Campus Ambassador based on their performance? They'll display a verified badge across the platform.`
+            : `Remove the verified badge from ${ambassador?.full_name || "this ambassador"}?`
+        }
+        confirmLabel={pendingVerificationAction === "verify" ? "Verify" : "Remove verification"}
+        danger={pendingVerificationAction === "unverify"}
+        onConfirm={() => {
+          if (pendingVerificationAction) return updateVerification(pendingVerificationAction === "verify");
+        }}
+        onCancel={() => setPendingVerificationAction(null)}
       />
     </div>
   );
