@@ -67,11 +67,16 @@ export async function proxy(request: NextRequest) {
   // a Supabase session — the browser return page has no session context.
   const isPublicPaymentStatus = pathname === "/api/payments/status" && method === "POST";
   const isAdminPaymentsRoute = pathname.startsWith("/api/payments") && !isPublicPaymentInitialize && !isPublicPaymentWebhook && !isPublicPaymentStatus;
+  // Application submission is guest-accessible — a prospective ambassador
+  // has no Supabase session yet. GET (admin listing) stays gated; the route
+  // handler itself already enforces requireAdminUser for GET and has no
+  // auth check for POST, so this mirrors isPublicBookingCreate below.
+  const isPublicApplicationCreate = pathname === "/api/applications" && method === "POST";
   const isAdminApiRoute =
     isSettingsRoute ||
     pathname.startsWith("/api/reports") ||
     pathname.startsWith("/api/referrals") ||
-    pathname.startsWith("/api/applications") ||
+    (pathname.startsWith("/api/applications") && !isPublicApplicationCreate) ||
     pathname.startsWith("/api/ambassadors") ||
     pathname.startsWith("/api/communications") ||
     pathname.startsWith("/api/communication") ||
