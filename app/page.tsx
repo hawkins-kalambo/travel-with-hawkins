@@ -146,6 +146,19 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   };
 
   useEffect(() => {
+    // Safety net for Google/OAuth sign-in: Supabase falls back to the
+    // project's Site URL (this homepage) whenever the redirectTo we pass
+    // isn't in its allow-listed Redirect URLs, so a leftover ?code= can
+    // land here instead of /auth/callback — stranding the user logged out
+    // on the marketing page after they've already approved Google consent.
+    // Forward it to the callback route so the session exchange still runs.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("code") || params.get("error") || params.get("error_description")) {
+      router.replace(`/auth/callback${window.location.search}`);
+    }
+  }, [router]);
+
+  useEffect(() => {
     // Lets other pages (e.g. the Payment page's "Haven't booked yet?" CTA)
     // deep-link straight into the booking modal via /?openBooking=1. Deferred
     // via setTimeout(0), same pattern as the profile-hydration effect above,
