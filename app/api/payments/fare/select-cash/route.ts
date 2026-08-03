@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 import { selectCashFarePayment } from "@/lib/payments/payment-service";
 
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ function statusFor(reason: string): number {
 }
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for") || "local";
+  const ip = getClientIp(req);
   if (await isRateLimited(`payments:fare:select-cash:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }

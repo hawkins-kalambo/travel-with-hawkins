@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminLikeRole, normalizeAppRole } from "@/lib/permissions";
 import { getErrorMessage } from "@/lib/communicationServer";
@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
   }
 
   const senderId = authUser.user.id;
-  const senderMetadataRole = authUser.user.user_metadata?.role;
 
   try {
     const body = await req.json();
@@ -58,7 +57,9 @@ export async function POST(req: NextRequest) {
       .eq("id", senderId)
       .maybeSingle();
 
-    const senderRole = normalizeAppRole(senderProfile?.role || senderMetadataRole);
+    // Resolved server-side from the admins/ambassadors/profiles tables —
+    // never from user_metadata, which the token owner can set themselves.
+    const senderRole = normalizeAppRole(senderProfile?.role || (await resolveAdminRole(authUser.user)));
     const senderIsAdmin = isAdminLikeRole(senderRole);
 
     // Admins may direct-message a specific customer; customers may only start

@@ -14,8 +14,14 @@ function getRecoveryParams() {
   const queryParams = new URLSearchParams(window.location.search);
 
   return {
-    accessToken: hashParams.get("access_token") || queryParams.get("access_token"),
-    refreshToken: hashParams.get("refresh_token") || queryParams.get("refresh_token"),
+    // access_token/refresh_token are real bearer credentials — only ever
+    // read from the hash fragment, which browsers never send to a server
+    // (not in the request line, not in Referer). A query-string version of
+    // the same token can land in server/proxy access logs. `code` (the PKCE
+    // flow) is designed to be a single-use, short-lived query param, so it
+    // stays accepted from either.
+    accessToken: hashParams.get("access_token"),
+    refreshToken: hashParams.get("refresh_token"),
     code: hashParams.get("code") || queryParams.get("code"),
     type: hashParams.get("type") || queryParams.get("type"),
     errorDescription: hashParams.get("error_description") || queryParams.get("error_description"),

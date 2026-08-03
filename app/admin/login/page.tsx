@@ -41,6 +41,19 @@ export default function AdminLoginPage() {
     setErrorMsg("");
 
     try {
+      const attemptRes = await fetch("/api/auth/login-attempt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+
+      if (attemptRes.status === 429) {
+        const attemptData = await attemptRes.json().catch(() => null);
+        setErrorMsg(attemptData?.error || "Too many login attempts. Please wait a few minutes and try again.");
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,

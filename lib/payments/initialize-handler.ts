@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 import { initiatePayChanguPayment } from "./payment-service";
 import type { PayChanguPaymentPurpose } from "./reference";
 
@@ -41,7 +42,7 @@ function statusFor(reason: string): number {
 }
 
 export async function handleInitializeRequest(req: NextRequest, paymentType: PayChanguPaymentPurpose): Promise<NextResponse> {
-  const ip = req.headers.get("x-forwarded-for") || "local";
+  const ip = getClientIp(req);
   if (await isRateLimited(`payments:${paymentType}:initialize:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }

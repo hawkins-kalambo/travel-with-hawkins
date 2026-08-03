@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { BookingRecord } from "@/lib/bookingUtils";
 import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 import { contactMatchesBooking, loadBookingById } from "@/lib/bookingAccess";
 
 export const runtime = "nodejs";
@@ -48,7 +49,7 @@ function toGuestSafeView(record: BookingRecord) {
 }
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for") || "local";
+  const ip = getClientIp(req);
   if (await isRateLimited(`track-booking:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }

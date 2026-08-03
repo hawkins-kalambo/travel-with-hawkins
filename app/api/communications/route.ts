@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser, requireAdminUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser, requireAdminUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 import { getAnnouncementsForRole } from "@/lib/communicationServer";
@@ -42,7 +42,9 @@ export async function GET(req: NextRequest) {
       console.warn("Unable to load profile for communications summary", profileError);
     }
 
-    const role = normalizeAppRole(profileData?.role || authUser.user.user_metadata?.role);
+    // Resolved server-side from the admins/ambassadors/profiles tables —
+    // never from user_metadata, which the token owner can set themselves.
+    const role = normalizeAppRole(profileData?.role || (await resolveAdminRole(authUser.user)));
     const isAdmin = authorized || hasPermission(role, "manageReports");
 
     const [notificationsResult, conversationsResult, ticketsResult, announcementsResult] = await Promise.allSettled([

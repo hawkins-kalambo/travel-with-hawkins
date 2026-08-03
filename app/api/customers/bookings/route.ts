@@ -19,18 +19,18 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const bookingId = url.searchParams.get("bookingId");
 
-    // Build query - get bookings for this customer
+    // Every branch must filter to this customer's own bookings — using
+    // supabaseAdmin (service role) bypasses RLS, so the ownership check
+    // has to happen here. Previously the bookingId branch skipped it
+    // entirely, letting any authenticated customer read any booking by
+    // supplying another customer's booking ID.
     let query = supabaseAdmin
       .from("bookings")
-      .select("*");
+      .select("*")
+      .or(`customer_id.eq.${authResult.user.id},email.eq.${authResult.user.email}`);
 
-    // If specific booking ID requested, filter by it
     if (bookingId) {
       query = query.eq("booking_id", bookingId);
-    } else {
-      // Otherwise get all bookings for this customer
-      // First try to get by customer_id, then by email for guest bookings
-      query = query.or(`customer_id.eq.${authResult.user.id},email.eq.${authResult.user.email}`);
     }
 
     query = query.order("created_at", { ascending: false });

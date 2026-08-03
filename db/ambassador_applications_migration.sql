@@ -47,7 +47,13 @@ CREATE TRIGGER set_timestamp
 CREATE INDEX IF NOT EXISTS idx_ambassador_applications_status ON public.ambassador_applications(status);
 CREATE INDEX IF NOT EXISTS idx_ambassador_applications_email ON public.ambassador_applications(email);
 
--- RLS guidance (do not enable automatically here)
--- To allow only server-side inserts/updates via service role, prefer keeping RLS disabled
--- If you enable RLS, use a policy that allows inserts from the service role and only
--- allows admins to SELECT/UPDATE/DELETE.
+-- SUPERSEDED: the "prefer keeping RLS disabled" guidance that used to be
+-- here was wrong for a table that stores applicant PII (student ID, phone,
+-- motivation essay) and has since been corrected. Do not leave RLS off.
+--
+-- After running this file, always also run
+-- db/migrations/2026_08_01_reconcile_ambassador_applications.sql — it
+-- enables RLS on this table with real policies (service-role/admin full
+-- access, public insert-only, applicant self-select/update scoped to their
+-- own row) and adds the duplicate-application uniqueness constraint. See
+-- that file's own header comment for the full story.

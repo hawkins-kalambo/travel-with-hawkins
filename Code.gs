@@ -25,6 +25,21 @@ function createJsonOutput(payload) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// Gateway token now lives in Script Properties (Project Settings > Script
+// Properties in the Apps Script editor), not hardcoded in source — a
+// literal in a checked-into-git .gs file is a permanent, unrotatable
+// secret. Set GATEWAY_TOKEN there and delete the old hardcoded value from
+// wherever this token was previously shared.
+function isValidGatewayToken(token) {
+  var expected = PropertiesService.getScriptProperties().getProperty("GATEWAY_TOKEN");
+  if (!expected) {
+    // Fail closed: an unconfigured token must never be treated as "no auth
+    // required". Set GATEWAY_TOKEN in Script Properties before deploying.
+    return false;
+  }
+  return String(token || "") === expected;
+}
+
 
 function doPost(e) {
   try {
@@ -77,7 +92,16 @@ function doPost(e) {
 
     // Non-mutating actions (no lock needed)
     if (action === "trackBooking") return handleTrackBooking(sheet, data);
-    if (action === "getAllData") return handleGetAllData(sheet);
+    if (action === "getAllData") {
+      // This returns every booking in the sheet (names, phone numbers,
+      // student IDs, pickup locations) — it must require the same gateway
+      // token as the mutating actions below, not be open to anyone who can
+      // reach the deployment URL.
+      if (!isValidGatewayToken(data.token)) {
+        return createJsonOutput({ success: false, error: "Unauthorized" });
+      }
+      return handleGetAllData(sheet);
+    }
 
     // Mutating actions — require lock + optional token validation
     var mutating = (action === "updateStatus" || action === "createBooking" || action === "deleteBooking");
@@ -136,7 +160,7 @@ function doPost(e) {
 
 function handleUpdateStatus(sheet, data) {
   var token = (data && data.token) ? String(data.token) : "";
-  if (token !== "HAWKINS_SECURE_GATEWAY_2026") {
+  if (!isValidGatewayToken(token)) {
     return createJsonOutput({ success: false, error: "Unauthorized" });
   }
 
@@ -219,7 +243,7 @@ function handleUpdateStatus(sheet, data) {
 
 function handleDeleteBooking(sheet, data) {
   var token = (data && data.token) ? String(data.token) : "";
-  if (token !== "HAWKINS_SECURE_GATEWAY_2026") {
+  if (!isValidGatewayToken(token)) {
     return createJsonOutput({ success: false, error: "Unauthorized" });
   }
 
@@ -453,8 +477,17 @@ function handleGetAllData(sheet) {
 // ===============================
 // GET BOOKINGS (DASHBOARD) — legacy endpoint
 // ===============================
-function doGet() {
+function doGet(e) {
   try {
+    // Same data as the getAllData POST action, so it needs the same
+    // gateway token — previously this endpoint returned every booking
+    // (names, phone numbers, student IDs, pickup locations) to anyone who
+    // requested the deployment URL, no token required.
+    var token = e && e.parameter ? e.parameter.token : "";
+    if (!isValidGatewayToken(token)) {
+      return createJsonOutput({ success: false, error: "Unauthorized" });
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName("Sheet1");
 

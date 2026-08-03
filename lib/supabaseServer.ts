@@ -6,10 +6,15 @@ import { isSuperAdminRole, isViewerRole, normalizeAdminRole } from "@/lib/adminA
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export function isAdminAccessAllowed(user: { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined, profileRole?: unknown) {
+// IMPORTANT: role must only ever be a value resolved server-side from the
+// `admins`/`ambassadors`/`profiles` tables (see resolveAdminRole below).
+// `user.user_metadata` is writable by the token owner themselves via
+// `supabase.auth.updateUser({ data: { role: "admin" } })`, so it must never
+// be treated as an authorization signal — doing so let any authenticated
+// user grant themselves admin access.
+export function isAdminAccessAllowed(profileRole?: unknown) {
   const normalizedProfileRole = normalizeAdminRole(profileRole);
-  const normalizedMetadataRole = normalizeAdminRole(user?.user_metadata?.role);
-  return normalizedProfileRole === "admin" || normalizedProfileRole === "super_admin" || normalizedMetadataRole === "admin" || normalizedMetadataRole === "super_admin";
+  return normalizedProfileRole === "admin" || normalizedProfileRole === "super_admin";
 }
 
 function normalizeAdminTableRole(value: unknown): string | null {
@@ -141,14 +146,11 @@ export async function resolveAdminRole(user: { id: string; email?: string | null
     .maybeSingle();
 
   const fallbackRole = typeof roleFromProfile.data?.role === "string" ? roleFromProfile.data.role : null;
-  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : null;
-  const resolved = fallbackRole ?? metadataRole ?? "unknown";
 
-  if (isAdminAccessAllowed(user, resolved)) {
-    return "super_admin";
-  }
-
-  return normalizeAdminRole(resolved);
+  // Never fall back to user.user_metadata.role here — it's client-writable
+  // and would let a user grant themselves admin. profiles.role is only ever
+  // written server-side (see app/api/customers/profile for the whitelist).
+  return normalizeAdminRole(fallbackRole ?? "unknown");
 }
 
 export function isViewerAuthorizedRoute(pathname: string): boolean {
@@ -161,7 +163,13 @@ export function isViewerAuthorizedRoute(pathname: string): boolean {
 }
 
 export function canAccessAdminRoute(role: unknown, pathname: string): boolean {
-  if (isSuperAdminRole(role)) return true;
+  // Was previously written to only allow "super_admin", so a plain "admin"
+  // row in the `admins` table (super_admin: false) could call every admin
+  // API route (which checks isAdminAccessAllowed / requireAdminUser) but
+  // couldn't load the /admin/* pages themselves. Since resolveAdminRole no
+  // longer collapses every admin match to "super_admin" (see above), a
+  // real "admin" role now needs to be let in here too.
+  if (isSuperAdminRole(role) || normalizeAdminRole(role) === "admin") return true;
   if (isViewerRole(role)) return isViewerAuthorizedRoute(pathname);
   return false;
 }
@@ -246,7 +254,7 @@ export async function requireAdminUser(request: NextRequest, response: NextRespo
   }
 
   const role = await resolveAdminRole(user);
-  const isAdminRole = isSuperAdminRole(role) || isAdminAccessAllowed(user, role);
+  const isAdminRole = isAdminAccessAllowed(role);
 
   if (!isAdminRole) {
     return { authorized: false, user: null, error: "Admin access required" };

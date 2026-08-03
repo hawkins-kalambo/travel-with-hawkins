@@ -53,12 +53,16 @@ export async function POST(req: NextRequest) {
     // db/migrations/2026_08_01_reconcile_ambassador_applications.sql is
     // the hard backstop (its 23505 violation is caught below too, in case
     // of a race between two concurrent submissions).
-    const { data: existingApplication } = await supabaseAdmin
-      .from("ambassador_applications")
-      .select("id, status")
-      .or(`email.eq.${email},student_id.eq.${student_id}`)
-      .in("status", ["pending", "approved"])
-      .maybeSingle();
+    // Two separate .eq() lookups instead of a single interpolated .or()
+    // string — PostgREST's or= syntax treats commas/dots/parens in the
+    // value as grammar, so building it from unsanitized user input let a
+    // crafted student_id splice extra filter conditions into the query.
+    const [{ data: existingByEmail }, { data: existingByStudentId }] = await Promise.all([
+      supabaseAdmin.from("ambassador_applications").select("id, status").eq("email", email).in("status", ["pending", "approved"]).maybeSingle(),
+      supabaseAdmin.from("ambassador_applications").select("id, status").eq("student_id", student_id).in("status", ["pending", "approved"]).maybeSingle(),
+    ]);
+
+    const existingApplication = existingByEmail ?? existingByStudentId;
 
     if (existingApplication) {
       return jsonError(

@@ -303,37 +303,66 @@ export async function POST(req: Request) {
       referralCode,
     } = validation.data;
 
-    const duplicateCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-    const duplicateResult = await supabase
-      .from("bookings")
-      .select("*")
-      .eq("phone", phone)
-      .eq("student_id", studentId)
-      .eq("destination", destination)
-      .eq("travel_date", travelDate)
-      .eq("seats", seats)
-      .gte("created_at", duplicateCutoff)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Guards against two concurrent submissions of the same booking (a
+    // double-click, a retried request) both landing as separate rows. A
+    // plain "check, then insert" here would race — two requests could both
+    // see no existing match and both insert. claim_booking_dedupe() takes a
+    // Postgres advisory lock on the natural key for the duration of the
+    // transaction, so only one caller at a time can ever observe an unclaimed
+    // key (see db/migrations/2026_08_03_booking_dedupe_claim.sql).
+    const dedupeWindowSeconds = 120;
+    const dedupeKey = `booking:${phone}|${studentId}|${destination}|${travelDate}|${seats}`;
+    const { data: dedupeRows, error: dedupeError } = await supabase.rpc("claim_booking_dedupe", {
+      p_key: dedupeKey,
+      p_window_seconds: dedupeWindowSeconds,
+    });
 
-    if (!duplicateResult.error && duplicateResult.data) {
-      const existingBooking = normalizeBookingRecord(duplicateResult.data as Record<string, unknown>);
-      delete (existingBooking as Record<string, unknown>).tripId;
-      logInfo("Duplicate booking submission safely reused", { bookingId: existingBooking.bookingId });
-      return NextResponse.json({
-        success: true,
-        booking: existingBooking,
-        bookingId: existingBooking.bookingId,
-        duplicate: true,
-        message: "Booking already received",
-        notifications: {
-          adminEmail: "skipped",
-          customerEmail: "skipped",
-          sms: "skipped",
-          smsProviderStatus: "duplicate_submission",
-        },
-      });
+    if (dedupeError) {
+      // Fail open, matching lib/rateLimit.ts's own failure mode — a dedupe
+      // check outage must never block legitimate booking submissions.
+      logWarn("Booking dedupe claim failed; proceeding without it", { error: dedupeError.message });
+    } else {
+      const claim = Array.isArray(dedupeRows) ? dedupeRows[0] : dedupeRows;
+
+      if (claim && !claim.claimed) {
+        if (claim.existing_booking_id) {
+          const { data: existingRow } = await supabase
+            .from("bookings")
+            .select("*")
+            .eq("booking_id", claim.existing_booking_id)
+            .maybeSingle();
+
+          // Only echo back full booking details (fare, payment status, etc.)
+          // if the email on this submission matches the original — the
+          // dedupe key alone (phone+student_id+destination+date+seats) can
+          // be known to someone other than the booker.
+          if (existingRow && typeof existingRow.email === "string" && existingRow.email.trim().toLowerCase() === email?.trim().toLowerCase()) {
+            const existingBooking = normalizeBookingRecord(existingRow as Record<string, unknown>);
+            delete (existingBooking as Record<string, unknown>).tripId;
+            logInfo("Duplicate booking submission safely reused", { bookingId: existingBooking.bookingId });
+            return NextResponse.json({
+              success: true,
+              booking: existingBooking,
+              bookingId: existingBooking.bookingId,
+              duplicate: true,
+              message: "Booking already received",
+              notifications: {
+                adminEmail: "skipped",
+                customerEmail: "skipped",
+                sms: "skipped",
+                smsProviderStatus: "duplicate_submission",
+              },
+            });
+          }
+        }
+
+        return NextResponse.json({
+          success: true,
+          duplicate: true,
+          message: "This booking was already received. Please check your email for confirmation.",
+          notifications: { adminEmail: "skipped", customerEmail: "skipped", sms: "skipped", smsProviderStatus: "duplicate_submission" },
+        });
+      }
     }
 
     const bookingId = generateBookingId();
@@ -432,6 +461,16 @@ export async function POST(req: Request) {
         { success: false, error: "Booking could not be saved right now. Please try again." },
         { status: 500 }
       );
+    }
+
+    // Record the real booking id against the dedupe claim so the next
+    // submission within the window (if any) gets a usable existing_booking_id
+    // instead of null. Best-effort: a no-op if no claim row exists (e.g. the
+    // claim RPC itself failed above and we proceeded without one).
+    try {
+      await supabase.rpc("finish_booking_dedupe_claim", { p_key: dedupeKey, p_booking_id: bookingId });
+    } catch (finishError) {
+      logWarn("Failed to finalize booking dedupe claim", { error: finishError instanceof Error ? finishError.message : String(finishError) });
     }
 
     if (referralCode && ambassadorId) {

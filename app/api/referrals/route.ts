@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 import { attachBookingPaymentStatus } from "@/lib/bookingPaymentStatus";
@@ -28,17 +28,16 @@ export async function GET(req: NextRequest) {
       typeof profileError.message === "string" &&
       profileError.message.includes("Could not find the table 'public.profiles' in the schema cache");
 
-    if (isMissingProfilesTable) {
-      const fallbackRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : "customer";
-      profileData = { id: user.id, role: fallbackRole };
-    } else {
+    if (!isMissingProfilesTable) {
       return jsonError(profileError.message || "Unable to load profile", 500);
     }
   } else {
     profileData = data;
   }
 
-  const normalizedRole = normalizeAppRole(profileData?.role ?? user.user_metadata?.role);
+  // Resolved server-side from the admins/ambassadors/profiles tables — never
+  // from user.user_metadata, which the token owner can set themselves.
+  const normalizedRole = normalizeAppRole(profileData?.role ?? (await resolveAdminRole(user)));
   const isAdmin = hasPermission(normalizedRole, "manageReferrals");
 
   const query = supabaseAdmin.from("referrals").select("*, ambassadors(id, full_name, referral_code)").order("created_at", { ascending: false });
@@ -109,17 +108,16 @@ export async function DELETE(req: NextRequest) {
       typeof profileError.message === "string" &&
       profileError.message.includes("Could not find the table 'public.profiles' in the schema cache");
 
-    if (isMissingProfilesTable) {
-      const fallbackRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : "customer";
-      profileData = { id: user.id, role: fallbackRole };
-    } else {
+    if (!isMissingProfilesTable) {
       return jsonError(profileError.message || "Unable to load profile", 500);
     }
   } else {
     profileData = data;
   }
 
-  const normalizedRole = normalizeAppRole(profileData?.role ?? user.user_metadata?.role);
+  // Resolved server-side from the admins/ambassadors/profiles tables — never
+  // from user.user_metadata, which the token owner can set themselves.
+  const normalizedRole = normalizeAppRole(profileData?.role ?? (await resolveAdminRole(user)));
   const isAdmin = hasPermission(normalizedRole, "manageReferrals");
 
   if (!isAdmin) {

@@ -9,6 +9,12 @@ function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
 }
 
+// The only commission_status values the app ever produces (see
+// app/api/bookings/route.ts and lib/commissionLifecycle.ts) — previously
+// any string was accepted here and written straight to the DB, relying
+// solely on the admin-only gate above rather than the column's own shape.
+const VALID_COMMISSION_STATUSES = new Set(["pending", "approved", "paid", "cancelled"]);
+
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();
   const { authorized, error } = await requireAdminUser(req, response);
@@ -39,6 +45,10 @@ export async function PATCH(req: NextRequest) {
     if (!referralId || !commissionStatus) {
       console.log("[PATCH /api/commissions] Validation failed: missing referralId or commissionStatus");
       return jsonError("referralId and commissionStatus are required", 400);
+    }
+
+    if (!VALID_COMMISSION_STATUSES.has(commissionStatus)) {
+      return jsonError(`Invalid commissionStatus. Must be one of: ${Array.from(VALID_COMMISSION_STATUSES).join(", ")}`, 400);
     }
 
     console.log("[PATCH /api/commissions] Updating referral in DB...");

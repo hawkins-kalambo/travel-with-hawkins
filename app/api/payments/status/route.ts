@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 import { verifyAndFinalizePayment } from "@/lib/payments/finalize-flow";
 import { loadBookingById } from "@/lib/bookingAccess";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -22,7 +23,7 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for") || "local";
+  const ip = getClientIp(req);
   if (await isRateLimited(`payments:status:${ip}`)) {
     return jsonError("Too many requests. Please wait a moment and try again.", 429);
   }

@@ -130,7 +130,9 @@ export async function GET(req: NextRequest) {
       profileError.message.includes("Could not find the table 'public.profiles' in the schema cache");
 
     if (isMissingProfilesTable) {
-      const fallbackRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : "customer";
+      // Resolved server-side (admins/ambassadors tables) — never from
+      // user.user_metadata, which the token owner can set themselves.
+      const fallbackRole = ambassadorData ? "ambassador" : resolvedAdminRole ?? "customer";
       return NextResponse.json({
         success: true,
         profile: {
@@ -138,7 +140,7 @@ export async function GET(req: NextRequest) {
           email: user.email,
           full_name: user.user_metadata?.full_name ?? null,
           phone: user.user_metadata?.phone ?? null,
-          role: ambassadorData ? "ambassador" : fallbackRole,
+          role: fallbackRole,
           ...(ambassadorData || {}),
         },
       });
@@ -147,12 +149,9 @@ export async function GET(req: NextRequest) {
     return jsonError(profileError.message || "Unable to load profile", 500);
   }
 
-  const metadataRole = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : undefined;
-  const resolvedRole = normalizeAdminRole(
-    resolvedAdminRole ?? (data?.role ?? metadataRole ?? "customer")
-  );
+  const resolvedRole = normalizeAdminRole(resolvedAdminRole ?? (data?.role ?? "customer"));
 
-  console.debug("/api/profile: role resolution", { resolvedAdminRole, profileRow: data, metadataRole, resolvedRole, ambassadorDataExists: !!ambassadorData });
+  console.debug("/api/profile: role resolution", { resolvedAdminRole, profileRow: data, resolvedRole, ambassadorDataExists: !!ambassadorData });
 
   const mergedProfile = {
     id: data?.id ?? user.id,

@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
@@ -9,7 +10,10 @@ function jsonError(message: string, status = 500) {
 }
 
 function generateTemporaryPassword() {
-  return `TWH${Math.random().toString(36).slice(2, 10).toUpperCase()}!`;
+  // Math.random() is not a CSPRNG — not attacker-reachable here (requires an
+  // existing admin session), but a generated credential should never depend
+  // on a non-cryptographic RNG.
+  return `TWH${randomBytes(6).toString("hex").toUpperCase()}!`;
 }
 
 export async function POST(req: NextRequest) {

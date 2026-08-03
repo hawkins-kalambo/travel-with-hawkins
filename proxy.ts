@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { canAccessAdminRoute, requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 
 async function getUserRole(user: { id: string; user_metadata?: Record<string, unknown> } | null) {
   if (!user) return null;
@@ -13,7 +14,7 @@ const CANONICAL_HOST = "travelwithhawkins.com";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
-  const ip = request.headers.get("x-forwarded-for") || "local";
+  const ip = getClientIp(request);
   const rateLimitKey = `${method}:${pathname}:${ip}`;
 
   // Keep the *.vercel.app deployment URL out of users' hands — everything
@@ -66,16 +67,31 @@ export async function proxy(request: NextRequest) {
   // server-generated tx_ref (see app/api/payments/status/route.ts), not by
   // a Supabase session — the browser return page has no session context.
   const isPublicPaymentStatus = pathname === "/api/payments/status" && method === "POST";
-  const isAdminPaymentsRoute = pathname.startsWith("/api/payments") && !isPublicPaymentInitialize && !isPublicPaymentWebhook && !isPublicPaymentStatus;
+  // Same guest bookingId + contact-match model as track-booking/initialize,
+  // not a Supabase session — this was previously swept into the
+  // admin-payments bucket below by accident and forced a 401 on real guest
+  // cash-payment selections.
+  const isPublicPaymentSelectCash = pathname === "/api/payments/fare/select-cash" && method === "POST";
+  const isAdminPaymentsRoute =
+    pathname.startsWith("/api/payments") &&
+    !isPublicPaymentInitialize &&
+    !isPublicPaymentWebhook &&
+    !isPublicPaymentStatus &&
+    !isPublicPaymentSelectCash;
   // Application submission is guest-accessible — a prospective ambassador
   // has no Supabase session yet. GET (admin listing) stays gated; the route
   // handler itself already enforces requireAdminUser for GET and has no
   // auth check for POST, so this mirrors isPublicBookingCreate below.
   const isPublicApplicationCreate = pathname === "/api/applications" && method === "POST";
+  // Referral-code validation is guest-accessible — the booking form checks
+  // a code before the visitor has any session at all. It has no auth check
+  // of its own (by design, like isPublicApplicationCreate) and is
+  // rate-limited in the route handler itself.
+  const isPublicReferralValidate = pathname === "/api/referrals/validate" && method === "POST";
   const isAdminApiRoute =
     isSettingsRoute ||
     pathname.startsWith("/api/reports") ||
-    pathname.startsWith("/api/referrals") ||
+    (pathname.startsWith("/api/referrals") && !isPublicReferralValidate) ||
     (pathname.startsWith("/api/applications") && !isPublicApplicationCreate) ||
     pathname.startsWith("/api/ambassadors") ||
     pathname.startsWith("/api/communications") ||
@@ -92,7 +108,18 @@ export async function proxy(request: NextRequest) {
   // sub-route is deliberately public: it returns only a destination string,
   // never raw booking rows.
   const isPublicUrgencySignal = pathname === "/api/bookings/urgency" && method === "GET";
-  const isPublicCustomerRoute = isCustomerApiRoute && (pathname === "/api/customers/register" || pathname === "/api/customers/login" || pathname === "/api/customers/forgot-password");
+  // verify-otp and resend-otp must be public too: a freshly-registered
+  // customer (registerCustomer uses supabaseAdmin.auth.admin.createUser,
+  // which never creates a browser session) has no session yet when they
+  // need to verify their email. Both routes already rate-limit/cap
+  // attempts internally (lib/customerOtp.ts).
+  const isPublicCustomerRoute =
+    isCustomerApiRoute &&
+    (pathname === "/api/customers/register" ||
+      pathname === "/api/customers/login" ||
+      pathname === "/api/customers/forgot-password" ||
+      pathname === "/api/customers/verify-otp" ||
+      pathname === "/api/customers/resend-otp");
   const isAdminBookingRoute = isBookingsRoute && !isPublicBookingCreate && !isPublicUrgencySignal;
 
   const isProtectedApiRoute =
@@ -150,6 +177,29 @@ export async function proxy(request: NextRequest) {
   }
 
   const role = await getUserRole(user);
+
+  // Defense-in-depth: these API buckets are unconditionally admin-only —
+  // every handler in them already calls requireAdminUser or checks a
+  // manage* permission (never granted to viewer/ambassador/customer), so
+  // gating here too costs nothing and means a handler that ever drops its
+  // own check isn't a full privilege-escalation hole on its own. Left out
+  // on purpose: /api/ambassadors/*, /api/referrals, /api/commissions,
+  // /api/communication(s) — those mix admin and self-service access (e.g.
+  // ambassadors/me, ambassadors/password) and already scope correctly
+  // inside each handler; a blanket gate here would incorrectly lock
+  // ambassadors/customers out of their own data.
+  const isAlwaysAdminOnlyApiRoute =
+    isSettingsRoute ||
+    isAdminPaymentsRoute ||
+    isAdminBookingRoute ||
+    pathname.startsWith("/api/reports") ||
+    pathname.startsWith("/api/commission-rules") ||
+    pathname.startsWith("/api/admin/") ||
+    (pathname.startsWith("/api/applications") && !isPublicApplicationCreate);
+
+  if (isAlwaysAdminOnlyApiRoute && role !== "super_admin" && role !== "admin") {
+    return NextResponse.json({ success: false, error: "Admin access required" }, { status: 403 });
+  }
 
   if (isAdminRoute) {
     const isAllowed = canAccessAdminRoute(role, pathname);

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { loginCustomer } from "@/lib/customerAuthAdmin";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +16,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Missing required fields: email, password" },
         { status: 400 }
+      );
+    }
+
+    // No brute-force protection previously existed on this endpoint at all.
+    // Two buckets: per-account (stops a script targeting one victim's
+    // password) and per-IP (stops one attacker spraying many accounts).
+    const ip = getClientIp(req);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const [accountLimited, ipLimited] = await Promise.all([
+      isRateLimited(`login:account:${normalizedEmail}`, 300, 5),
+      isRateLimited(`login:ip:${ip}`, 300, 20),
+    ]);
+
+    if (accountLimited || ipLimited) {
+      return NextResponse.json(
+        { success: false, error: "Too many login attempts. Please wait a few minutes and try again." },
+        { status: 429 }
       );
     }
 

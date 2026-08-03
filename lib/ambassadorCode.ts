@@ -1,3 +1,4 @@
+import { randomInt } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { universityCode, formatReferralCode } from "@/lib/ambassadorCodeFormat";
 
@@ -14,30 +15,27 @@ export { universityCode, formatReferralCode };
 
 /**
  * Generates a unique ambassador referral code in TH-<UNI>-00001 format.
- * Starts from a count-based sequence number, then probes forward
- * (up to `maxAttempts` times) if a collision is found, backstopped by the
- * real DB UNIQUE constraint on ambassadors.referral_code either way.
+ *
+ * The sequence number is drawn at random (not incremented 1, 2, 3, ...) —
+ * a predictable counter let anyone enumerate every ambassador's code, and
+ * via the public /api/referrals/validate endpoint, their real name, just
+ * by counting up from TH-<UNI>-00001. Collisions are checked for and
+ * re-rolled, backstopped by the real DB UNIQUE constraint on
+ * ambassadors.referral_code either way.
  */
-export async function generateReferralCode(university: string | null | undefined, maxAttempts = 5): Promise<string> {
+export async function generateReferralCode(university: string | null | undefined, maxAttempts = 8): Promise<string> {
   const uniCode = universityCode(university);
 
-  const { data: existing, error: existingErr } = await supabaseAdmin
-    .from("ambassadors")
-    .select("referral_code")
-    .like("referral_code", `TH-${uniCode}-%`);
-
-  if (existingErr) {
-    console.warn("Failed to fetch existing ambassadors for code generation", existingErr);
-  }
-
-  const startingSequence = (Array.isArray(existing) ? existing.length : 0) + 1;
-  let candidate = formatReferralCode(uniCode, startingSequence);
+  let candidate = formatReferralCode(uniCode, randomInt(1, 100000));
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const { data: check, error: checkErr } = await supabaseAdmin.from("ambassadors").select("id").eq("referral_code", candidate).maybeSingle();
-    if (checkErr) break;
+    if (checkErr) {
+      console.warn("Failed to check referral code candidate for collision", checkErr);
+      break;
+    }
     if (!check) break;
-    candidate = formatReferralCode(uniCode, startingSequence + attempt + 1);
+    candidate = formatReferralCode(uniCode, randomInt(1, 100000));
   }
 
   return candidate;

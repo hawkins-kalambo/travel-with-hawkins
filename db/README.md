@@ -6,7 +6,13 @@ Steps to apply:
 
 1. Open the Supabase SQL editor (or connect with `psql` as a superuser).
 2. Run `db/ambassador_applications_migration.sql`.
-3. Verify the table exists: `SELECT count(*) FROM public.ambassador_applications;`.
+3. Run `db/migrations/2026_08_01_reconcile_ambassador_applications.sql` — this is not
+   optional. It enables Row Level Security on the table (step 2 above leaves it
+   disabled) and adds the real policies, plus the duplicate-application
+   uniqueness constraint. This table stores applicant PII (student ID, phone,
+   motivation essay), so skipping this step leaves that data unprotected.
+4. Verify the table exists and RLS is on:
+   `SELECT relrowsecurity FROM pg_class WHERE relname = 'ambassador_applications';` — should return `t`.
 
 Storage bucket setup (Supabase UI or CLI):
 
@@ -16,5 +22,8 @@ Storage bucket setup (Supabase UI or CLI):
 
 RLS and security:
 
-- Prefer server-side insertion using a service role key for uploads and inserts.
-- If enabling RLS, add policies that only allow the service role to INSERT, and only admins to SELECT/UPDATE/DELETE.
+- RLS is enabled by step 3 above, with policies for service-role/admin full
+  access, public insert-only (application submission), and applicant
+  self-select/update scoped to their own row — see
+  `db/migrations/2026_08_01_reconcile_ambassador_applications.sql` for the
+  exact policies.

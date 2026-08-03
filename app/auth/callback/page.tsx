@@ -4,6 +4,16 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
 
+// Only accept an internal, relative path — "//evil.com" (protocol-relative)
+// and "https://evil.com" are both rejected, since router.push() would
+// otherwise happily navigate a signed-in user off-site to whatever "next"
+// value the OAuth callback URL was crafted with.
+function sanitizeNextPath(next: string | null): string {
+  if (!next) return "/customer/dashboard";
+  if (!next.startsWith("/") || next.startsWith("//")) return "/customer/dashboard";
+  return next;
+}
+
 function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -15,7 +25,7 @@ function AuthCallbackContent() {
       try {
         // Exchange the code for a session
         const code = searchParams.get("code");
-        const next = searchParams.get("next") || "/customer/dashboard";
+        const next = sanitizeNextPath(searchParams.get("next"));
 
         if (code) {
           const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
