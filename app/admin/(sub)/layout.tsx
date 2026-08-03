@@ -72,8 +72,8 @@ export default function AdminSubLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex-1">
-        <main className="mx-auto max-w-7xl px-4 py-6 md:px-6">{children}</main>
+      <div className="min-w-0 flex-1">
+        <main className="mx-auto w-full min-w-0 max-w-7xl px-4 py-6 md:px-6">{children}</main>
       </div>
     </div>
   );

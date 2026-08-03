@@ -283,16 +283,9 @@ export default function AdminApplicationsPage() {
       setPendingAction(null);
       if (action === "approve" && body?.result) {
         setApprovalPayload(body.result as ApprovalPayload);
-        const ambassadorId = (body.result as ApprovalPayload).ambassadorId;
-        if (ambassadorId) {
-          window.location.href = `/admin/ambassadors/${ambassadorId}`;
-          return;
-        }
       }
       setMessage(action === "approve" ? "Application approved and ambassador account created." : "Application rejected.");
       await load();
-      const refreshed = applications.find((application) => application.id === id);
-      setSelectedApplication(refreshed ?? null);
     } catch (err) {
       console.error(err);
       setMessage(err instanceof Error ? err.message : String(err));
@@ -317,7 +310,8 @@ export default function AdminApplicationsPage() {
 
   const closeProfile = () => setSelectedApplication(null);
   const openProfileRedirect = () => {
-    window.location.href = "/admin";
+    if (!approvalPayload?.ambassadorId) return;
+    window.location.href = `/admin/ambassadors/${encodeURIComponent(approvalPayload.ambassadorId)}`;
   };
 
   return (
@@ -702,7 +696,7 @@ export default function AdminApplicationsPage() {
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl">🎉</div>
               <div>
                 <p className="text-lg font-black">Ambassador Account Created Successfully!</p>
-                <p className="text-sm">The ambassador profile and referral workflow are now active.</p>
+                <p className="text-sm">These one-time credentials will stay here until you close this window or open the ambassador profile.</p>
               </div>
             </div>
 
@@ -730,7 +724,12 @@ export default function AdminApplicationsPage() {
                 <IconClipboard className="h-4 w-4" />
                 {copied ? "Copied" : "Copy Credentials"}
               </button>
-              <button type="button" onClick={openProfileRedirect} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+              <button
+                type="button"
+                onClick={openProfileRedirect}
+                disabled={!approvalPayload.ambassadorId}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 Open Ambassador Profile
               </button>
               <button type="button" onClick={() => setApprovalPayload(null)} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">

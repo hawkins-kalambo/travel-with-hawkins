@@ -238,57 +238,57 @@ export default function AdminAmbassadorsPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <table className="w-full table-fixed divide-y divide-slate-200 text-sm 2xl:table-auto">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Profile</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Ambassador ID</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">University</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Programme</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Phone</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Email</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Status</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Joined</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Referrals</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Commission</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Last login</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Actions</th>
+                  <th className="w-[22%] px-3 py-3 text-left font-semibold text-slate-700 2xl:w-auto">Profile</th>
+                  <th className="w-[14%] px-3 py-3 text-left font-semibold text-slate-700 2xl:w-auto">Ambassador ID</th>
+                  <th className="w-[15%] px-3 py-3 text-left font-semibold text-slate-700 2xl:w-auto">University</th>
+                  <th className="hidden px-3 py-3 text-left font-semibold text-slate-700 2xl:table-cell">Programme</th>
+                  <th className="hidden px-3 py-3 text-left font-semibold text-slate-700 2xl:table-cell">Phone</th>
+                  <th className="hidden px-3 py-3 text-left font-semibold text-slate-700 2xl:table-cell">Email</th>
+                  <th className="w-[12%] px-3 py-3 text-left font-semibold text-slate-700 2xl:w-auto">Status</th>
+                  <th className="hidden px-3 py-3 text-left font-semibold text-slate-700 2xl:table-cell">Joined</th>
+                  <th className="w-[8%] px-3 py-3 text-left font-semibold text-slate-700 2xl:w-auto">Referrals</th>
+                  <th className="w-[15%] px-3 py-3 text-left font-semibold text-slate-700 2xl:w-auto">Commission</th>
+                  <th className="hidden px-3 py-3 text-left font-semibold text-slate-700 2xl:table-cell">Last login</th>
+                  <th className="sticky right-0 z-10 w-[14%] bg-slate-50 px-3 py-3 text-right font-semibold text-slate-700 2xl:w-auto">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pagedAmbassadors.map((ambassador) => {
                   const performance = stats.get(ambassador.id) || { referrals: 0, commission: 0 };
                   return (
-                    <tr key={ambassador.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-100">
+                    <tr key={ambassador.id} className="group hover:bg-slate-50">
+                      <td className="px-3 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-slate-100">
                             {ambassador.profile_image_url ? (
                               <Image src={ambassador.profile_image_url} alt={ambassador.full_name || "Ambassador profile"} width={40} height={40} className="h-full w-full object-cover" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-xs font-bold text-slate-500">TH</div>
                             )}
                           </div>
-                          <div>
-                            <p className="font-semibold text-slate-900">{ambassador.full_name || "Unnamed ambassador"}</p>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-slate-900" title={ambassador.full_name || "Unnamed ambassador"}>{ambassador.full_name || "Unnamed ambassador"}</p>
                             <p className="text-xs text-slate-500">{ambassador.is_verified ? "Verified" : "Unverified"}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-700">{ambassador.referral_code || ambassador.id.slice(0, 8)} </td>
-                      <td className="px-4 py-3 text-slate-600">{ambassador.university || "—"}</td>
-                      <td className="px-4 py-3 text-slate-600">{ambassador.program || "—"}</td>
-                      <td className="px-4 py-3 text-slate-600">{ambassador.phone || "—"}</td>
-                      <td className="px-4 py-3 text-slate-600">{ambassador.email || "—"}</td>
-                      <td className="px-4 py-3">{statusBadge(ambassador.status)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(ambassador.created_at)}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{performance.referrals}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{formatCurrency(performance.commission)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(ambassador.last_login)}</td>
-                      <td className="px-4 py-3">
-                        <Link href={`/admin/ambassadors/${ambassador.id}`} className="rounded-lg bg-primary-700 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-800">
+                      <td className="truncate px-3 py-3 font-semibold text-slate-700" title={ambassador.referral_code || ambassador.id.slice(0, 8)}>{ambassador.referral_code || ambassador.id.slice(0, 8)}</td>
+                      <td className="truncate px-3 py-3 text-slate-600" title={ambassador.university || undefined}>{ambassador.university || "—"}</td>
+                      <td className="hidden truncate px-3 py-3 text-slate-600 2xl:table-cell" title={ambassador.program || undefined}>{ambassador.program || "—"}</td>
+                      <td className="hidden px-3 py-3 text-slate-600 2xl:table-cell">{ambassador.phone || "—"}</td>
+                      <td className="hidden truncate px-3 py-3 text-slate-600 2xl:table-cell" title={ambassador.email || undefined}>{ambassador.email || "—"}</td>
+                      <td className="px-3 py-3">{statusBadge(ambassador.status)}</td>
+                      <td className="hidden px-3 py-3 text-slate-600 2xl:table-cell">{formatDate(ambassador.created_at)}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-900">{performance.referrals}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-900">{formatCurrency(performance.commission)}</td>
+                      <td className="hidden px-3 py-3 text-slate-600 2xl:table-cell">{formatDate(ambassador.last_login)}</td>
+                      <td className="sticky right-0 bg-white px-3 py-3 text-right group-hover:bg-slate-50">
+                        <Link href={`/admin/ambassadors/${ambassador.id}`} className="inline-flex whitespace-nowrap rounded-lg bg-primary-700 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-800">
                           View profile
                         </Link>
                       </td>
