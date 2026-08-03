@@ -2,8 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Image from "next/image";
-import { authFetch, supabase } from "@/lib/auth";
-import { normalizeAdminRole } from "@/lib/adminAuth";
+import { supabase } from "@/lib/auth";
 
 async function handleForgotPassword(email: string) {
   if (!email) {
@@ -41,50 +40,22 @@ export default function AdminLoginPage() {
     setErrorMsg("");
 
     try {
-      const attemptRes = await fetch("/api/auth/login-attempt", {
+      // Signing in through the backend (rather than calling
+      // supabase.auth.signInWithPassword directly from the browser) means
+      // this app's own rate limiting actually sees every login attempt —
+      // a client-side-only pre-check could be skipped entirely by a script
+      // hitting Supabase's auth API directly. The route also writes the
+      // session cookie itself, same as the customer login flow.
+      const loginRes = await fetch("/api/auth/admin-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      if (attemptRes.status === 429) {
-        const attemptData = await attemptRes.json().catch(() => null);
-        setErrorMsg(attemptData?.error || "Too many login attempts. Please wait a few minutes and try again.");
-        setLoading(false);
-        return;
-      }
+      const loginData = await loginRes.json().catch(() => null);
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (error) {
-        setErrorMsg(error.message || "Invalid login details");
-        setLoading(false);
-        return;
-      }
-
-      if (!data.session) {
-        setErrorMsg("No session returned. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      const profileRes = await authFetch("/api/profile", { method: "GET" });
-      if (!profileRes.ok) {
-        setErrorMsg("Unable to load user profile. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      const profileData = await profileRes.json();
-      const role = normalizeAdminRole(profileData?.profile?.role ?? profileData?.role);
-      const isAdminLikeRole = role === "super_admin" || role === "admin" || role === "viewer";
-
-      if (!isAdminLikeRole) {
-        await supabase.auth.signOut();
-        setErrorMsg("This account is not authorized for the admin portal.");
+      if (!loginRes.ok || !loginData?.success) {
+        setErrorMsg(loginData?.error || "Invalid login details");
         setLoading(false);
         return;
       }

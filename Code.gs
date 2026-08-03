@@ -372,6 +372,19 @@ function generateTripId(sheet, destination, travelDate, routeCode) {
 }
 
 function handleTrackBooking(sheet, data) {
+  // This action used to run with no token check at all, and matched
+  // booking IDs with a bidirectional substring comparison — a one-character
+  // request matched every row, returning name/studentId/phone/pickup/
+  // location for the entire sheet. The Next.js app's own guest-facing
+  // tracking route (app/api/track-booking) requires an exact booking ID
+  // AND a matching phone/email before returning anything; this legacy
+  // Apps Script action has no contact field to check against, so it's
+  // locked down to the same gateway token as every other data-returning
+  // action here instead, plus an exact (not substring) ID match.
+  if (!isValidGatewayToken(data.token)) {
+    return createJsonOutput({ success: false, error: "Unauthorized" });
+  }
+
   var bookingId = (data.bookingId || "").toString().trim();
 
   if (!bookingId) {
@@ -389,21 +402,14 @@ function handleTrackBooking(sheet, data) {
     startRow = 1;
   }
 
+  var normRequested = bookingId.toLowerCase().replace(/\s+/g, "");
   var found = [];
   for (var i = startRow; i < values.length; i++) {
     var row = values[i];
     var rowBookingId = String(row[9] || "").trim();
+    var normRow = rowBookingId.toLowerCase().replace(/\s+/g, "");
 
-    // Normalize and allow partial/case-insensitive matches to be forgiving
-    var normRequested = bookingId.toLowerCase().replace(/\s+/g, "");
-    var normRow = String(rowBookingId).toLowerCase().replace(/\s+/g, "");
-
-    if (
-      rowBookingId &&
-      (normRow === normRequested ||
-        normRow.indexOf(normRequested) !== -1 ||
-        normRequested.indexOf(normRow) !== -1)
-    ) {
+    if (rowBookingId && normRow === normRequested) {
       found.push({
         timestamp: row[0],
         name: row[1],

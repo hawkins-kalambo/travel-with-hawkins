@@ -88,9 +88,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
   const profileId = authUser.user.id;
   const body = await req.json();
   const messageBody = typeof body.body === "string" ? body.body.trim() : "";
-  const html = typeof body.html === "string" ? body.html : null;
 
-  if (!messageBody && !html) {
+  if (!messageBody) {
     return jsonError("Message content is required", 400);
   }
 
@@ -113,7 +112,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         conversation_id: conversationId,
         sender_id: profileId,
         body: messageBody,
-        html,
+        // No UI ever sends html — always null rather than storing
+        // caller-supplied markup a future renderer might one day trust.
+        html: null,
         attachments: Array.isArray(body.attachments) ? body.attachments : [],
       })
       .select()

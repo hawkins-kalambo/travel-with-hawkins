@@ -51,6 +51,15 @@ export async function PATCH(req: NextRequest) {
       return jsonError(`Invalid commissionStatus. Must be one of: ${Array.from(VALID_COMMISSION_STATUSES).join(", ")}`, 400);
     }
 
+    // A commission marked "paid" means real money already moved — nothing
+    // should be able to walk it back to pending/approved/cancelled after
+    // the fact (including re-submitting "paid" itself, which would just
+    // re-fire the commission_paid notification below for no reason).
+    const { data: currentReferral } = await supabaseAdmin.from("referrals").select("commission_status").eq("id", referralId).maybeSingle();
+    if (currentReferral?.commission_status === "paid") {
+      return jsonError("This commission has already been paid and cannot be changed.", 409);
+    }
+
     console.log("[PATCH /api/commissions] Updating referral in DB...");
 
     const { data, error } = await supabaseAdmin

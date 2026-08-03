@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { ipAddress } from "@vercel/functions";
 import type { NextRequest } from "next/server";
 
@@ -11,10 +12,13 @@ import type { NextRequest } from "next/server";
  * connection and overwritten on any client-supplied value, so it can't be
  * spoofed the way a raw forwarded-for header can.
  *
- * Falls back to "local" (matching this codebase's prior behavior) when not
- * running behind Vercel's proxy, e.g. local dev — rate limiting there was
- * never the point.
+ * When `x-real-ip` is absent (local dev, or any non-Vercel origin), this
+ * used to fall back to the literal string "local" for every caller — which
+ * collapsed every real client into one shared rate-limit bucket in that
+ * situation, letting one attacker's traffic lock out everyone else. A
+ * fresh random value per call means an absent trusted header fails open
+ * per-caller instead, matching the actual "no rate limiting here" intent.
  */
 export function getClientIp(request: NextRequest | Request): string {
-  return ipAddress(request) || "local";
+  return ipAddress(request) || randomUUID();
 }

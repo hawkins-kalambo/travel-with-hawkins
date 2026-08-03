@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requestPasswordReset } from "@/lib/customerAuth";
+import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +13,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Email is required" },
         { status: 400 }
+      );
+    }
+
+    // Public by design (a locked-out customer has no session), and the
+    // response is generic either way so there's no enumeration signal —
+    // but nothing previously stopped repeatedly triggering Supabase's
+    // reset email at unlimited rate. Matches the same bucket shape used
+    // for other public write endpoints (e.g. /api/applications POST).
+    if (await isRateLimited(`forgot-password:${getClientIp(req)}`)) {
+      return NextResponse.json(
+        { success: false, error: "Too many requests. Please wait a moment and try again." },
+        { status: 429 }
       );
     }
 

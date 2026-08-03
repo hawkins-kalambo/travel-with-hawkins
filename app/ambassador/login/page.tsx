@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { authFetch, supabase } from "@/lib/auth";
 import Spinner from "@/app/components/ui/Spinner";
 
@@ -24,7 +23,6 @@ async function handleForgotPassword(email: string): Promise<{ type: "success" | 
 }
 
 export default function AmbassadorLoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -37,57 +35,23 @@ export default function AmbassadorLoginPage() {
     setErrorMsg("");
 
     try {
-      const attemptRes = await fetch("/api/auth/login-attempt", {
+      // Signing in through the backend (rather than calling
+      // supabase.auth.signInWithPassword directly from the browser) means
+      // this app's own rate limiting actually sees every login attempt —
+      // a client-side-only pre-check could be skipped entirely by a script
+      // hitting Supabase's auth API directly. The route also writes the
+      // session cookie itself and checks the ambassador role/status, same
+      // as this page used to do after the fact via /api/profile.
+      const loginRes = await fetch("/api/auth/ambassador-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      if (attemptRes.status === 429) {
-        const attemptData = await attemptRes.json().catch(() => null);
-        setErrorMsg(attemptData?.error || "Too many login attempts. Please wait a few minutes and try again.");
-        setLoading(false);
-        return;
-      }
+      const loginData = await loginRes.json().catch(() => null);
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (error) {
-        setErrorMsg(error.message || "Invalid login details");
-        setLoading(false);
-        return;
-      }
-
-      if (!data.session) {
-        setErrorMsg("No session returned. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      const profileRes = await authFetch("/api/profile", { method: "GET" });
-      if (!profileRes.ok) {
-        setErrorMsg("Unable to load ambassador profile right now.");
-        setLoading(false);
-        return;
-      }
-
-      const profileData = await profileRes.json();
-      const role = profileData?.profile?.role;
-      const status = String(profileData?.profile?.status || "active").toLowerCase();
-
-      if (role !== "ambassador") {
-        await supabase.auth.signOut();
-        setErrorMsg("This login is not assigned to an ambassador account.");
-        setLoading(false);
-        return;
-      }
-
-      if (status === "suspended" || status === "inactive") {
-        await supabase.auth.signOut();
-        setErrorMsg("This ambassador account is currently suspended.");
+      if (!loginRes.ok || !loginData?.success) {
+        setErrorMsg(loginData?.error || "Invalid login details");
         setLoading(false);
         return;
       }
@@ -102,7 +66,10 @@ export default function AmbassadorLoginPage() {
         console.warn("Failed to record ambassador login", trackingError);
       }
 
-      router.replace("/ambassador/dashboard");
+      // A full navigation (not client-side router.replace) so the browser's
+      // Supabase client re-initializes from the cookie the login route just
+      // set, rather than keeping its stale pre-login in-memory session state.
+      window.location.assign("/ambassador/dashboard");
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Login failed. Please try again.");
     } finally {

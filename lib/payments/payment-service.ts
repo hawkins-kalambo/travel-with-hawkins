@@ -32,7 +32,20 @@ export type InitiatePaymentResult =
   | { outcome: "rejected"; reason: string };
 
 function getExpectedAmount(booking: BookingRecord, paymentType: PayChanguPaymentPurpose): number | undefined {
-  return paymentType === "booking_fee" ? booking.bookingFeeAmount : booking.fare;
+  if (paymentType === "booking_fee") {
+    return booking.bookingFeeAmount;
+  }
+
+  // Transport fare was previously charged once regardless of seat count —
+  // booking 10 seats and paying for one settled the fare for all of them.
+  // Matches the seats * ticketPrice math the admin dashboard's own revenue
+  // reporting already uses (app/admin/page.tsx).
+  if (typeof booking.fare !== "number" || !Number.isFinite(booking.fare)) {
+    return undefined;
+  }
+
+  const seats = typeof booking.seats === "number" && Number.isFinite(booking.seats) && booking.seats > 0 ? booking.seats : 1;
+  return booking.fare * seats;
 }
 
 function splitName(fullName: string | undefined): { firstName?: string; lastName?: string } {
@@ -86,7 +99,12 @@ export async function initiatePayChanguPayment(input: InitiatePaymentInput): Pro
     if (booking.bookingFeeStatus !== "paid") {
       return { outcome: "rejected", reason: "booking_fee_not_paid" };
     }
-    if (booking.fareStatus === "paid") {
+    // Also blocks re-paying online after cash was collected and confirmed
+    // by an admin (selectCashFarePayment below already checks both states
+    // — this path previously only checked "paid", so a fare already
+    // cash-collected could be paid again online, silently overwriting
+    // fare_payment_method and erasing the cash-collection record).
+    if (booking.fareStatus === "paid" || booking.fareStatus === "cash_collected") {
       return { outcome: "rejected", reason: "fare_already_paid" };
     }
   }

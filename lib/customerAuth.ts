@@ -94,45 +94,10 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
   }
 }
 
-export async function resetPassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    if (newPassword.length < 8) {
-      return { success: false, error: "Password must be at least 8 characters long" };
-    }
-
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    return { success: true };
-  } catch (error) {
-    console.error("Password reset error", error);
-    return { success: false, error: error instanceof Error ? error.message : "Failed to reset password" };
-  }
-}
-
-export async function changePassword(oldPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: (await supabase.auth.getUser()).data.user?.email || "",
-      password: oldPassword,
-    });
-
-    if (authError || !authData.session) {
-      return { success: false, error: "Current password is incorrect" };
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-
-    if (updateError) {
-      return { success: false, error: updateError.message };
-    }
-
-    return { success: true };
-  } catch (error) {
-    console.error("Change password error", error);
-    return { success: false, error: error instanceof Error ? error.message : "Failed to change password" };
-  }
-}
+// resetPassword()/changePassword() used to live here, operating on the
+// module-level `supabase` client from lib/auth.ts. On the server that
+// client is a single instance shared across every request the process
+// handles — calling signInWithPassword()/updateUser() on it meant one
+// request's session could leak into another's. app/api/customers/password
+// now does both operations itself, scoped to the caller's own verified
+// user id via a per-request client and the service-role admin API.

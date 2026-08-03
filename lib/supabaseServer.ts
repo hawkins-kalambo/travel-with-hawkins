@@ -6,6 +6,15 @@ import { isSuperAdminRole, isViewerRole, normalizeAdminRole } from "@/lib/adminA
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+// `_` and `%` are LIKE/ILIKE wildcards — passing a raw email straight into
+// .ilike() means a user whose own address happens to contain one (e.g.
+// "jo_n@x.com") can match a DIFFERENT ambassador's row. Escaping them
+// keeps the case-insensitive match this was written for without the
+// wildcard behavior.
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 // IMPORTANT: role must only ever be a value resolved server-side from the
 // `admins`/`ambassadors`/`profiles` tables (see resolveAdminRole below).
 // `user.user_metadata` is writable by the token owner themselves via
@@ -110,7 +119,7 @@ async function getAmbassadorRoleFromDatabase(user: { id: string; email?: string 
     const { data: emailRow, error: emailError } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .ilike("email", normalizedEmail)
+      .ilike("email", escapeLikePattern(normalizedEmail))
       .limit(1)
       .maybeSingle();
 

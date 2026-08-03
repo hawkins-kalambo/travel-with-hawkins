@@ -69,7 +69,7 @@ travel-with-hawkins/
 
 ### Backend URL
 ```javascript
-const API_URL = "https://script.google.com/macros/s/AKfycby17HHcmR3G_8GhP7wdb3pvkcZpnAy6R0mtH8W7qrkcRuu5JiEQy4FIRkEDQ81KFk_L/exec";
+const API_URL = "https://script.google.com/macros/s/.../exec"; // see internal deployment notes for the real URL
 ```
 
 ### Update API URL

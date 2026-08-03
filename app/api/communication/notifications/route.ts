@@ -21,7 +21,10 @@ export async function GET(req: NextRequest) {
   const profileId = authUser.user.id;
   const search = req.nextUrl.searchParams.get("search")?.trim();
   const unread = req.nextUrl.searchParams.get("unread") === "true";
-  const limit = Number(req.nextUrl.searchParams.get("limit") || 20);
+  // Clamped — an unbounded value here let a caller request their entire
+  // notification history in one query.
+  const requestedLimit = Number(req.nextUrl.searchParams.get("limit"));
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 100) : 20;
 
   try {
     let query = supabaseAdmin

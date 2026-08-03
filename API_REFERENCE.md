@@ -2,7 +2,7 @@
 
 ## 🔗 API Endpoint
 ```
-https://script.google.com/macros/s/AKfycby17HHcmR3G_8GhP7wdb3pvkcZpnAy6R0mtH8W7qrkcRuu5JiEQy4FIRkEDQ81KFk_L/exec
+https://script.google.com/macros/s/.../exec
 ```
 
 ---

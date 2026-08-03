@@ -369,9 +369,16 @@ export async function POST(req: Request) {
     const tripId = generateTripId(destination, travelDate);
     const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = extractRouteSettingsData(settingsData ?? null);
+    // Fare is only ever resolved server-side from the configured routes —
+    // never from the client. The booking form doesn't send `fare` in its
+    // request body at all, so payload.fare had no legitimate caller; it
+    // was pure attack surface (a destination string that doesn't match a
+    // configured route, paired with an attacker-chosen fare). Leaving fare
+    // unset here is safe: initiatePayChanguPayment() already rejects with
+    // "amount_not_configured" if a booking has no valid fare, rather than
+    // trusting whatever the client sent.
     const routeFare = resolveRouteFareIfAvailable(destination, routesText);
-    const payloadFare = getPositiveNumber(payload.fare);
-    const fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : payloadFare;
+    const fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : undefined;
 
     // Booking fee is always resolved server-side from settings — the client
     // never gets to decide what it owes.
@@ -457,6 +464,18 @@ export async function POST(req: Request) {
       logError("Booking insert failed", {
         code: typeof error.code === "string" ? error.code : "unknown",
       });
+
+      // Otherwise the dedupe claim taken above would hold this key for the
+      // rest of the window with no booking_id — a legitimate retry (or
+      // anyone else with the same natural key) would get a false
+      // "already received" response instead of being allowed to actually
+      // book.
+      try {
+        await supabase.rpc("release_booking_dedupe_claim", { p_key: dedupeKey });
+      } catch (releaseError) {
+        logWarn("Failed to release booking dedupe claim after insert failure", { error: releaseError instanceof Error ? releaseError.message : String(releaseError) });
+      }
+
       return NextResponse.json(
         { success: false, error: "Booking could not be saved right now. Please try again." },
         { status: 500 }

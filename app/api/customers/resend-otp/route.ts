@@ -2,6 +2,18 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { generateAndSendOtp, getCustomerContactByEmail, type OtpChannel } from "@/lib/customerOtp";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
+
+// Deliberately identical for "no such account", "already verified", and
+// "code actually sent" — this endpoint is public (a freshly-registered
+// customer has no session yet), and previously returned a distinct status
+// for each of those three, letting anyone enumerate the customer base and
+// each account's verification state. The per-account throttle inside
+// generateAndSendOtp() (lib/customerOtp.ts) only kicks in for accounts that
+// exist; nothing previously stopped probing many different emails from one
+// IP.
+const GENERIC_MESSAGE = "If this account exists and needs verification, a code has been sent.";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +28,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (await isRateLimited(`otp:resend:ip:${getClientIp(req)}`, 300, 10)) {
+      return NextResponse.json(
+        { success: false, error: "Too many requests. Please wait a few minutes and try again." },
+        { status: 429 }
+      );
+    }
+
     const { data: customer } = await supabaseAdmin
       .from("customer_profiles")
       .select("email_verified")
@@ -23,15 +42,12 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (customer?.email_verified) {
-      return NextResponse.json({ success: true, message: "Email is already verified" });
+      return NextResponse.json({ success: true, message: GENERIC_MESSAGE });
     }
 
     const customerInfo = await getCustomerContactByEmail(email);
     if (!customerInfo) {
-      return NextResponse.json(
-        { success: false, error: "Account not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: true, message: GENERIC_MESSAGE });
     }
 
     if (channel === "sms" && !customerInfo.phone) {
@@ -41,16 +57,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await generateAndSendOtp(customerInfo.id, email, customerInfo.fullName, channel, customerInfo.phone ?? undefined);
+    await generateAndSendOtp(customerInfo.id, email, customerInfo.fullName, channel, customerInfo.phone ?? undefined);
 
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, error: result.error || "Failed to resend verification code" },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json({ success: true, message: "Verification code resent" });
+    // Same response whether generateAndSendOtp actually sent a code or was
+    // itself internally throttled (lib/customerOtp.ts's own per-account
+    // limit) — either way the caller can't distinguish "sent" from "this
+    // account already got one recently" from "didn't exist".
+    return NextResponse.json({ success: true, message: GENERIC_MESSAGE });
   } catch (error) {
     console.error("POST /api/customers/resend-otp error", error);
     return NextResponse.json(

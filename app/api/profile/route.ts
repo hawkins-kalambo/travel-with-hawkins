@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getAdminRoleFromDatabase, requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { escapeLikePattern, getAdminRoleFromDatabase, requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeAdminRole } from "@/lib/adminAuth";
 
@@ -100,10 +100,13 @@ export async function GET(req: NextRequest) {
   if (!ambassadorData && typeof user.email === "string") {
     const normalizedEmail = user.email.trim().toLowerCase();
     if (normalizedEmail) {
+      // Escaped so `_`/`%` in the caller's own email can't wildcard-match
+      // (and then get permanently bound to, via the user_id update below) a
+      // DIFFERENT ambassador's row.
       const { data: emailAmbassador, error: emailAmbassadorError } = await supabaseAdmin
         .from("ambassadors")
         .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
-        .ilike("email", normalizedEmail)
+        .ilike("email", escapeLikePattern(normalizedEmail))
         .limit(1)
         .maybeSingle();
 
@@ -181,7 +184,9 @@ export async function PATCH(req: NextRequest) {
       : typeof body.whatsapp === "string" && body.whatsapp.trim()
         ? body.whatsapp.trim()
         : undefined;
-    const studentId = typeof body.student_id === "string" && body.student_id.trim() ? body.student_id.trim() : undefined;
+    // student_id is intentionally not self-editable — it's the field admins
+    // verify identity against during ambassador application review, so it
+    // should only ever change through an admin action.
     const profileImageBase64 = typeof body.profileImageBase64 === "string" ? body.profileImageBase64 : undefined;
     const profileImageUrl = typeof body.profile_image_url === "string" && body.profile_image_url.trim() ? body.profile_image_url.trim() : undefined;
     const shouldUpdateLastLogin = body.last_login === true;
@@ -205,10 +210,6 @@ export async function PATCH(req: NextRequest) {
 
     if (whatsappNumber) {
       ambassadorUpdates.whatsapp_number = whatsappNumber;
-    }
-
-    if (studentId) {
-      ambassadorUpdates.student_id = studentId;
     }
 
     if (shouldUpdateLastLogin) {

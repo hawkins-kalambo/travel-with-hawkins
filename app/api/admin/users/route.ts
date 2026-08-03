@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 
@@ -16,8 +16,8 @@ export async function GET(request: NextRequest) {
     return jsonError("Authentication required", 401);
   }
 
-  const profileRole = normalizeAppRole((await supabaseAdmin.from("profiles").select("role").eq("id", user.id).maybeSingle()).data?.role);
-  if (!hasPermission(profileRole, "manageUsers")) {
+  const role = await resolveAdminRole(user);
+  if (!hasPermission(role, "manageUsers")) {
     return jsonError("Admin access required", 403);
   }
 
@@ -41,8 +41,8 @@ export async function PATCH(request: NextRequest) {
     return jsonError("Authentication required", 401);
   }
 
-  const profileRole = normalizeAppRole((await supabaseAdmin.from("profiles").select("role").eq("id", user.id).maybeSingle()).data?.role);
-  if (!hasPermission(profileRole, "manageUsers")) {
+  const role = await resolveAdminRole(user);
+  if (!hasPermission(role, "manageUsers")) {
     return jsonError("Admin access required", 403);
   }
 

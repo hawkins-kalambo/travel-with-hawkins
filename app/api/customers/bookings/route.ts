@@ -24,10 +24,17 @@ export async function GET(req: NextRequest) {
     // has to happen here. Previously the bookingId branch skipped it
     // entirely, letting any authenticated customer read any booking by
     // supplying another customer's booking ID.
-    let query = supabaseAdmin
-      .from("bookings")
-      .select("*")
-      .or(`customer_id.eq.${authResult.user.id},email.eq.${authResult.user.email}`);
+    //
+    // user.email is a verified session value, not raw user input, but
+    // PostgREST's or= syntax still treats commas/dots/parens in a value as
+    // grammar — wrapping it in double quotes (PostgREST's own escape
+    // syntax for filter values) keeps it literal regardless.
+    const quotedEmail = authResult.user.email ? `"${authResult.user.email.replace(/["\\]/g, "\\$&")}"` : null;
+    const ownerClause = quotedEmail
+      ? `customer_id.eq.${authResult.user.id},email.eq.${quotedEmail}`
+      : `customer_id.eq.${authResult.user.id}`;
+
+    let query = supabaseAdmin.from("bookings").select("*").or(ownerClause);
 
     if (bookingId) {
       query = query.eq("booking_id", bookingId);

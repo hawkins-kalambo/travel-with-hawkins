@@ -99,7 +99,14 @@ export async function proxy(request: NextRequest) {
     isAdminPaymentsRoute ||
     pathname.startsWith("/api/commissions") ||
     pathname.startsWith("/api/commission-rules") ||
-    pathname.startsWith("/api/admin/");
+    pathname.startsWith("/api/admin/") ||
+    // Previously missing entirely from the protected-route list — GET/POST
+    // are self-service (a caller lists/creates their own tickets) so they
+    // still just need "logged in", enforced same as everywhere else in this
+    // bucket; PATCH is admin-only, enforced below by isAlwaysAdminOnlyApiRoute.
+    pathname.startsWith("/api/support-tickets") ||
+    // Every method here is admin-only (see isAlwaysAdminOnlyApiRoute below).
+    pathname.startsWith("/api/announcements");
 
   const isPublicBookingCreate = isBookingsRoute && method === "POST";
   // Guest/customer booking lookups go through POST /api/track-booking (its
@@ -183,11 +190,23 @@ export async function proxy(request: NextRequest) {
   // manage* permission (never granted to viewer/ambassador/customer), so
   // gating here too costs nothing and means a handler that ever drops its
   // own check isn't a full privilege-escalation hole on its own. Left out
-  // on purpose: /api/ambassadors/*, /api/referrals, /api/commissions,
-  // /api/communication(s) — those mix admin and self-service access (e.g.
-  // ambassadors/me, ambassadors/password) and already scope correctly
+  // on purpose: /api/referrals (validate carve-out aside), /api/communication(s)
+  // — those mix admin and self-service access and already scope correctly
   // inside each handler; a blanket gate here would incorrectly lock
   // ambassadors/customers out of their own data.
+  // GET /api/applications is dual-purpose: admins list everything, but the
+  // handler also lets a non-admin caller see their own application by
+  // email — forcing this into the admin-only bucket 403'd every applicant
+  // and ambassador checking their own status. /api/applications/review and
+  // any other method on /api/applications stay admin-only.
+  const isSelfServiceApplicationsGet = pathname === "/api/applications" && method === "GET";
+  // /api/ambassadors/me is the one self-service sub-route under
+  // /api/ambassadors — everything else there (list, [id], password, resend)
+  // is admin-only.
+  const isAmbassadorSelfService = pathname === "/api/ambassadors/me";
+  // GET/POST /api/support-tickets are self-service (a caller lists/creates
+  // their own tickets); only PATCH (status/assignee changes) is admin-only.
+  const isAdminOnlySupportTicketAction = pathname === "/api/support-tickets" && method === "PATCH";
   const isAlwaysAdminOnlyApiRoute =
     isSettingsRoute ||
     isAdminPaymentsRoute ||
@@ -195,7 +214,11 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/api/reports") ||
     pathname.startsWith("/api/commission-rules") ||
     pathname.startsWith("/api/admin/") ||
-    (pathname.startsWith("/api/applications") && !isPublicApplicationCreate);
+    pathname.startsWith("/api/commissions") ||
+    (pathname.startsWith("/api/ambassadors") && !isAmbassadorSelfService) ||
+    pathname.startsWith("/api/announcements") ||
+    isAdminOnlySupportTicketAction ||
+    (pathname.startsWith("/api/applications") && !isPublicApplicationCreate && !isSelfServiceApplicationsGet);
 
   if (isAlwaysAdminOnlyApiRoute && role !== "super_admin" && role !== "admin") {
     return NextResponse.json({ success: false, error: "Admin access required" }, { status: 403 });
