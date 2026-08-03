@@ -72,6 +72,14 @@ export default function AdminAmbassadorProfilePage() {
   const [pendingStatusAction, setPendingStatusAction] = useState<"suspended" | "active" | null>(null);
   const [verificationUpdating, setVerificationUpdating] = useState(false);
   const [pendingVerificationAction, setPendingVerificationAction] = useState<"verify" | "unverify" | null>(null);
+  const [copiedReferral, setCopiedReferral] = useState<"code" | "link" | null>(null);
+
+  const referralLink = useMemo(() => {
+    const code = ambassador?.referral_code?.trim();
+    if (!code) return "";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
+    return `${appUrl.replace(/\/$/, "")}/book?ref=${encodeURIComponent(code)}`;
+  }, [ambassador?.referral_code]);
 
   const loadDetails = async () => {
     try {
@@ -209,6 +217,18 @@ export default function AdminAmbassadorProfilePage() {
     reader.readAsDataURL(file);
   };
 
+  const copyReferralValue = async (value: string, kind: "code" | "link") => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedReferral(kind);
+      setMessage({ type: "success", text: `Referral ${kind} copied to clipboard.` });
+      window.setTimeout(() => setCopiedReferral((current) => (current === kind ? null : current)), 2000);
+    } catch {
+      setMessage({ type: "error", text: `Unable to copy the referral ${kind}. Please select and copy it manually.` });
+    }
+  };
+
   if (loading) {
     return (
       <Card>
@@ -283,6 +303,56 @@ export default function AdminAmbassadorProfilePage() {
               </div>
             </div>
           </Card>
+
+            <div className="rounded-2xl border border-primary-200 bg-primary-50 p-6 shadow-sm">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-700">Ambassador referrals</p>
+                <h2 className="mt-1 text-lg font-black text-gray-800">Referral code and link</h2>
+                <p className="mt-1 text-sm text-gray-600">Share this link with customers so their bookings are credited to this ambassador.</p>
+              </div>
+
+              <div className="mt-5 grid gap-4">
+                <div>
+                  <label htmlFor="ambassador-referral-code" className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Referral code</label>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      id="ambassador-referral-code"
+                      value={ambassador?.referral_code || "Not available"}
+                      readOnly
+                      className="input-field min-w-0 flex-1 bg-white font-mono font-semibold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void copyReferralValue(ambassador?.referral_code || "", "code")}
+                      disabled={!ambassador?.referral_code}
+                      className="whitespace-nowrap rounded-xl border border-primary-200 bg-white px-4 py-3 text-sm font-semibold text-primary-800 transition hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {copiedReferral === "code" ? "Code copied" : "Copy code"}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="ambassador-referral-link" className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Referral link</label>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      id="ambassador-referral-link"
+                      value={referralLink || "Not available"}
+                      readOnly
+                      className="input-field min-w-0 flex-1 bg-white text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void copyReferralValue(referralLink, "link")}
+                      disabled={!referralLink}
+                      className="whitespace-nowrap rounded-xl bg-primary-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {copiedReferral === "link" ? "Link copied" : "Copy referral link"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-black text-gray-800">Personal information</h2>
