@@ -155,7 +155,7 @@ export async function sendBookingConfirmationSms({
   phone: string;
 }): Promise<SmsNotificationResult> {
   const firstName = sanitizeCustomerName(name);
-  const message = `Hello ${firstName}, your Travel With Hawkins booking request has been received. We will contact you shortly.`;
+  const message = `Hello ${firstName}, your Travel With Hawkins booking request has been received (Booking ID: ${bookingId}). We will contact you shortly.`;
 
   return deliverSms({
     phone,
