@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { fetchAllUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
 
 type WizardPayload = {
   fullName: string;
@@ -14,6 +16,7 @@ type WizardPayload = {
   profileImageBase64?: string;
   referralCode: string;
   routeAssignment: string;
+  universityId: string;
   university: string;
   status: string;
   temporaryPassword: string;
@@ -65,7 +68,7 @@ function validateStep(step: number, payload: WizardPayload): Record<string, stri
 
   if (step === 2) {
     if (!payload.referralCode.trim()) errors.referralCode = "Referral code is required.";
-    if (!payload.university.trim()) errors.university = "Campus assignment is required.";
+    if (!payload.universityId.trim() || !payload.university.trim()) errors.university = "Campus assignment is required.";
   }
 
   return errors;
@@ -89,7 +92,8 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
     profileImageBase64: undefined,
     referralCode: initialReferralCode,
     routeAssignment: "",
-    university: "Mzuzu University",
+    universityId: "",
+    university: "",
     status: "active",
     temporaryPassword: generateTemporaryPassword(),
   });
@@ -97,6 +101,20 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [universities, setUniversities] = useState<ActiveUniversity[]>([]);
+  const [universitiesLoading, setUniversitiesLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAllUniversities().then((rows) => {
+      if (cancelled) return;
+      setUniversities(rows);
+      setUniversitiesLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const referralLink = useMemo(() => {
     if (!payload.referralCode) return "—";
@@ -205,7 +223,11 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
             <span className="block font-semibold text-slate-700">Upload profile picture</span>
             <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImageChange} className="mt-3 w-full text-sm" />
           </label>
-          {profilePreview ? <img src={profilePreview} alt="Profile preview" className="h-28 w-28 rounded-full object-cover" /> : null}
+          {profilePreview ? (
+            <div className="relative h-28 w-28 overflow-hidden rounded-full">
+              <Image src={profilePreview} alt="Profile preview" fill unoptimized className="object-cover" />
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -217,8 +239,33 @@ export default function AmbassadorCreationWizard({ initialReferralCode = "", onS
               {fieldErrors.referralCode && <p className="mt-1 text-xs text-danger">{fieldErrors.referralCode}</p>}
             </div>
             <div>
-              <input className={fieldClass(!!fieldErrors.university)} placeholder="Campus Assignment" value={payload.university} onChange={(e) => updateField("university", e.target.value)} />
+              <select
+                className={fieldClass(!!fieldErrors.university)}
+                value={payload.universityId}
+                disabled={universitiesLoading}
+                onChange={(event) => {
+                  const universityId = event.target.value;
+                  const university = universities.find((row) => row.id === universityId);
+                  setPayload((current) => ({
+                    ...current,
+                    universityId,
+                    university: university?.name ?? "",
+                  }));
+                  setFieldErrors((current) => {
+                    if (!current.university) return current;
+                    const next = { ...current };
+                    delete next.university;
+                    return next;
+                  });
+                }}
+              >
+                <option value="">{universitiesLoading ? "Loading universities..." : "Select campus assignment"}</option>
+                {universities.map((university) => (
+                  <option key={university.id} value={university.id}>{university.name}</option>
+                ))}
+              </select>
               {fieldErrors.university && <p className="mt-1 text-xs text-danger">{fieldErrors.university}</p>}
+              {!universitiesLoading && universities.length === 0 ? <p className="mt-1 text-xs text-danger">No universities are configured. Add one in university management first.</p> : null}
             </div>
             <input className="input-field" placeholder="Route Assignment (optional)" value={payload.routeAssignment} onChange={(e) => updateField("routeAssignment", e.target.value)} />
             <select className="input-field" value={payload.status} onChange={(e) => updateField("status", e.target.value)}>

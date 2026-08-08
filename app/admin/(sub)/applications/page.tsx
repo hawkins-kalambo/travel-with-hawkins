@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { authFetch } from "@/lib/auth";
 import {
   IconCheck,
@@ -106,6 +106,7 @@ export default function AdminApplicationsPage() {
   const [approvalPayload, setApprovalPayload] = useState<ApprovalPayload | null>(null);
   const [copied, setCopied] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ id: string; action: "approve" | "reject" } | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) {
@@ -146,7 +147,13 @@ export default function AdminApplicationsPage() {
   }, []);
 
   useEffect(() => {
-    void load(false);
+    const initialLoadId = window.setTimeout(() => {
+      void load(false);
+      void authFetch("/api/profile")
+        .then(async (response) => response.json() as Promise<{ profile?: { role?: string } }>)
+        .then((body) => setReadOnly(body.profile?.role === "university_admin"))
+        .catch(() => undefined);
+    }, 0);
 
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -168,6 +175,7 @@ export default function AdminApplicationsPage() {
     window.addEventListener("focus", handleFocus);
 
     return () => {
+      window.clearTimeout(initialLoadId);
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleFocus);
@@ -499,9 +507,9 @@ export default function AdminApplicationsPage() {
                         />
                       </td>
                       <td className="px-3 py-3">
-                        <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-[#edf5ff]">
+                        <div className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-[#edf5ff]">
                           {application.profile_image_url ? (
-                            <img src={application.profile_image_url} alt={application.full_name} className="h-full w-full object-cover" />
+                            <Image src={application.profile_image_url} alt={application.full_name} fill className="object-cover" />
                           ) : (
                             <span className="text-sm font-bold text-[#0a4d8c]">{getInitials(application.full_name)}</span>
                           )}
@@ -516,7 +524,7 @@ export default function AdminApplicationsPage() {
                       <td className="px-3 py-3 text-slate-600">{formatDate(application.created_at)}</td>
                       <td className="px-3 py-3">{renderStatusTag(application.status)}</td>
                       <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
+                        {!readOnly && <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={(event) => {
@@ -539,7 +547,7 @@ export default function AdminApplicationsPage() {
                           >
                             <IconX className="h-4 w-4" />
                           </button>
-                        </div>
+                        </div>}
                       </td>
                     </tr>
                   ))
@@ -563,9 +571,9 @@ export default function AdminApplicationsPage() {
             </div>
 
             <div className="mt-5 flex items-center gap-4 rounded-[20px] bg-[#f8fbff] p-4">
-              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm">
+              <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm">
                 {selectedApplicationDetails.profile_image_url ? (
-                  <img src={selectedApplicationDetails.profile_image_url} alt={selectedApplicationDetails.full_name} className="h-full w-full object-cover" />
+                  <Image src={selectedApplicationDetails.profile_image_url} alt={selectedApplicationDetails.full_name} fill className="object-cover" />
                 ) : (
                   <span className="text-lg font-black text-[#0a4d8c]">{getInitials(selectedApplicationDetails.full_name)}</span>
                 )}
@@ -653,7 +661,7 @@ export default function AdminApplicationsPage() {
             </div>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <button
+              {!readOnly && <button
                 type="button"
                 onClick={() => requestAction(selectedApplicationDetails.id, "approve")}
                 disabled={processingId === selectedApplicationDetails.id || selectedApplicationDetails.status !== "pending"}
@@ -661,8 +669,8 @@ export default function AdminApplicationsPage() {
               >
                 <IconCheck className="h-4 w-4" />
                 Approve
-              </button>
-              <button
+              </button>}
+              {!readOnly && <button
                 type="button"
                 onClick={() => requestAction(selectedApplicationDetails.id, "reject")}
                 disabled={processingId === selectedApplicationDetails.id || selectedApplicationDetails.status !== "pending"}
@@ -670,7 +678,7 @@ export default function AdminApplicationsPage() {
               >
                 <IconX className="h-4 w-4" />
                 Reject
-              </button>
+              </button>}
               <a
                 href={`mailto:${selectedApplicationDetails.email}`}
                 className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"

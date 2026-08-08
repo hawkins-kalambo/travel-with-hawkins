@@ -91,14 +91,13 @@ export default function AdminCommunicationPage() {
   const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
-    const load = async () => {
+    const timer = window.setTimeout(async () => {
       setLoading(true);
       setError(null);
       await loadCommunicationCenter();
       setLoading(false);
-    };
-
-    void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const filteredNotifications = useMemo(() => {
@@ -159,7 +158,7 @@ export default function AdminCommunicationPage() {
     }
   };
 
-  const loadCommunicationCenter = async () => {
+  async function loadCommunicationCenter() {
     try {
       const response = await authFetch("/api/communications");
       const body = await response.json();
@@ -185,7 +184,7 @@ export default function AdminCommunicationPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load communication center");
     }
-  };
+  }
 
   const metricCards = [
     { label: "Total notifications", value: metrics.totalNotifications, detail: `${metrics.unreadNotifications} unread` },

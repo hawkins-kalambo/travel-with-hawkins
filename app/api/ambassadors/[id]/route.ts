@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
+import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -40,31 +41,39 @@ async function uploadProfileImage(base64: string) {
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(req, response);
-  if (!authorized) return jsonError(error || "Unauthorized", 401);
+  const access = await requireUniversityOperationsUser(req, response, "viewAmbassadors");
+  if (!access.authorized) return jsonError(access.error, access.status);
 
   const { id } = await params;
 
   try {
-    const { data: ambassador, error: ambassadorError } = await supabaseAdmin
+    const ambassadorQuery = supabaseAdmin
       .from("ambassadors")
       .select("*")
-      .eq("id", id)
-      .maybeSingle();
+      .eq("id", id);
+    if (!access.isGlobal) ambassadorQuery.in("university_id", access.universityIds);
+    const { data: ambassador, error: ambassadorError } = await ambassadorQuery.maybeSingle();
 
     if (ambassadorError) throw ambassadorError;
     if (!ambassador) return jsonError("Ambassador not found", 404);
 
+    const referralsQuery = supabaseAdmin
+      .from("referrals")
+      .select("id, commission_amount, commission_status, created_at, booking_id")
+      .eq("ambassador_id", id);
+    const bookingsQuery = supabaseAdmin
+      .from("bookings")
+      .select("id, customer_name, customer_phone, route, travel_date, fare, commission_amount, payment_status, created_at")
+      .eq("ambassador_id", id)
+      .order("created_at", { ascending: false });
+    if (!access.isGlobal) {
+      referralsQuery.in("university_id", access.universityIds);
+      bookingsQuery.in("university_id", access.universityIds);
+    }
+
     const [referralsResult, bookingsResult, activityResult] = await Promise.all([
-      supabaseAdmin
-        .from("referrals")
-        .select("id, commission_amount, commission_status, created_at, booking_id")
-        .eq("ambassador_id", id),
-      supabaseAdmin
-        .from("bookings")
-        .select("id, customer_name, customer_phone, route, travel_date, fare, commission_amount, payment_status, created_at")
-        .eq("ambassador_id", id)
-        .order("created_at", { ascending: false }),
+      referralsQuery,
+      bookingsQuery,
       supabaseAdmin
         .from("ambassador_activity_logs")
         .select("id, activity_type, description, created_at")

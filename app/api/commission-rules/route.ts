@@ -24,10 +24,6 @@ function toNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function normalizeRouteName(route?: string) {
-  return (route || "").trim().toLowerCase();
-}
-
 function isValidCommissionType(value: unknown): value is "fixed" | "percentage" {
   return value === "fixed" || value === "percentage";
 }
@@ -95,7 +91,6 @@ export async function POST(req: NextRequest) {
     if (commissionType && !isValidCommissionType(commissionType)) return jsonError("commissionType must be fixed or percentage", 400);
     if (!status || !isValidStatus(status)) return jsonError("status must be active or inactive", 400);
 
-    const normalized = normalizeRouteName(routeName);
     const existingRule = await supabaseAdmin
       .from("commission_rules")
       .select("id")

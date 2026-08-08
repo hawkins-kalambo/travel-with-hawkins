@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { getCustomerProfile, updateCustomerProfile } from "@/lib/customerAuthAdmin";
-import { normalizeAppRole } from "@/lib/permissions";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 async function uploadCustomerProfileImage(base64: string, customerId: string) {

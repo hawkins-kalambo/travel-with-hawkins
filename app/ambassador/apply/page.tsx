@@ -2,8 +2,9 @@
 
 import { DragEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { authFetch } from "@/lib/auth";
+import Link from "next/link";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { fetchAllUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
 
 type ApplicationForm = {
   full_name: string;
@@ -58,6 +59,7 @@ export default function AmbassadorApplyPage() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [universities, setUniversities] = useState<ActiveUniversity[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -67,6 +69,16 @@ export default function AmbassadorApplyPage() {
       }
     };
   }, [profilePreview]);
+
+  useEffect(() => {
+    // Every university regardless of status — this form is also how a
+    // campus recruits its first ambassadors before it's live to customers
+    // (see the LUANAR pilot plan), so an inactive university must still be
+    // selectable here.
+    fetchAllUniversities().then((data) => {
+      if (data.length > 0) setUniversities(data);
+    });
+  }, []);
 
   const setField = (name: keyof ApplicationForm, value: string | boolean) => {
     setForm((current) => ({ ...current, [name]: value }));
@@ -238,6 +250,7 @@ export default function AmbassadorApplyPage() {
         phone: form.phone,
         whatsapp_number: form.whatsapp_number,
         university: form.university,
+        university_id: universities.find((u) => u.name === form.university)?.id,
         faculty: form.faculty,
         program: form.program,
         year_of_study: form.year_of_study,
@@ -277,8 +290,8 @@ export default function AmbassadorApplyPage() {
       }
 
       setSubmitted(true);
-    } catch (error: any) {
-      setMessage(error?.message ?? "Submission failed. Please try again.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Submission failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -293,8 +306,8 @@ export default function AmbassadorApplyPage() {
             <h1 className="text-3xl font-bold text-slate-900">Application submitted</h1>
             <p className="mt-4 text-slate-600">Thank you for your interest. Our team will review your application and contact you within 3–5 business days.</p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <a href="/" className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return Home</a>
-              <a href="/book" className="inline-flex min-w-[160px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Explore Trips</a>
+              <Link href="/" className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return Home</Link>
+              <Link href="/book" className="inline-flex min-w-[160px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Explore Trips</Link>
             </div>
           </div>
         </div>
@@ -316,10 +329,10 @@ export default function AmbassadorApplyPage() {
             </div>
           </div>
           <div className="hidden items-center gap-4 md:flex">
-            <a className="text-sm text-slate-600 hover:text-slate-900" href="/">Home</a>
-            <a className="text-sm text-slate-600 hover:text-slate-900" href="/book">Book</a>
-            <a className="text-sm text-slate-600 hover:text-slate-900" href="/about">About</a>
-            <a className="rounded-full border border-primary-700 bg-[#EDF7FF] px-4 py-2 text-sm font-semibold text-primary-700 transition hover:bg-primary-700 hover:text-white" href="/ambassador/apply">Apply</a>
+            <Link className="text-sm text-slate-600 hover:text-slate-900" href="/">Home</Link>
+            <Link className="text-sm text-slate-600 hover:text-slate-900" href="/book">Book</Link>
+            <Link className="text-sm text-slate-600 hover:text-slate-900" href="/about">About</Link>
+            <Link className="rounded-full border border-primary-700 bg-[#EDF7FF] px-4 py-2 text-sm font-semibold text-primary-700 transition hover:bg-primary-700 hover:text-white" href="/ambassador/apply">Apply</Link>
           </div>
         </div>
       </nav>
@@ -427,13 +440,20 @@ export default function AmbassadorApplyPage() {
                   <div className="space-y-6">
                     <div className="grid gap-6 sm:grid-cols-2">
                       <FieldGroup label="University" hint="Required" error={touched.university ? getError("university") : null}>
-                        <input
+                        <select
                           value={form.university}
                           onChange={(event) => setField("university", event.target.value)}
                           onBlur={() => touchField("university")}
                           className={inputClass(!!(touched.university && getError("university")))}
-                          placeholder="Mzuzu University"
-                        />
+                        >
+                          {universities.length === 0 && <option value={form.university}>{form.university}</option>}
+                          {universities.map((u) => (
+                            <option key={u.id} value={u.name}>{u.name}</option>
+                          ))}
+                          {universities.length > 0 && !universities.some((u) => u.name === form.university) && (
+                            <option value={form.university}>{form.university}</option>
+                          )}
+                        </select>
                       </FieldGroup>
                       <FieldGroup label="Faculty" hint="Required" error={touched.faculty ? getError("faculty") : null}>
                         <input
@@ -534,7 +554,7 @@ export default function AmbassadorApplyPage() {
                         <div className="flex flex-col items-center justify-center gap-4 text-center">
                           <div className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-slate-200 bg-white shadow-sm">
                             {profilePreview ? (
-                              <img src={profilePreview} alt="Profile preview" className="h-full w-full object-cover" />
+                              <Image src={profilePreview} alt="Profile preview" fill unoptimized className="object-cover" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-4xl text-slate-400">👤</div>
                             )}
@@ -599,7 +619,7 @@ export default function AmbassadorApplyPage() {
                         <div className="mt-6 flex items-center gap-4">
                           <div className="relative h-24 w-24 overflow-hidden rounded-full border border-slate-200 bg-white">
                             {profilePreview ? (
-                              <img src={profilePreview} alt="Profile preview" className="h-full w-full object-cover" />
+                              <Image src={profilePreview} alt="Profile preview" fill unoptimized className="object-cover" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-3xl text-slate-400">👤</div>
                             )}
@@ -733,7 +753,7 @@ export default function AmbassadorApplyPage() {
                   <p className="font-semibold text-slate-900">WhatsApp</p>
                   <a href="https://wa.me/265989127308" target="_blank" rel="noreferrer" className="mt-1 block text-primary-700 hover:underline">Chat on WhatsApp</a>
                 </div>
-                <a href="/" className="inline-flex rounded-full bg-primary-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return home</a>
+                <Link href="/" className="inline-flex rounded-full bg-primary-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return home</Link>
               </div>
             </div>
           </div>

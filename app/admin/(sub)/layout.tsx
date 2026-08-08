@@ -1,9 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { logout } from "@/lib/auth";
+import { authFetch, logout } from "@/lib/auth";
 
 const NAV_LINKS = [
   { href: "/admin", label: "Dashboard" },
@@ -13,6 +13,15 @@ const NAV_LINKS = [
   { href: "/admin/commission-rates", label: "Commission rates" },
   { href: "/admin/business-configuration", label: "Business configuration" },
   { href: "/admin/communication", label: "Communication" },
+  { href: "/admin/reports", label: "Reports" },
+] as const;
+
+const UNIVERSITY_ADMIN_NAV_LINKS = [
+  { href: "/admin", label: "Dashboard" },
+  { href: "/admin/business-configuration/routes-and-fares", label: "Routes & pickup points" },
+  { href: "/admin/applications", label: "Applications" },
+  { href: "/admin/ambassadors", label: "Ambassadors" },
+  { href: "/admin/referral-bookings", label: "Referral bookings" },
   { href: "/admin/reports", label: "Reports" },
 ] as const;
 
@@ -27,6 +36,16 @@ const NAV_LINKS = [
 export default function AdminSubLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [isUniversityAdmin, setIsUniversityAdmin] = useState(false);
+
+  useEffect(() => {
+    void authFetch("/api/profile")
+      .then(async (response) => response.json() as Promise<{ profile?: { role?: string } }>)
+      .then((body) => setIsUniversityAdmin(body.profile?.role === "university_admin"))
+      .catch(() => undefined);
+  }, []);
+
+  const visibleLinks = isUniversityAdmin ? UNIVERSITY_ADMIN_NAV_LINKS : NAV_LINKS;
 
   const handleLogout = async () => {
     await logout();
@@ -45,7 +64,7 @@ export default function AdminSubLayout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex gap-1 overflow-x-auto px-3 pb-4 lg:flex-col lg:overflow-visible lg:pb-6">
-          {NAV_LINKS.map((link) => {
+          {visibleLinks.map((link) => {
             const active = link.href === "/admin" ? pathname === "/admin" : pathname?.startsWith(link.href);
             return (
               <Link

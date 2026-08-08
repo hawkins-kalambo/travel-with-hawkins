@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, Suspense, useState, useEffect } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
 import { signInWithGoogle } from "@/lib/customerAuth";
 import AuthTabs from "../../components/AuthTabs";
@@ -48,7 +48,6 @@ export default function CustomerLoginPage() {
 }
 
 function CustomerLoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered");
   const verified = searchParams.get("verified");
@@ -59,19 +58,15 @@ function CustomerLoginContent() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const successMessage = registered
+    ? "Registration successful! Please log in with your credentials."
+    : verified
+      ? "Email verified! You can now log in."
+      : "";
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
-
-  useEffect(() => {
-    if (registered) {
-      setSuccessMessage("Registration successful! Please log in with your credentials.");
-    } else if (verified) {
-      setSuccessMessage("Email verified! You can now log in.");
-    }
-  }, [registered, verified]);
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -306,7 +301,7 @@ function CustomerLoginContent() {
               ) : (
                 <>
                   <div className="space-y-4">
-                    <p className="text-sm text-slate-600">Enter your email address and we'll send you a link to reset your password.</p>
+                    <p className="text-sm text-slate-600">Enter your email address and we&apos;ll send you a link to reset your password.</p>
 
                     <input
                       type="email"
@@ -342,7 +337,7 @@ function CustomerLoginContent() {
               {/* Sign Up Link */}
               <div className="mt-6 text-center">
                 <p className="text-sm text-slate-600">
-                  Don't have an account?{" "}
+                  Don&apos;t have an account?{" "}
                   <Link href="/customer/register" className="font-semibold text-[#0A4D8C] hover:text-[#083a6b]">
                     Create one now
                   </Link>

@@ -1,4 +1,5 @@
 import type { BookingFeeStatus, FareStatus, PaymentMethod } from "@/lib/paymentTypes";
+import type { JourneyDirection } from "@/lib/journeyDirection";
 
 export type JourneyStatus =
   | "Booked"
@@ -30,6 +31,14 @@ export type BookingRecord = {
   location?: string;
   bookingType?: string;
   fare?: number;
+  routeId?: string;
+  universityId?: string;
+  districtPickupPointId?: string;
+  universityPickupPointId?: string;
+  journeyDirection?: JourneyDirection;
+  homeDistrict?: string;
+  journeyOrigin?: string;
+  journeyDestination?: string;
   referralCode?: string;
   ambassadorId?: string;
   referralSource?: string;
@@ -73,6 +82,14 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   created_at: "createdAt",
   updated_at: "updatedAt",
   fare: "fare",
+  route_id: "routeId",
+  university_id: "universityId",
+  district_pickup_point_id: "districtPickupPointId",
+  university_pickup_point_id: "universityPickupPointId",
+  journey_direction: "journeyDirection",
+  home_district: "homeDistrict",
+  journey_origin: "journeyOrigin",
+  journey_destination: "journeyDestination",
   referral_code: "referralCode",
   ambassador_id: "ambassadorId",
   referral_source: "referralSource",
@@ -103,6 +120,14 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   createdAt: "created_at",
   updatedAt: "updated_at",
   fare: "fare",
+  routeId: "route_id",
+  universityId: "university_id",
+  districtPickupPointId: "district_pickup_point_id",
+  universityPickupPointId: "university_pickup_point_id",
+  journeyDirection: "journey_direction",
+  homeDistrict: "home_district",
+  journeyOrigin: "journey_origin",
+  journeyDestination: "journey_destination",
   referralCode: "referral_code",
   ambassadorId: "ambassador_id",
   referralSource: "referral_source",
@@ -177,6 +202,14 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
         const parsedFare = Number(value);
         if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
       }
+      else if (camelKey === "routeId") normalized.routeId = toSafeString(value);
+      else if (camelKey === "universityId") normalized.universityId = toSafeString(value);
+      else if (camelKey === "districtPickupPointId") normalized.districtPickupPointId = toSafeString(value);
+      else if (camelKey === "universityPickupPointId") normalized.universityPickupPointId = toSafeString(value);
+      else if (camelKey === "journeyDirection") normalized.journeyDirection = toSafeString(value) as JourneyDirection | undefined;
+      else if (camelKey === "homeDistrict") normalized.homeDistrict = toSafeString(value);
+      else if (camelKey === "journeyOrigin") normalized.journeyOrigin = toSafeString(value);
+      else if (camelKey === "journeyDestination") normalized.journeyDestination = toSafeString(value);
       else if (camelKey === "paymentStatus") normalized.paymentStatus = (toSafeString(value) as PaymentStatus | undefined) || "Pending";
       else if (camelKey === "paymentConfirmedAt") normalized.paymentConfirmedAt = toSafeString(value);
       else if (camelKey === "receiptNumber") normalized.receiptNumber = toSafeString(value);
@@ -210,6 +243,14 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
         const parsedFare = Number(value);
         if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
       }
+      else if (camelKey === "routeId") normalized.routeId = toSafeString(value);
+      else if (camelKey === "universityId") normalized.universityId = toSafeString(value);
+      else if (camelKey === "districtPickupPointId") normalized.districtPickupPointId = toSafeString(value);
+      else if (camelKey === "universityPickupPointId") normalized.universityPickupPointId = toSafeString(value);
+      else if (camelKey === "journeyDirection") normalized.journeyDirection = toSafeString(value) as JourneyDirection | undefined;
+      else if (camelKey === "homeDistrict") normalized.homeDistrict = toSafeString(value);
+      else if (camelKey === "journeyOrigin") normalized.journeyOrigin = toSafeString(value);
+      else if (camelKey === "journeyDestination") normalized.journeyDestination = toSafeString(value);
       else if (camelKey === "paymentStatus") normalized.paymentStatus = (toSafeString(value) as PaymentStatus | undefined) || "Pending";
       else if (camelKey === "paymentConfirmedAt") normalized.paymentConfirmedAt = toSafeString(value);
       else if (camelKey === "receiptNumber") normalized.receiptNumber = toSafeString(value);
@@ -330,6 +371,14 @@ export function toSupabaseBookingPayload(
     payment_status: "Pending",
 
     fare: toSafePositiveNumber(input.fare),
+    route_id: toSafeString(input.routeId),
+    university_id: toSafeString(input.universityId),
+    district_pickup_point_id: toSafeString(input.districtPickupPointId),
+    university_pickup_point_id: toSafeString(input.universityPickupPointId),
+    journey_direction: toSafeString(input.journeyDirection),
+    home_district: toSafeString(input.homeDistrict),
+    journey_origin: toSafeString(input.journeyOrigin),
+    journey_destination: toSafeString(input.journeyDestination),
     booking_type: toSafeString(input.bookingType) ?? "Online",
     referral_code: toSafeString(input.referralCode),
     ambassador_id: toSafeString(input.ambassadorId),

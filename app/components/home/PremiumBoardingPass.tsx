@@ -101,7 +101,7 @@ export default function PremiumBoardingPass(props: PremiumBoardingPassProps) {
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10.5);
-      doc.setTextColor("#0f3f78");
+      doc.setTextColor("#0D2655");
       doc.text(props.bookingId, margin + boxPadding, y + 32);
 
       doc.save(`TWH-Boarding-Pass-${props.bookingId}.pdf`);
@@ -116,9 +116,9 @@ export default function PremiumBoardingPass(props: PremiumBoardingPassProps) {
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Booking reference</p>
-            <p className="mt-1 break-all font-mono text-base font-black tracking-wide text-[#0f3f78]">{props.bookingId}</p>
+            <p className="mt-1 break-all font-mono text-base font-black tracking-wide text-navy">{props.bookingId}</p>
           </div>
-          <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[#0f3f78]">
+          <span className="shrink-0 rounded-full border border-orange/25 bg-orange-soft px-3 py-1 text-[10px] font-black uppercase tracking-wide text-orange">
             {props.bookingType === "route" ? "Scheduled route" : "Custom trip"}
           </span>
         </div>
@@ -139,10 +139,10 @@ export default function PremiumBoardingPass(props: PremiumBoardingPassProps) {
       </div>
 
       <div className="grid grid-cols-2 divide-x divide-slate-200 border-t border-slate-200">
-        <button onClick={handleCopy} className="px-3 py-3.5 text-sm font-bold text-[#0f3f78] transition hover:bg-blue-50">
+        <button onClick={handleCopy} className="px-3 py-3.5 text-sm font-bold text-navy transition hover:bg-orange-soft">
           {copied ? "Reference copied" : "Copy reference"}
         </button>
-        <button onClick={handleDownloadPdf} className="px-3 py-3.5 text-sm font-bold text-[#0f3f78] transition hover:bg-blue-50">
+        <button onClick={handleDownloadPdf} className="px-3 py-3.5 text-sm font-bold text-navy transition hover:bg-orange-soft">
           Download PDF
         </button>
       </div>

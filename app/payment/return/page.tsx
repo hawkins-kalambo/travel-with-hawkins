@@ -3,8 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import type { BookingRecord } from "@/lib/bookingTypes";
-import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
+import { generateReceiptPdfBlob, type PaymentReceiptRecord } from "@/lib/receiptGenerator";
 import { formatMwk } from "@/lib/routePricing";
 import WhatsAppButton from "../../components/WhatsAppButton";
 
@@ -14,7 +13,7 @@ type PaymentSummary = {
   paymentType?: string;
   destination?: string;
   travelDate?: string;
-  fare?: number;
+  amount?: number;
   receiptNumber?: string;
 };
 
@@ -57,12 +56,12 @@ function ReturnContent() {
         if (result.status === "paid") {
           setBookingId(result.bookingId || null);
 
-          const receipt = result.receipt as BookingRecord | null | undefined;
+          const receipt = result.receipt as PaymentReceiptRecord | null | undefined;
           setSummary({
             paymentType: result.paymentType,
             destination: receipt?.destination,
             travelDate: receipt?.travelDate,
-            fare: receipt?.fare,
+            amount: receipt?.receiptAmount,
             receiptNumber: receipt?.receiptNumber,
           });
 
@@ -142,10 +141,10 @@ function ReturnContent() {
                     <span className="font-bold text-slate-900">{summary.paymentType === "booking_fee" ? "Booking Fee" : "Transport Fare"}</span>
                   </div>
                 )}
-                {summary?.fare != null && (
+                {summary?.amount != null && (
                   <div className="flex justify-between py-1">
                     <span className="text-slate-500">Amount paid</span>
-                    <span className="font-bold text-slate-900">{formatMwk(summary.fare)}</span>
+                    <span className="font-bold text-slate-900">{formatMwk(summary.amount)}</span>
                   </div>
                 )}
                 {bookingId && (

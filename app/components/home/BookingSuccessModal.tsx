@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatMwk } from "@/lib/routePricing";
 import PremiumBoardingPass from "./PremiumBoardingPass";
+import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
 
 export type BookingSuccessData = {
   name: string;
@@ -15,6 +16,7 @@ export type BookingSuccessData = {
   seats: number;
   fare?: number;
   bookingFeeAmount?: number;
+  journeyDirection?: JourneyDirection;
 };
 
 function formatTravelDate(value: string) {
@@ -63,12 +65,12 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
   return (
     <div className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-950/75 px-4 py-6 backdrop-blur-sm sm:py-10" role="dialog" aria-modal="true" aria-labelledby="booking-confirmation-title">
       <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-[28px] bg-[#f8fafc] shadow-[0_32px_90px_rgba(2,8,23,0.38)]">
-        <div className="relative overflow-hidden bg-[#0f3f78] px-6 py-7 text-white sm:px-8">
-          <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-300/15" />
+        <div className="relative overflow-hidden bg-navy-midnight px-6 py-7 text-white sm:px-8">
+          <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-orange/10" />
           <div className="absolute -bottom-24 right-28 h-40 w-40 rounded-full bg-white/5" />
           <button
             onClick={onClose}
-            className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full border border-white/20 bg-white/10 text-xl leading-none text-white transition hover:bg-white/20"
+            className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full border border-white/20 bg-white/10 text-xl leading-none text-white transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/40"
             aria-label="Close booking confirmation"
           >
             ×
@@ -76,9 +78,9 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
           <div className="relative flex items-start gap-4 pr-10">
             <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-emerald-400 text-2xl font-black text-[#062e23] shadow-lg shadow-emerald-950/20">✓</div>
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-200">Booking confirmed</p>
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-orange">Booking confirmed</p>
               <h2 id="booking-confirmation-title" className="mt-1 text-2xl font-black sm:text-3xl">You&apos;re ready for your trip</h2>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-blue-100">
+              <p className="mt-2 max-w-xl text-sm leading-6 text-white/85">
                 Your seat has been reserved. Keep your booking reference handy when contacting our team.
               </p>
             </div>
@@ -87,19 +89,22 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
 
         <div className="grid gap-6 p-5 sm:p-8 lg:grid-cols-[1.08fr_0.92fr]">
           <div className="space-y-6">
-            <section className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
-              <div className="border-b border-blue-100 bg-blue-50/70 px-5 py-4">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0f3f78]">Journey details</p>
+            <section className="overflow-hidden rounded-2xl border border-border-light bg-white shadow-sm">
+              <div className="border-b border-border-light bg-orange-soft/70 px-5 py-4">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-navy">Journey details</p>
               </div>
               <div className="space-y-5 p-5">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Route</p>
                   <div className="mt-2 flex items-center gap-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#0f3f78] text-sm font-black text-white">A</span>
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-navy text-sm font-black text-white">A</span>
                     <div className="h-px flex-1 border-t border-dashed border-slate-300" />
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-500 text-sm font-black text-white">B</span>
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange text-sm font-black text-white">B</span>
                   </div>
                   <p className="mt-2 text-base font-black text-slate-900">{successData.route}</p>
+                  {successData.journeyDirection && (
+                    <p className="mt-1 text-xs font-bold text-navy-secondary">{journeyDirectionLabel(successData.journeyDirection)}</p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                   <div>
@@ -149,22 +154,22 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
               </div>
             )}
 
-            <div className="rounded-2xl bg-[#071f3d] p-6 text-white shadow-xl shadow-blue-950/15">
+            <div className="rounded-2xl bg-navy-midnight p-6 text-white shadow-xl shadow-navy-midnight/15">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-200">Route fare</p>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-orange">Route fare</p>
                 <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-200">Payment pending</span>
               </div>
               <p className="mt-4 text-3xl font-black tracking-tight">
                 {successData.fare != null ? formatMwk(successData.fare) : "To be confirmed"}
               </p>
-              <p className="mt-2 text-xs leading-5 text-slate-300">
+              <p className="mt-2 text-xs leading-5 text-muted-bluegray">
                 {successData.fare != null
                   ? "This is the fare assigned to your selected route."
                   : "Our team will confirm the fare for this custom trip."}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-2xl border border-border-light bg-white p-5 shadow-sm">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">What happens next?</p>
               <ol className="mt-4 space-y-4">
                 {[
@@ -173,7 +178,7 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
                   ["3", "Arrive ready to travel", "Bring your student ID and booking reference."],
                 ].map(([number, title, description]) => (
                   <li key={number} className="flex gap-3">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-black text-[#0f3f78]">{number}</span>
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-orange-soft text-xs font-black text-orange">{number}</span>
                     <div>
                       <p className="text-sm font-bold text-slate-900">{title}</p>
                       <p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>
@@ -183,7 +188,7 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
               </ol>
             </div>
 
-            <button onClick={onClose} className="w-full rounded-xl bg-[#0f3f78] px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-950/10 transition hover:bg-[#0a2d56]">
+            <button onClick={onClose} className="w-full rounded-xl bg-orange px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-navy-midnight/10 transition hover:bg-orange-hover">
               Done
             </button>
           </aside>

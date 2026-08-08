@@ -4,6 +4,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { publishCommunicationEvent } from "@/lib/communicationEngine";
 import { attachBookingPaymentStatus } from "@/lib/bookingPaymentStatus";
+import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -17,13 +18,15 @@ const VALID_COMMISSION_STATUSES = new Set(["pending", "approved", "paid", "cance
 
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(req, response);
-  if (!authorized) return jsonError(error || "Unauthorized", 401);
+  const access = await requireUniversityOperationsUser(req, response, "viewCommissions");
+  if (!access.authorized) return jsonError(access.error, access.status);
 
-  const { data, error: fetchError } = await supabaseAdmin
+  const query = supabaseAdmin
     .from("referrals")
     .select("*, ambassadors(id, full_name, referral_code)")
     .order("created_at", { ascending: false });
+  if (!access.isGlobal) query.in("university_id", access.universityIds);
+  const { data, error: fetchError } = await query;
 
   if (fetchError) return jsonError(fetchError.message || "Unable to load commissions", 500);
   const withPaymentStatus = await attachBookingPaymentStatus((data ?? []) as Array<Record<string, unknown>>);

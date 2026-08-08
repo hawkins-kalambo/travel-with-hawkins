@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { escapeLikePattern, getAdminRoleFromDatabase, requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { escapeLikePattern, requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeAdminRole } from "@/lib/adminAuth";
 
@@ -80,8 +80,7 @@ export async function GET(req: NextRequest) {
     .eq("id", user.id)
     .maybeSingle();
 
-  const adminRole = await getAdminRoleFromDatabase(user.id, user.email);
-  const resolvedAdminRole = typeof adminRole === "string" && adminRole.trim() ? adminRole : null;
+  const resolvedAdminRole = await resolveAdminRole(user);
 
   let ambassadorData: Record<string, unknown> | null = null;
   const { data: ambassadorRow, error: ambassadorError } = await supabaseAdmin
@@ -135,7 +134,7 @@ export async function GET(req: NextRequest) {
     if (isMissingProfilesTable) {
       // Resolved server-side (admins/ambassadors tables) — never from
       // user.user_metadata, which the token owner can set themselves.
-      const fallbackRole = ambassadorData ? "ambassador" : resolvedAdminRole ?? "customer";
+      const fallbackRole = ambassadorData ? "ambassador" : resolvedAdminRole || "customer";
       return NextResponse.json({
         success: true,
         profile: {
@@ -152,7 +151,7 @@ export async function GET(req: NextRequest) {
     return jsonError(profileError.message || "Unable to load profile", 500);
   }
 
-  const resolvedRole = normalizeAdminRole(resolvedAdminRole ?? (data?.role ?? "customer"));
+  const resolvedRole = normalizeAdminRole(resolvedAdminRole || (data?.role ?? "customer"));
 
   console.debug("/api/profile: role resolution", { resolvedAdminRole, profileRow: data, resolvedRole, ambassadorDataExists: !!ambassadorData });
 

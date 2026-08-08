@@ -207,6 +207,19 @@ export async function proxy(request: NextRequest) {
   // GET/POST /api/support-tickets are self-service (a caller lists/creates
   // their own tickets); only PATCH (status/assignee changes) is admin-only.
   const isAdminOnlySupportTicketAction = pathname === "/api/support-tickets" && method === "PATCH";
+  // Proxy is only an optimistic gate. These routes perform definitive
+  // university assignment and row-scope checks inside their handlers.
+  const isUniversityOperationsApiRoute =
+    pathname === "/api/admin/bookings" ||
+    pathname === "/api/bookings" ||
+    pathname.startsWith("/api/reports") ||
+    pathname === "/api/payments/fare/confirm-cash" ||
+    pathname === "/api/payments/fare/record-manual" ||
+    pathname === "/api/payments/receipt" ||
+    pathname === "/api/payments/send-receipt" ||
+    (method === "GET" && pathname.startsWith("/api/ambassadors")) ||
+    (method === "GET" && pathname === "/api/commissions") ||
+    pathname.startsWith("/api/district-pickup-points");
   const isAlwaysAdminOnlyApiRoute =
     isSettingsRoute ||
     isAdminPaymentsRoute ||
@@ -220,7 +233,11 @@ export async function proxy(request: NextRequest) {
     isAdminOnlySupportTicketAction ||
     (pathname.startsWith("/api/applications") && !isPublicApplicationCreate && !isSelfServiceApplicationsGet);
 
-  if (isAlwaysAdminOnlyApiRoute && role !== "super_admin" && role !== "admin") {
+  const hasScopedOperationsProxyAccess =
+    isUniversityOperationsApiRoute &&
+    (role === "university_admin" || (role === "viewer" && method === "GET"));
+
+  if (isAlwaysAdminOnlyApiRoute && role !== "super_admin" && role !== "admin" && !hasScopedOperationsProxyAccess) {
     return NextResponse.json({ success: false, error: "Admin access required" }, { status: 403 });
   }
 
@@ -230,7 +247,9 @@ export async function proxy(request: NextRequest) {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ success: false, error: "Access denied" }, { status: 403 });
       }
-      return authResponse;
+      const deniedUrl = new URL("/admin", request.url);
+      deniedUrl.searchParams.set("accessDenied", "1");
+      return NextResponse.redirect(deniedUrl);
     }
   }
 

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { randomUUID } from "crypto";
-import { requireAdminUser, requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { resolveExistingUniversity } from "@/lib/universityResolver";
+import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -22,7 +24,8 @@ export async function POST(req: NextRequest) {
     // tested) for bookings.
     const phone = normalizeMalawiPhone(rawPhone);
     const whatsapp_number = typeof body.whatsapp_number === "string" ? body.whatsapp_number.trim() : undefined;
-    const university = typeof body.university === "string" ? body.university.trim() : "Mzuzu University";
+    const requestedUniversity = typeof body.university === "string" ? body.university.trim() : "";
+    const requestedUniversityId = typeof body.university_id === "string" ? body.university_id.trim() : "";
     const faculty = typeof body.faculty === "string" ? body.faculty.trim() : undefined;
     const program = typeof body.program === "string" ? body.program.trim() : undefined;
     const year_of_study = body.year_of_study ? parseInt(String(body.year_of_study), 10) : null;
@@ -43,6 +46,16 @@ export async function POST(req: NextRequest) {
 
     if (motivation.length < 30) {
       return jsonError("Please tell us a bit more about why you want to become an ambassador (at least 30 characters).", 400);
+    }
+
+    let resolvedUniversity;
+    try {
+      resolvedUniversity = await resolveExistingUniversity({
+        universityId: requestedUniversityId,
+        universityName: requestedUniversity,
+      });
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : "A valid university is required", 400);
     }
 
     // Fixes AMB-007 from docs/ambassador-system-audit.md — previously
@@ -132,7 +145,8 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       whatsapp_number,
-      university,
+      university: resolvedUniversity.name,
+      university_id: resolvedUniversity.id,
       faculty,
       program,
       year_of_study,
@@ -147,6 +161,7 @@ export async function POST(req: NextRequest) {
     };
 
     const { data: inserted, error: insertError } = await supabaseAdmin.from("ambassador_applications").insert([insertPayload]).select().single();
+
     if (insertError) {
       if (insertError.code === "23505") {
         // Race backstop: two concurrent submissions both passed the
@@ -170,13 +185,18 @@ export async function GET(req: NextRequest) {
   const authUser = await requireAuthenticatedUser(req, response);
   if (authUser.error || !authUser.user) return jsonError("Authentication required", 401);
 
-  const { authorized } = await requireAdminUser(req, response);
+  const universityAccess = await requireUniversityOperationsUser(req, response, "viewApplications");
   const query = supabaseAdmin
     .from("ambassador_applications")
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (!authorized) {
+  if (universityAccess.authorized && !universityAccess.isGlobal) {
+    query.in("university_id", universityAccess.universityIds);
+  } else if (!universityAccess.authorized) {
+    if (universityAccess.role === "university_admin") {
+      return jsonError(universityAccess.error, universityAccess.status);
+    }
     const email = typeof authUser.user.email === "string" ? authUser.user.email.toLowerCase().trim() : "";
     if (!email) {
       return NextResponse.json({ success: true, applications: [] });

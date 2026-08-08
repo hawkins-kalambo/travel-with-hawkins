@@ -16,7 +16,8 @@ export type ReportFilters = {
   destination?: string;
   pickup?: string;
   status?: string;
-  paymentStatus?: string;
+  bookingFeeStatus?: string;
+  fareStatus?: string;
   startDate?: string;
   endDate?: string;
   minSeats?: string;
@@ -37,7 +38,8 @@ export function parseReportFilters(params: URLSearchParams): ReportFilters {
     destination: value("destination"),
     pickup: value("pickup"),
     status: value("status"),
-    paymentStatus: value("paymentStatus"),
+    bookingFeeStatus: value("bookingFeeStatus"),
+    fareStatus: value("fareStatus"),
     startDate: value("startDate"),
     endDate: value("endDate"),
     minSeats: value("minSeats"),
@@ -70,8 +72,12 @@ export function applyReportFilters<T extends FilterableQuery>(query: T, filters:
     result = result.eq("status", filters.status) as T;
   }
 
-  if (filters.paymentStatus && result.eq) {
-    result = result.eq("payment_status", filters.paymentStatus) as T;
+  if (filters.bookingFeeStatus && result.eq) {
+    result = result.eq("booking_fee_status", filters.bookingFeeStatus) as T;
+  }
+
+  if (filters.fareStatus && result.eq) {
+    result = result.eq("fare_status", filters.fareStatus) as T;
   }
 
   if (filters.startDate && result.gte) {
@@ -96,8 +102,8 @@ export function applyReportFilters<T extends FilterableQuery>(query: T, filters:
 export function summarizeReportRows(rows: BookingRecord[]) {
   const totalSeats = rows.reduce((sum, row) => sum + (row.seats || 1), 0);
   const totalTrips = new Set(rows.map((row) => String(row.tripId || "").trim()).filter(Boolean)).size;
-  const paymentConfirmed = rows.filter((row) => row.paymentStatus === "Payment Confirmed").length;
-  const pendingPayments = rows.filter((row) => row.paymentStatus === "Pending").length;
+  const bookingFeePaid = rows.filter((row) => row.bookingFeeStatus === "paid").length;
+  const fareSettled = rows.filter((row) => row.fareStatus === "paid" || row.fareStatus === "cash_collected").length;
   const confirmedJourneys = rows.filter((row) => row.status === "Confirmed").length;
   const completedJourneys = rows.filter((row) => row.status === "Completed" || row.status === "Arrived").length;
   const cancelledJourneys = rows.filter((row) => row.status === "Cancelled").length;
@@ -109,8 +115,8 @@ export function summarizeReportRows(rows: BookingRecord[]) {
     confirmedJourneys,
     completedJourneys,
     cancelledJourneys,
-    paymentConfirmed,
-    pendingPayments,
+    bookingFeePaid,
+    fareSettled,
   };
 }
 

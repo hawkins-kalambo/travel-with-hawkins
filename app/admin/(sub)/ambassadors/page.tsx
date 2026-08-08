@@ -167,10 +167,6 @@ export default function AdminAmbassadorsPage() {
     return visibleAmbassadors.slice(start, start + PAGE_SIZE);
   }, [page, totalPages, visibleAmbassadors]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter, universityFilter, sortMode]);
-
   const universityOptions = useMemo(() => {
     const universities = new Set(
       ambassadors
@@ -212,24 +208,36 @@ export default function AdminAmbassadorsPage() {
           <div className="grid gap-3 lg:grid-cols-5">
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
               placeholder="Search by name, email, phone, university or ID"
               className="input-field lg:col-span-2"
             />
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="input-field">
+            <select value={statusFilter} onChange={(event) => {
+              setStatusFilter(event.target.value);
+              setPage(1);
+            }} className="input-field">
               <option value="all">All statuses</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
               <option value="suspended">Suspended</option>
               <option value="pending verification">Pending verification</option>
             </select>
-            <select value={universityFilter} onChange={(event) => setUniversityFilter(event.target.value)} className="input-field">
+            <select value={universityFilter} onChange={(event) => {
+              setUniversityFilter(event.target.value);
+              setPage(1);
+            }} className="input-field">
               <option value="all">All universities</option>
               {universityOptions.map((university) => (
                 <option key={university} value={university.toLowerCase()}>{university}</option>
               ))}
             </select>
-            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)} className="input-field">
+            <select value={sortMode} onChange={(event) => {
+              setSortMode(event.target.value);
+              setPage(1);
+            }} className="input-field">
               <option value="newest">Newest ambassadors</option>
               <option value="highest-referrals">Highest referrals</option>
               <option value="highest-commission">Highest commission</option>

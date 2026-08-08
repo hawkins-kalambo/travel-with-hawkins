@@ -1,58 +1,68 @@
-import { IconDollar, IconHeadset, IconShield, IconUser } from "../Icon";
+import { IconCalendar, IconCreditCard, IconSearch, IconShield, IconTicket, IconUser } from "../Icon";
 
-const WHY_CHOOSE_US = [
-  { title: "Trusted Operators", body: "We partner with verified and reliable bus companies across Malawi.", Icon: IconShield },
-  { title: "Student Focused", body: "Built for university students, with affordable and convenient travel.", Icon: IconUser },
-  { title: "Best Prices", body: "Compare and book at the best prices available.", Icon: IconDollar },
-  { title: "24/7 Support", body: "We're here to help you before, during and after your trip.", Icon: IconHeadset },
+const WHY_STUDENTS_CHOOSE_US = [
+  {
+    title: "Safe & Verified",
+    body: "Vetted drivers, modern buses, and safety-first standards for your peace of mind.",
+    Icon: IconShield,
+  },
+  {
+    title: "Easy Online Booking",
+    body: "Book your seat in minutes and get instant confirmation.",
+    Icon: IconCalendar,
+  },
+  {
+    title: "Student-Friendly Travel",
+    body: "Affordable fares, flexible options, and service designed with students in mind.",
+    Icon: IconUser,
+  },
 ];
 
 const HOW_IT_WORKS = [
-  { n: "1", title: "Search", body: "Enter your route, date and passengers to find available trips." },
-  { n: "2", title: "Choose", body: "Compare operators, prices and schedules." },
-  { n: "3", title: "Book", body: "Confirm your seat and make payment securely." },
-  { n: "4", title: "Travel", body: "Get your ticket and enjoy a safe journey home." },
+  { n: "1", title: "Search", body: "Find your route and preferred travel date.", Icon: IconSearch },
+  { n: "2", title: "Book", body: "Choose your seats and confirm online.", Icon: IconTicket },
+  { n: "3", title: "Pay", body: "Pay securely using mobile money or card.", Icon: IconCreditCard },
+  { n: "4", title: "Travel", body: "Board your bus and enjoy a safe, comfortable journey.", Icon: IconShield },
 ];
 
 export default function WhyChooseUsSection() {
   return (
-    <section id="how-it-works" className="scroll-mt-24 border-t border-slate-100 bg-white px-4 py-12 sm:border-t-0 sm:py-10">
-      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-xl font-black text-[#101815] sm:text-2xl">Why Choose Us</h2>
-          <div className="mt-5 space-y-5">
-            {WHY_CHOOSE_US.map(({ title, body, Icon }) => (
-              <div key={title} className="flex items-start gap-3">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-blue-50 text-[#0f3f78]">
-                  <Icon className="h-5 w-5" title={title} />
+    <>
+      <section className="border-t border-border-light bg-brand-off-white px-4 py-12 sm:border-t-0 sm:py-16">
+        <div className="mx-auto max-w-6xl text-center">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-orange">Why Students Trust Us</p>
+          <h2 className="mt-1 text-2xl font-black text-navy sm:text-3xl">Why Students Choose Us</h2>
+          <div className="mt-8 grid gap-5 sm:grid-cols-3">
+            {WHY_STUDENTS_CHOOSE_US.map(({ title, body, Icon }) => (
+              <div key={title} className="flex h-full flex-col items-center rounded-2xl border border-border-light bg-white p-6 text-center shadow-sm sm:p-7">
+                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-orange-soft text-orange">
+                  <Icon className="h-6 w-6" title={title} />
                 </span>
-                <div>
-                  <h3 className="text-sm font-black text-slate-900">{title}</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{body}</p>
-                </div>
+                <h3 className="mt-4 text-base font-black text-navy">{title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{body}</p>
               </div>
             ))}
           </div>
         </div>
+      </section>
 
-        <div className="rounded-2xl bg-[#071f3d] p-6 text-white shadow-sm sm:p-8">
-          <h2 className="text-xl font-black sm:text-2xl">How It Works</h2>
-          <ol className="mt-5">
+      <section id="how-it-works" className="scroll-mt-24 border-t border-border-light bg-white px-4 py-12 sm:border-t-0 sm:py-16">
+        <div className="mx-auto max-w-6xl text-center">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-orange">Simple Process</p>
+          <h2 className="mt-1 text-2xl font-black text-navy sm:text-3xl">How It Works</h2>
+          <ol className="mt-10 grid gap-8 sm:grid-cols-4 sm:gap-4">
             {HOW_IT_WORKS.map((step, index) => (
-              <li key={step.n} className="relative flex gap-4 pb-7 last:pb-0">
-                {index < HOW_IT_WORKS.length - 1 && (
-                  <span className="absolute left-[19px] top-10 h-[calc(100%-2.5rem)] w-px border-l-2 border-dashed border-sky-300/40" aria-hidden="true" />
-                )}
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-sky-500 text-sm font-black text-white">{step.n}</span>
-                <div>
-                  <h3 className="text-sm font-black">{step.title}</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-300">{step.body}</p>
-                </div>
+              <li key={step.n} className={`relative flex flex-col items-center ${index < HOW_IT_WORKS.length - 1 ? "stepper-connector active" : ""}`}>
+                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-orange text-white shadow-sm">
+                  <step.Icon className="h-6 w-6" title={step.title} />
+                </span>
+                <h3 className="mt-4 text-sm font-black text-navy">{step.title}</h3>
+                <p className="mt-1 max-w-[200px] text-xs leading-relaxed text-slate-600">{step.body}</p>
               </li>
             ))}
           </ol>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }

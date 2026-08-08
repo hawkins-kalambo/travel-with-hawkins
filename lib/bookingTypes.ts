@@ -1,4 +1,5 @@
 import type { BookingFeeStatus, FareStatus, PaymentMethod } from "@/lib/paymentTypes";
+import type { JourneyDirection } from "@/lib/journeyDirection";
 
 export type JourneyStatus =
   | "Booked"
@@ -32,6 +33,14 @@ export type BookingRecord = {
   location?: string;
   bookingType?: string;
   fare?: number;
+  routeId?: string;
+  universityId?: string;
+  districtPickupPointId?: string;
+  universityPickupPointId?: string;
+  journeyDirection?: JourneyDirection;
+  homeDistrict?: string;
+  journeyOrigin?: string;
+  journeyDestination?: string;
   referralCode?: string;
   ambassadorId?: string;
   referralSource?: string;

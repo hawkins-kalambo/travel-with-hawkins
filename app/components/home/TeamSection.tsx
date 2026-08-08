@@ -25,11 +25,11 @@ export default function TeamSection() {
   return (
     <section id="bus-partners" className="border-t border-slate-100 px-4 py-12 sm:border-t-0 sm:py-10">
       <div className="mx-auto max-w-5xl text-center">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0f3f78]">Meet The Team</p>
-        <h2 className="mt-1 text-2xl font-black text-[#101815] sm:text-3xl">The People Behind Travel With Hawkins</h2>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-orange">Meet The Team</p>
+        <h2 className="mt-1 text-2xl font-black text-navy sm:text-3xl">The People Behind Travel With Hawkins</h2>
         <div className="mt-8 grid gap-5 sm:grid-cols-3 sm:gap-6">
           {TEAM.map(({ role, name, img, bio }) => (
-            <div key={role} className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+            <div key={role} className="flex flex-col items-center rounded-2xl border border-border-light bg-white p-6 shadow-sm sm:p-7">
               <Image
                 src={img}
                 width={128}
@@ -37,7 +37,7 @@ export default function TeamSection() {
                 className="h-28 w-28 rounded-full border-4 border-white object-cover object-[center_15%] shadow-md sm:h-32 sm:w-32"
                 alt={name}
               />
-              <div className="mt-4 text-base font-black text-[#0f3f78] sm:text-lg">{name}</div>
+              <div className="mt-4 text-base font-black text-navy sm:text-lg">{name}</div>
               <div className="text-sm font-semibold text-slate-700">{role}</div>
               <p className="mt-2 text-xs leading-relaxed text-slate-600 sm:text-sm">{bio}</p>
             </div>

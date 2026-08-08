@@ -138,6 +138,17 @@ export async function resolveAdminRole(user: { id: string; email?: string | null
     return "unknown";
   }
 
+  // An explicit university_admin profile narrows a formerly global staff
+  // account. Prefer it before the legacy admins table, otherwise an old
+  // admins row would silently restore global access.
+  const roleFromProfile = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  const profileRole = typeof roleFromProfile.data?.role === "string" ? roleFromProfile.data.role : null;
+  if (normalizeAdminRole(profileRole) === "university_admin") return "university_admin";
+
   const dbRole = await getAdminRoleFromDatabase(user.id, user.email);
   if (dbRole) {
     return normalizeAdminRole(dbRole);
@@ -148,18 +159,10 @@ export async function resolveAdminRole(user: { id: string; email?: string | null
     return "ambassador";
   }
 
-  const roleFromProfile = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const fallbackRole = typeof roleFromProfile.data?.role === "string" ? roleFromProfile.data.role : null;
-
   // Never fall back to user.user_metadata.role here — it's client-writable
   // and would let a user grant themselves admin. profiles.role is only ever
   // written server-side (see app/api/customers/profile for the whitelist).
-  return normalizeAdminRole(fallbackRole ?? "unknown");
+  return normalizeAdminRole(profileRole ?? "unknown");
 }
 
 export function isViewerAuthorizedRoute(pathname: string): boolean {
@@ -179,6 +182,17 @@ export function canAccessAdminRoute(role: unknown, pathname: string): boolean {
   // longer collapses every admin match to "super_admin" (see above), a
   // real "admin" role now needs to be let in here too.
   if (isSuperAdminRole(role) || normalizeAdminRole(role) === "admin") return true;
+  if (normalizeAdminRole(role) === "university_admin") {
+    const normalizedPath = pathname.replace(/\/+$/, "") || "/admin";
+    return isViewerAuthorizedRoute(normalizedPath)
+      || normalizedPath === "/admin/reports"
+      || normalizedPath === "/admin/applications"
+      || normalizedPath === "/admin/ambassadors"
+      || normalizedPath.startsWith("/admin/ambassadors/")
+      || normalizedPath === "/admin/referral-bookings"
+      || normalizedPath === "/admin/business-configuration/routes-and-fares"
+      || normalizedPath === "/admin/business-configuration/universities";
+  }
   if (isViewerRole(role)) return isViewerAuthorizedRoute(pathname);
   return false;
 }

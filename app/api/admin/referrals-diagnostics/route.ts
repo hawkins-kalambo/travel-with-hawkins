@@ -9,7 +9,7 @@ function jsonError(message: string, status = 500) {
 
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();
-  const { authorized, user, error } = await requireAdminUser(req, response);
+  const { authorized, error } = await requireAdminUser(req, response);
   if (!authorized) return jsonError(error || "Unauthorized", 401);
 
   try {

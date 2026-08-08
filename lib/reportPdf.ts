@@ -78,17 +78,18 @@ export function generatePassengerManifestPdfBlob(
   const bottomMargin = 32;
 
   const columns = [
-    { label: "Booking ID", width: 70 },
-    { label: "Trip ID", width: 70 },
-    { label: "Student", width: 90 },
-    { label: "Student ID", width: 55 },
-    { label: "Phone", width: 80 },
-    { label: "Destination", width: 115 },
-    { label: "Pickup", width: 80 },
-    { label: "Date", width: 55 },
-    { label: "Seats", width: 30 },
-    { label: "Journey Status", width: 70 },
-    { label: "Payment Status", width: 70 },
+    { label: "Booking ID", width: 65 },
+    { label: "Trip ID", width: 65 },
+    { label: "Student", width: 80 },
+    { label: "Student ID", width: 50 },
+    { label: "Phone", width: 70 },
+    { label: "Destination", width: 100 },
+    { label: "Pickup", width: 70 },
+    { label: "Date", width: 50 },
+    { label: "Seats", width: 25 },
+    { label: "Journey", width: 60 },
+    { label: "Booking Fee", width: 55 },
+    { label: "Fare", width: 55 },
   ];
 
   let y = headerHeight + 20;
@@ -145,7 +146,8 @@ export function generatePassengerManifestPdfBlob(
       shortText(formatDateDisplay(String(row.travelDate ?? "")), 8),
       String(row.seats ?? 1),
       shortText(String(row.status ?? "—"), 10),
-      shortText(String(row.paymentStatus ?? "—"), 10),
+      shortText(String(row.bookingFeeStatus ?? "unpaid"), 10),
+      shortText(String(row.fareStatus ?? "unpaid"), 10),
     ];
 
     for (let index = 0; index < cells.length; index += 1) {

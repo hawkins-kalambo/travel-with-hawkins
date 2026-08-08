@@ -7,6 +7,7 @@ import { sendEmail } from "@/lib/resend";
 import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
 import { publishCommunicationEvent } from "@/lib/communicationEngine";
 import { generateReferralCode } from "@/lib/ambassadorCode";
+import { resolveExistingUniversity } from "@/lib/universityResolver";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -236,7 +237,11 @@ export async function POST(req: NextRequest) {
     const email = normalizeEmail(application.email);
     const fullName = String(application.full_name);
     const phone = String(application.phone || "");
-    const university = String(application.university || "Mzuzu University");
+    const universityRecord = await resolveExistingUniversity({
+      universityId: application.university_id,
+      universityName: application.university,
+    });
+    const university = universityRecord.name;
 
     const existingUserId = await findExistingAuthUserIdByEmail(email);
     let userId: string | null = existingUserId;
@@ -296,6 +301,7 @@ export async function POST(req: NextRequest) {
       phone,
       email,
       university,
+      university_id: universityRecord.id,
       faculty: application.faculty || null,
       program: application.program || null,
       year_of_study: application.year_of_study || null,
@@ -317,31 +323,20 @@ export async function POST(req: NextRequest) {
 
     if (existingAmbassador) {
       ambassadorData = existingAmbassador as AmbassadorRecord;
-
-      if (!existingAmbassador.user_id && userId) {
-        const { data: updated, error: updateErr } = await supabaseAdmin
-          .from("ambassadors")
-          .update({ user_id: userId, updated_at: new Date().toISOString() })
-          .eq("id", existingAmbassador.id)
-          .select()
-          .single();
-
-        if (!updateErr && updated) {
-          ambassadorData = updated as AmbassadorRecord;
-        }
-      }
-
-      if (existingAmbassador.status !== "active") {
-        const { data: updated, error: updateErr } = await supabaseAdmin
-          .from("ambassadors")
-          .update({ status: "active", updated_at: new Date().toISOString() })
-          .eq("id", existingAmbassador.id)
-          .select()
-          .single();
-        if (!updateErr && updated) {
-          ambassadorData = updated as AmbassadorRecord;
-        }
-      }
+      const { data: updated, error: updateErr } = await supabaseAdmin
+        .from("ambassadors")
+        .update({
+          user_id: userId,
+          university,
+          university_id: universityRecord.id,
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingAmbassador.id)
+        .select()
+        .single();
+      if (updateErr) throw updateErr;
+      if (updated) ambassadorData = updated as AmbassadorRecord;
     } else {
       let ambassadorInsertResponse = await supabaseAdmin.from("ambassadors").insert([ambassadorPayload]).select().single();
 
@@ -353,6 +348,7 @@ export async function POST(req: NextRequest) {
             phone,
             email,
             university,
+            university_id: universityRecord.id,
             faculty: application.faculty || null,
             program: application.program || null,
             year_of_study: application.year_of_study || null,

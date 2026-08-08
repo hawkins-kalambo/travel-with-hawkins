@@ -42,6 +42,18 @@
   --border-soft: rgba(16, 24, 39, 0.12);
   --shadow-soft: 0 20px 48px rgba(16, 24, 39, 0.12);
   --shadow-card: 0 12px 32px rgba(16, 24, 39, 0.10);
+
+  /* Travel With Hawkins brand system */
+  --navy-midnight: #0B1931;
+  --navy-brand: #0D2655;
+  --navy-secondary: #0D2E5C;
+  --orange: #F56600;
+  --orange-hover: #DD5C00;
+  --orange-soft: #FFF1E8;
+  --brand-off-white: #FAFAFA;
+  --muted-bluegray: #A0ABBC;
+  --border-light: #DDE3EC;
+  --text-dark: #101827;
 }
 
 @theme inline {
@@ -78,6 +90,16 @@
   --color-info: var(--info);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-navy-midnight: var(--navy-midnight);
+  --color-navy: var(--navy-brand);
+  --color-navy-secondary: var(--navy-secondary);
+  --color-orange: var(--orange);
+  --color-orange-hover: var(--orange-hover);
+  --color-orange-soft: var(--orange-soft);
+  --color-brand-off-white: var(--brand-off-white);
+  --color-muted-bluegray: var(--muted-bluegray);
+  --color-border-light: var(--border-light);
+  --color-text-dark: var(--text-dark);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -154,8 +176,8 @@ input::placeholder, select::placeholder, textarea::placeholder {
 }
 .input-field:focus {
   outline: none;
-  border-color: var(--primary-600);
-  box-shadow: 0 0 0 4px rgba(31, 120, 209, 0.16);
+  border-color: var(--orange);
+  box-shadow: 0 0 0 4px rgba(245, 102, 0, 0.16);
 }
 
 .template-input {
@@ -173,8 +195,8 @@ input::placeholder, select::placeholder, textarea::placeholder {
 }
 
 .template-input:focus {
-  border-color: #1f78d1;
-  box-shadow: 0 0 0 3px rgba(31, 120, 209, 0.16);
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(245, 102, 0, 0.16);
 }
 
 .btn-primary {
@@ -314,5 +336,5 @@ input::placeholder, select::placeholder, textarea::placeholder {
   background: var(--gray-200);
   transform: translateY(-50%);
 }
-.stepper-connector.active::after { background: var(--primary-600); }
+.stepper-connector.active::after { background: var(--orange); }
 .stepper-connector:last-child::after { display: none; }

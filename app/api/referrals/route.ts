@@ -4,6 +4,7 @@ import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 import { attachBookingPaymentStatus } from "@/lib/bookingPaymentStatus";
+import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -44,6 +45,15 @@ export async function GET(req: NextRequest) {
 
   if (isAdmin) {
     const { data, error: fetchError } = await query;
+    if (fetchError) return jsonError(fetchError.message || "Unable to load referrals", 500);
+    const withPaymentStatus = await attachBookingPaymentStatus((data ?? []) as Array<Record<string, unknown>>);
+    return NextResponse.json({ success: true, referrals: withPaymentStatus });
+  }
+
+  if (normalizedRole === "university_admin") {
+    const access = await requireUniversityOperationsUser(req, response, "viewReferrals");
+    if (!access.authorized) return jsonError(access.error, access.status);
+    const { data, error: fetchError } = await query.in("university_id", access.universityIds);
     if (fetchError) return jsonError(fetchError.message || "Unable to load referrals", 500);
     const withPaymentStatus = await attachBookingPaymentStatus((data ?? []) as Array<Record<string, unknown>>);
     return NextResponse.json({ success: true, referrals: withPaymentStatus });
@@ -92,8 +102,6 @@ export async function DELETE(req: NextRequest) {
   const response = NextResponse.next();
   const { user, error } = await requireAuthenticatedUser(req, response);
   if (error || !user) return jsonError("Unauthorized", 401);
-
-  const emailLower = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
 
   // Check if user is admin
   let profileData = null as { id: string; role?: string } | null;

@@ -10,7 +10,6 @@ export default function CustomerSettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [user, setUser] = useState<any>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [activeTab, setActiveTab] = useState<"notifications" | "privacy" | "security">("notifications");
@@ -33,7 +32,6 @@ export default function CustomerSettingsPage() {
           router.push("/customer/login");
           return;
         }
-        setUser(currentUser);
         // In a real app, fetch settings from API
         // For now, use defaults
       } catch (err) {

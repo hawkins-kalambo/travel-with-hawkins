@@ -25,16 +25,6 @@ function toStringValue(value: unknown): string | undefined {
   return undefined;
 }
 
-function toBoolean(value: unknown): boolean | undefined {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "true") return true;
-    if (normalized === "false") return false;
-  }
-  return undefined;
-}
-
 function toJsonObject(value: unknown): Record<string, unknown> | undefined {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   return undefined;

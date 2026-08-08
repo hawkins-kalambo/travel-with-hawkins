@@ -3,6 +3,14 @@ import type { BookingRecord } from "@/lib/bookingTypes";
 import { logoPngBase64 } from "./logoBase64";
 import { formatMwk } from "./routePricing";
 
+export type PaymentReceiptRecord = BookingRecord & {
+  receiptPaymentType?: "booking_fee" | "transport_fare";
+  receiptAmount?: number;
+  receiptCurrency?: string;
+  receiptPaymentMethod?: string;
+  receiptPaymentReference?: string;
+};
+
 function safeText(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "—";
 }
@@ -25,7 +33,7 @@ function addWrappedText(doc: jsPDF, text: string, x: number, y: number, maxWidth
   return lines.length * (fontSize + 1);
 }
 
-function buildReceiptDocument(booking: BookingRecord) {
+function buildReceiptDocument(booking: PaymentReceiptRecord) {
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a5", compress: true });
   const margin = 24;
   const width = 420 - margin * 2;
@@ -44,7 +52,10 @@ function buildReceiptDocument(booking: BookingRecord) {
   const paymentStatus = safeText(booking.paymentStatus);
   const paymentConfirmedAt = formatDate(booking.paymentConfirmedAt);
   const bookingType = safeText(booking.bookingType);
-  const fare = typeof booking.fare === "number" ? booking.fare : undefined;
+  const amount = typeof booking.receiptAmount === "number" ? booking.receiptAmount : typeof booking.fare === "number" ? booking.fare : undefined;
+  const paymentLabel = booking.receiptPaymentType === "booking_fee" ? "Booking Fee" : booking.receiptPaymentType === "transport_fare" ? "Transport Fare" : "Payment";
+  const paymentMethod = safeText(booking.receiptPaymentMethod);
+  const paymentReference = safeText(booking.receiptPaymentReference);
   const logoBase64 = logoPngBase64 || null;
 
   doc.setTextColor("#1A0F00");
@@ -147,9 +158,9 @@ function buildReceiptDocument(booking: BookingRecord) {
 
   y += 98;
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(margin, y, width, 44, 6, 6, "F");
+  doc.roundedRect(margin, y, width, 58, 6, 6, "F");
   doc.setDrawColor("#E5E7EB");
-  doc.roundedRect(margin, y, width, 44, 6, 6, "S");
+  doc.roundedRect(margin, y, width, 58, 6, 6, "S");
 
   boxY = y + 12;
   doc.setFont("helvetica", "bold");
@@ -161,10 +172,13 @@ function buildReceiptDocument(booking: BookingRecord) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor("#374151");
-  addWrappedText(doc, `Status: ${paymentStatus}`, margin + boxPadding, boxY, width / 2 - 16, 8);
+  addWrappedText(doc, `${paymentLabel}: ${paymentStatus}`, margin + boxPadding, boxY, width / 2 - 16, 8);
   addWrappedText(doc, `Confirmed: ${paymentConfirmedAt}`, margin + width / 2 + 4, boxY, width / 2 - 16, 8);
   boxY += 11;
-  addWrappedText(doc, `Fare: ${fare != null ? formatMwk(fare) : "—"}`, margin + boxPadding, boxY, width / 2 - 16, 8);
+  addWrappedText(doc, `Amount: ${amount != null ? formatMwk(amount) : "—"}`, margin + boxPadding, boxY, width / 2 - 16, 8);
+  addWrappedText(doc, `Method: ${paymentMethod}`, margin + width / 2 + 4, boxY, width / 2 - 16, 8);
+  boxY += 11;
+  addWrappedText(doc, `Reference: ${paymentReference}`, margin + boxPadding, boxY, width - 20, 8);
 
   y += 60;
   doc.setFont("helvetica", "normal");
@@ -177,11 +191,11 @@ function buildReceiptDocument(booking: BookingRecord) {
   return doc;
 }
 
-export function generateReceiptPdfBlob(booking: BookingRecord): Blob {
+export function generateReceiptPdfBlob(booking: PaymentReceiptRecord): Blob {
   return buildReceiptDocument(booking).output("blob");
 }
 
-export function generateReceiptPdfBase64(booking: BookingRecord): string {
+export function generateReceiptPdfBase64(booking: PaymentReceiptRecord): string {
   const dataUri = buildReceiptDocument(booking).output("datauristring");
   const prefix = "data:application/pdf;base64,";
   return dataUri.startsWith(prefix) ? dataUri.slice(prefix.length) : dataUri;

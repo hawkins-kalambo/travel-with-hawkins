@@ -1,38 +1,25 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { parseReportFilters, applyReportFilters } from "@/lib/reportUtils";
-import { hasPermission, normalizeAppRole } from "@/lib/permissions";
+import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
 }
 
-function getUserEmail(user: { email?: string } | null | undefined) {
-  return typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
-}
-
 export async function GET(request: NextRequest) {
   const response = NextResponse.next();
-  const { user, error } = await requireAuthenticatedUser(request, response);
-
-  if (error || !user) {
-    return jsonError("Authentication required", 401);
-  }
-
-  const resolvedAdminRole = await resolveAdminRole(user);
-  const profileRole = normalizeAppRole(resolvedAdminRole);
-  if (!hasPermission(profileRole, "manageReports")) {
-    return jsonError("Admin access required", 403);
-  }
+  const auth = await requireUniversityOperationsUser(request, response, "viewReports");
+  if (!auth.authorized) return jsonError(auth.error, auth.status);
 
   try {
     const url = new URL(request.url);
     const filters = parseReportFilters(url.searchParams);
 
     let query = supabaseAdmin.from("bookings").select("*");
+    if (!auth.isGlobal) query = query.in("university_id", auth.universityIds);
     query = applyReportFilters(query, filters);
     query = query.order("travel_date", { ascending: true }).order("trip_id", { ascending: true });
 

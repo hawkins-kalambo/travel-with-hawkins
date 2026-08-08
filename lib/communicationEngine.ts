@@ -10,6 +10,7 @@ export type CommunicationNotificationType =
   | "ambassador_rejected"
   | "booking_created"
   | "booking_cancelled"
+  | "booking_rescheduled"
   | "commission_approved"
   | "commission_paid"
   | "referral_linked"

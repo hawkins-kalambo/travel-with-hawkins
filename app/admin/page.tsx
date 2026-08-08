@@ -7,10 +7,13 @@ import Image from "next/image";
 import { supabase } from "@/lib/auth";
 import { isViewerAllowedTab, normalizeAdminRole } from "@/lib/adminAuth";
 import { type BookingRecord } from "@/lib/bookingTypes";
-import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
+import { getAllowedJourneyTransitions } from "@/lib/bookingLifecycle";
+import { canConfirmCashFare, canRecordManualFarePayment } from "@/lib/adminBookingFareActions";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { fetchAllUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
 import AmbassadorCreationSuccess from "@/app/admin/components/AmbassadorCreationSuccess";
 import AmbassadorCreationWizard from "@/app/admin/components/AmbassadorCreationWizard";
+import BookingDetailsPanel, { type BookingAuditEntry } from "@/app/admin/components/BookingDetailsPanel";
 
 // ================= TYPES =================
 type JourneyStatus =
@@ -21,8 +24,6 @@ type JourneyStatus =
   | "Completed"
   | "Cancelled"
   | string;
-
-type PaymentStatus = "Pending" | "Payment Confirmed" | "Failed" | string;
 
 type AmbassadorCreationPayload = {
   fullName: string;
@@ -36,6 +37,7 @@ type AmbassadorCreationPayload = {
   profileImageBase64?: string;
   referralCode?: string;
   routeAssignment?: string;
+  universityId?: string;
   university?: string;
   status?: string;
   temporaryPassword: string;
@@ -50,7 +52,6 @@ type CreatedAmbassadorCredentials = {
 
 type EnrichedBooking = BookingRecord & {
   status: JourneyStatus;
-  paymentStatus: PaymentStatus;
 };
 
 type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "referrals" | "settings";
@@ -58,29 +59,20 @@ type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "re
 // ================= PRICING HELPERS =================
 // Use centralized pricing helpers from lib/routePricing
 
-function getBookingFee(settingsBookingFee: string): number {
-  // bookingFee is a flat amount per confirmed booking
-  // (previously this was added per row, which can double-count if duplicate rows exist)
-  return parseInt(settingsBookingFee) || 0;
-}
-
-
 function calcBookingRevenue(
-  b: { destination?: string; seats?: number; fare?: number; paymentStatus?: string },
-  routesStr: string,
-  bookingFeeStr: string
+  b: Pick<BookingRecord, "destination" | "seats" | "fare" | "bookingFeeAmount" | "bookingFeeStatus" | "fareStatus">,
+  routesStr: string
 ): { ticketRevenue: number; bookingFee: number; total: number } {
   const routePrice = resolveRouteFareIfAvailable(b.destination, routesStr) ?? 0;
   const ticketPrice = typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0 ? b.fare : routePrice;
   const seats = b.seats || 1;
-
-  const isPaid = String(b.paymentStatus || "Pending") === "Payment Confirmed";
-  const fee = isPaid ? getBookingFee(bookingFeeStr) : 0;
+  const farePaid = b.fareStatus === "paid" || b.fareStatus === "cash_collected";
+  const fee = b.bookingFeeStatus === "paid" ? b.bookingFeeAmount ?? 0 : 0;
 
   return {
-    ticketRevenue: seats * ticketPrice,
+    ticketRevenue: farePaid ? seats * ticketPrice : 0,
     bookingFee: fee,
-    total: seats * ticketPrice + fee,
+    total: (farePaid ? seats * ticketPrice : 0) + fee,
   };
 }
 
@@ -198,7 +190,8 @@ const updated = new Map<string, number>(Object.entries(priceMap));
 
 // ================= CONSTANTS =================
 // Admin dashboard is Supabase-only. Legacy Google Apps Script API is removed.
-const API_BASE = "/api/bookings";
+const API_BASE = "/api/admin/bookings";
+const BOOKINGS_PAGE_SIZE = 25;
 
 // Helper that attaches the current Supabase session access token as a
 // Bearer Authorization header when available. This allows server-side
@@ -262,33 +255,6 @@ const JOURNEY_STATUS_COLORS: Record<string, { badge: string; button: string }> =
   Cancelled: { badge: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20", button: "bg-[color:var(--danger)] hover:bg-[color:var(--danger)]/90" },
 };
 
-const PAYMENT_STATUS_COLORS: Record<string, { badge: string; button: string }> = {
-  Pending: { badge: "bg-[color:var(--warning)]/10 text-[color:var(--warning)] border-[color:var(--warning)]/20", button: "bg-amber-600 hover:bg-amber-700" },
-  "Payment Confirmed": { badge: "bg-emerald-50 text-emerald-700 border-emerald-200", button: "bg-emerald-600 hover:bg-emerald-700" },
-  Failed: { badge: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20", button: "bg-red-600 hover:bg-red-700" },
-};
-
-// (left intentionally unused - journey normalization handled server-side) 
-
-
-const VALID_PAYMENT_STATUSES: ReadonlySet<string> = new Set([
-  "Pending",
-  "Payment Confirmed",
-  "Failed",
-]);
-
-// journey normalization helper removed (UI trusts API-provided values)
-
-
-
-function getPaymentStatus(raw: unknown): PaymentStatus {
-  if (typeof raw === "string" && raw.trim()) {
-    const trimmed = raw.trim();
-    if (VALID_PAYMENT_STATUSES.has(trimmed)) return trimmed as PaymentStatus;
-  }
-  return "Pending";
-}
-
 function formatDate(date: Date): string {
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -305,12 +271,39 @@ function StatusBadge({ status }: { status: JourneyStatus }) {
   );
 }
 
-function PaymentBadge({ status }: { status: PaymentStatus }) {
-  const s = String(status || "Pending");
-  const colors = PAYMENT_STATUS_COLORS[s] ?? PAYMENT_STATUS_COLORS.Pending;
+// Real per-booking payment truth (set by PayChangu webhooks and cash
+// collection, see lib/payments/payment-service.ts) — distinct from the
+// legacy `paymentStatus` field above, which only the manual "Confirm
+// Payment" admin action moves.
+const BOOKING_FEE_STATUS_COLORS: Record<string, string> = {
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  unpaid: "bg-[color:var(--warning)]/10 text-[color:var(--warning)] border-[color:var(--warning)]/20",
+  processing: "bg-sky-50 text-sky-700 border-sky-200",
+  failed: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20",
+  refunded: "bg-slate-100 text-slate-600 border-slate-200",
+  partially_refunded: "bg-slate-100 text-slate-600 border-slate-200",
+};
+
+const FARE_STATUS_COLORS: Record<string, string> = {
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  cash_collected: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  unpaid: "bg-[color:var(--warning)]/10 text-[color:var(--warning)] border-[color:var(--warning)]/20",
+  cash_selected: "bg-amber-50 text-amber-700 border-amber-200",
+  processing: "bg-sky-50 text-sky-700 border-sky-200",
+  partially_paid: "bg-amber-50 text-amber-700 border-amber-200",
+  failed: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20",
+  refunded: "bg-slate-100 text-slate-600 border-slate-200",
+};
+
+function statusLabel(status: string): string {
+  return status.split("_").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+}
+
+function MoneyStatusBadge({ status, colors }: { status: string; colors: Record<string, string> }) {
+  const cls = colors[status] ?? "bg-slate-100 text-slate-600 border-slate-200";
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold border ${colors.badge}`}>
-      {s}
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold border ${cls}`}>
+      {statusLabel(status)}
     </span>
   );
 }
@@ -330,16 +323,23 @@ function AdminPageContent() {
   const searchParams = useSearchParams();
 
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<"super_admin" | "admin" | "viewer" | "ambassador" | "customer" | "unknown">("unknown");
+  const [userRole, setUserRole] = useState<"super_admin" | "admin" | "university_admin" | "viewer" | "ambassador" | "customer" | "unknown">("unknown");
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [search, setSearch] = useState("");
+  const [universities, setUniversities] = useState<ActiveUniversity[]>([]);
+  const [universityFilter, setUniversityFilter] = useState("all");
+  const [journeyFilter, setJourneyFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState("all");
+  const [travelDateFilter, setTravelDateFilter] = useState("");
+  const [bookingPage, setBookingPage] = useState(1);
+  const [selectedBooking, setSelectedBooking] = useState<EnrichedBooking | null>(null);
+  const [bookingHistory, setBookingHistory] = useState<BookingAuditEntry[]>([]);
+  const [bookingHistoryLoading, setBookingHistoryLoading] = useState(false);
+  const [reschedulingBooking, setReschedulingBooking] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
-  const [paymentUpdating, setPaymentUpdating] = useState<string | null>(null);
   const [fareCashUpdating, setFareCashUpdating] = useState<string | null>(null);
   const [sendingReceipt, setSendingReceipt] = useState<string | null>(null);
-  const [generatedReceiptBookingId, setGeneratedReceiptBookingId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
 
   const defaultSettings = useMemo(
     () => ({
@@ -371,10 +371,15 @@ function AdminPageContent() {
   const [deletingReferral, setDeletingReferral] = useState<string | null>(null);
 
   const isViewer = userRole === "viewer";
-  const visibleTabs = useMemo(() => (isViewer ? TABS.filter((tab) => isViewerAllowedTab(tab.key)) : TABS), [isViewer]);
-  const hasAdminAccess = userRole === "super_admin" || userRole === "admin" || userRole === "viewer";
+  const isUniversityAdmin = userRole === "university_admin";
+  const isScopedOrReadOnlyAdmin = isViewer || isUniversityAdmin;
+  const visibleTabs = useMemo(
+    () => (isScopedOrReadOnlyAdmin ? TABS.filter((tab) => isViewerAllowedTab(tab.key)) : TABS),
+    [isScopedOrReadOnlyAdmin]
+  );
+  const hasAdminAccess = userRole === "super_admin" || userRole === "admin" || isUniversityAdmin || isViewer;
   const accessDenied = searchParams.get("accessDenied") === "1" || (!loading && !hasAdminAccess);
-  const effectiveActiveTab = isViewer && !isViewerAllowedTab(activeTab) ? "overview" : activeTab;
+  const effectiveActiveTab = isScopedOrReadOnlyAdmin && !isViewerAllowedTab(activeTab) ? "overview" : activeTab;
 
   const loadReferralsData = useCallback(async () => {
     try {
@@ -441,7 +446,7 @@ function AdminPageContent() {
         status:
           typeof b.status === "string" && b.status.trim() ? (b.status as JourneyStatus) : "Booked",
         // Payment status may still need normalization
-        paymentStatus: getPaymentStatus(b.paymentStatus),
+        paymentStatus: b.paymentStatus,
       }));
       setBookings([...enriched]);
     } catch (error) {
@@ -493,20 +498,37 @@ function AdminPageContent() {
       }
 
       const profileRes = await authFetch("/api/profile", { method: "GET" });
+      let resolvedRole = normalizeAdminRole("unknown");
       if (profileRes.ok) {
         const profilePayload = await profileRes.json();
-        const resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
+        resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
         setUserRole(resolvedRole);
       } else {
         setUserRole("unknown");
       }
 
-      await Promise.all([refreshBookings(), loadSettings(), loadReferralsData()]);
+      const isGlobalAdmin = resolvedRole === "super_admin" || resolvedRole === "admin";
+      await Promise.all([
+        refreshBookings(),
+        ...(isGlobalAdmin ? [loadSettings(), loadReferralsData()] : []),
+      ]);
       setLoading(false);
     };
 
     void checkSession();
   }, [router, refreshBookings, loadSettings, loadReferralsData]);
+
+  useEffect(() => {
+    // Every university regardless of status — a booking made before a
+    // campus was deactivated should still resolve to a readable name here,
+    // not disappear from the filter options.
+    const init = async () => {
+      const data = await fetchAllUniversities();
+      setUniversities(data);
+    };
+
+    void init();
+  }, []);
 
   useEffect(() => {
     const idleMs = 15 * 60 * 1000;
@@ -543,89 +565,135 @@ function AdminPageContent() {
   router.push("/admin/login");
 };
 
-const filtered = useMemo(() => {
+const universityById = useMemo(() => {
+    const map = new Map<string, ActiveUniversity>();
+    for (const u of universities) map.set(u.id, u);
+    return map;
+  }, [universities]);
+
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return bookings;
     return bookings.filter((b) => {
+      if (universityFilter !== "all" && b.universityId !== universityFilter) return false;
+      if (effectiveActiveTab === "bookings") {
+        if (journeyFilter !== "all" && b.status !== journeyFilter) return false;
+        if (travelDateFilter && b.travelDate !== travelDateFilter) return false;
+        if (paymentFilter === "booking_fee_paid" && b.bookingFeeStatus !== "paid") return false;
+        if (paymentFilter === "booking_fee_pending" && (b.bookingFeeStatus === "paid" || b.bookingFeeStatus === "refunded")) return false;
+        if (paymentFilter === "fare_paid" && b.fareStatus !== "paid" && b.fareStatus !== "cash_collected") return false;
+        if (paymentFilter === "fare_pending" && (b.fareStatus === "paid" || b.fareStatus === "cash_collected" || b.fareStatus === "refunded")) return false;
+      }
+      if (!q) return true;
       const fields = [b.name, b.studentId, b.destination, b.tripId, b.bookingId, b.phone].map((f) => String(f ?? "").toLowerCase());
       return fields.some((f) => f.includes(q));
     });
-  }, [bookings, search]);
+  }, [bookings, effectiveActiveTab, journeyFilter, paymentFilter, search, travelDateFilter, universityFilter]);
 
+  const bookingPageCount = Math.max(1, Math.ceil(filtered.length / BOOKINGS_PAGE_SIZE));
+  const safeBookingPage = Math.min(bookingPage, bookingPageCount);
+  const paginatedBookings = useMemo(() => {
+    const start = (safeBookingPage - 1) * BOOKINGS_PAGE_SIZE;
+    return filtered.slice(start, start + BOOKINGS_PAGE_SIZE);
+  }, [filtered, safeBookingPage]);
+
+  // Real figures: driven by the per-booking bookingFeeStatus/fareStatus and
+  // their actual stored amounts (set by PayChangu webhooks and cash
+  // collection — see lib/payments/payment-service.ts), never by the legacy
+  // `paymentStatus` field or a settings-derived flat fee. That legacy field
+  // is only ever moved by the manual "Confirm Payment" admin action and had
+  // silently drifted from what customers actually paid.
   const overviewStats = useMemo(() => {
     const total = bookings.length;
-    const pending = bookings.filter((b) => b.paymentStatus === "Pending").length;
-    const confirmed = bookings.filter((b) => b.paymentStatus === "Payment Confirmed").length;
     const completed = bookings.filter((b) => b.status === "Completed" || b.status === "Arrived").length;
     const cancelled = bookings.filter((b) => b.status === "Cancelled").length;
-
-    let totalTicketRevenue = 0;
-    let totalBookingFees = 0;
-    let pendingTicketRevenue = 0;
-    let pendingBookingFees = 0;
-    let confirmedTicketRevenue = 0;
-    let confirmedBookingFees = 0;
-
-    const routeRevenueBreakdown: Record<string, { tickets: number; fees: number; total: number; count: number }> = {};
-
-    for (const b of bookings) {
-      const rev = calcBookingRevenue(b, settings.routes, settings.bookingFee);
-      const dest = b.destination?.trim() || "Unknown";
-
-      if (!routeRevenueBreakdown[dest]) {
-        routeRevenueBreakdown[dest] = { tickets: 0, fees: 0, total: 0, count: 0 };
-      }
-
-      routeRevenueBreakdown[dest].tickets += rev.ticketRevenue;
-      routeRevenueBreakdown[dest].fees += rev.bookingFee;
-      routeRevenueBreakdown[dest].total += rev.total;
-      routeRevenueBreakdown[dest].count += 1;
-
-      totalTicketRevenue += rev.ticketRevenue;
-      totalBookingFees += rev.bookingFee;
-
-      if (b.paymentStatus === "Pending") {
-        pendingTicketRevenue += rev.ticketRevenue;
-        pendingBookingFees += rev.bookingFee;
-      } else if (b.paymentStatus === "Payment Confirmed") {
-        confirmedTicketRevenue += rev.ticketRevenue;
-        confirmedBookingFees += rev.bookingFee;
-      }
-    }
-
-    const totalRevenue = totalTicketRevenue + totalBookingFees;
-
-    const pendingRevenue = pendingTicketRevenue + pendingBookingFees;
-    const confirmedRevenue = confirmedTicketRevenue + confirmedBookingFees;
-
+    const activeDispatches = bookings.filter((b) => b.status === "Boarding").length;
     const totalSeats = bookings.reduce((sum, b) => sum + (b.seats || 1), 0);
     const uniqueTrips = new Set(bookings.map((b) => b.tripId).filter(Boolean)).size;
     const uniqueStudents = new Set(bookings.map((b) => b.studentId).filter(Boolean)).size;
 
-    const activeDispatches = bookings.filter((b) => b.status === "Boarding").length;
+    let bookingFeePaid = 0;
+    let bookingFeePaidCount = 0;
+    let bookingFeePending = 0;
+    let bookingFeePendingCount = 0;
+    let bookingFeeAttention = 0;
+    let bookingFeeAttentionCount = 0;
+
+    let farePaid = 0;
+    let farePaidCount = 0;
+    let farePending = 0;
+    let farePendingCount = 0;
+    let fareAttention = 0;
+    let fareAttentionCount = 0;
+
+    for (const b of bookings) {
+      const feeAmount = typeof b.bookingFeeAmount === "number" && Number.isFinite(b.bookingFeeAmount) ? b.bookingFeeAmount : 0;
+      const feeStatus = b.bookingFeeStatus || "unpaid";
+      if (feeStatus === "paid") {
+        bookingFeePaid += feeAmount;
+        bookingFeePaidCount += 1;
+      } else if (feeStatus === "unpaid" || feeStatus === "processing") {
+        bookingFeePending += feeAmount;
+        bookingFeePendingCount += 1;
+      } else {
+        // failed, refunded, partially_refunded
+        bookingFeeAttention += feeAmount;
+        bookingFeeAttentionCount += 1;
+      }
+
+      // The fare column isn't always populated on older/custom-destination
+      // bookings — fall back to the same route-price lookup the booking
+      // form itself uses, purely so the amount isn't blank. The *status*
+      // bucket below always comes from the real fareStatus field, never guessed.
+      const seats = b.seats || 1;
+      const fareEach =
+        typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0
+          ? b.fare
+          : resolveRouteFareIfAvailable(b.destination, settings.routes) ?? 0;
+      const fareTotal = fareEach * seats;
+      const fareStatusValue = b.fareStatus || "unpaid";
+
+      if (fareStatusValue === "paid" || fareStatusValue === "cash_collected") {
+        farePaid += fareTotal;
+        farePaidCount += 1;
+      } else if (
+        fareStatusValue === "unpaid" ||
+        fareStatusValue === "cash_selected" ||
+        fareStatusValue === "processing" ||
+        fareStatusValue === "partially_paid"
+      ) {
+        farePending += fareTotal;
+        farePendingCount += 1;
+      } else {
+        // failed, refunded
+        fareAttention += fareTotal;
+        fareAttentionCount += 1;
+      }
+    }
 
     return {
       total,
-      pending,
-      confirmed,
       completed,
       cancelled,
-      totalRevenue,
-      totalTicketRevenue,
-      totalBookingFees,
-      pendingRevenue,
-      pendingTicketRevenue,
-      pendingBookingFees,
-      confirmedRevenue,
-      confirmedTicketRevenue,
-      confirmedBookingFees,
+      activeDispatches,
       totalSeats,
       uniqueTrips,
       uniqueStudents,
-      activeDispatches,
-      routeRevenueBreakdown,
+      bookingFeePaid,
+      bookingFeePaidCount,
+      bookingFeePending,
+      bookingFeePendingCount,
+      bookingFeeAttention,
+      bookingFeeAttentionCount,
+      farePaid,
+      farePaidCount,
+      farePending,
+      farePendingCount,
+      fareAttention,
+      fareAttentionCount,
+      totalCollected: bookingFeePaid + farePaid,
+      totalOutstanding: bookingFeePending + farePending,
     };
-  }, [bookings, settings.routes, settings.bookingFee]);
+  }, [bookings, settings.routes]);
 
   const referralOverview = useMemo(() => {
     const ambassadorRows = Array.isArray(ambassadors) ? ambassadors : [];
@@ -697,7 +765,7 @@ const filtered = useMemo(() => {
     > = {};
 
     for (const b of bookings) {
-      const rev = calcBookingRevenue(b, settings.routes, settings.bookingFee);
+      const rev = calcBookingRevenue(b, settings.routes);
       const sid = String(b.studentId ?? "UNKNOWN").trim();
 
       if (!acc[sid]) {
@@ -719,12 +787,20 @@ const filtered = useMemo(() => {
     }
 
     return Object.values(acc).sort((a, b) => b.bookings.length - a.bookings.length);
-  }, [bookings, settings.routes, settings.bookingFee]);
+  }, [bookings, settings.routes]);
 
   const updateStatus = async (targetId: string, status: JourneyStatus, byTrip = true) => {
+    const cancellationReason = status === "Cancelled"
+      ? prompt("Enter the cancellation reason (this will be shared with the customer):")?.trim()
+      : undefined;
+    if (status === "Cancelled" && (!cancellationReason || cancellationReason.length < 5)) {
+      if (cancellationReason !== undefined) alert("Please provide a cancellation reason of at least 5 characters.");
+      return;
+    }
+
     try {
       setStatusUpdating(targetId);
-      const body: Record<string, unknown> = { status };
+      const body: Record<string, unknown> = { status, cancellationReason };
 
       if (byTrip) {
         body.tripId = targetId;
@@ -758,29 +834,73 @@ const filtered = useMemo(() => {
     }
   };
 
-  const deleteBooking = async (bookingId: string) => {
-    if (!confirm(`Are you sure you want to delete booking ${bookingId}?`)) return;
+  const downloadPaymentReceipt = async (bookingId: string, paymentType: "booking_fee" | "transport_fare") => {
     try {
-      setDeleting(bookingId);
-      const res = await authFetch(API_BASE, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ bookingId }),
-      });
-      const result = await res.json();
+      const res = await authFetch(`/api/payments/receipt?bookingId=${encodeURIComponent(bookingId)}&paymentType=${paymentType}`, { method: "GET" });
+      if (!res.ok) {
+        const result = await res.json().catch(() => ({}));
+        alert(result?.error || "Unable to generate receipt");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${bookingId}-${paymentType}.pdf`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error("Receipt download failed", error);
+      alert("Network error generating receipt");
+    }
+  };
 
-      if (!result?.success) {
-        alert(result?.error || "Failed to delete booking");
+  const rescheduleBooking = async (booking: EnrichedBooking, travelDate: string) => {
+    const bookingId = booking.bookingId || "";
+    if (!bookingId) return false;
+
+    try {
+      setReschedulingBooking(bookingId);
+      const res = await authFetch(API_BASE, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId, travelDate }),
+      });
+      const result = (await res.json()) as { success?: boolean; booking?: EnrichedBooking; error?: string };
+      if (!res.ok || result.success !== true) {
+        alert(result.error || "Unable to reschedule booking");
+        return false;
       }
 
+      setSelectedBooking(null);
       await refreshBookings();
+      return true;
     } catch (error) {
-      console.error("Error deleting booking:", error);
-      await refreshBookings();
+      console.error("Error rescheduling booking", error);
+      alert("Network error rescheduling booking");
+      return false;
     } finally {
-      setDeleting(null);
+      setReschedulingBooking(null);
+    }
+  };
+
+  const openBookingDetails = async (booking: EnrichedBooking) => {
+    setSelectedBooking(booking);
+    setBookingHistory([]);
+    if (!booking.bookingId) return;
+
+    setBookingHistoryLoading(true);
+    try {
+      const res = await authFetch(`${API_BASE}?auditBookingId=${encodeURIComponent(booking.bookingId)}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const result = (await res.json()) as { success?: boolean; history?: BookingAuditEntry[] };
+      if (res.ok && result.success === true && Array.isArray(result.history)) setBookingHistory(result.history);
+    } catch (error) {
+      console.error("Unable to load booking history", error);
+    } finally {
+      setBookingHistoryLoading(false);
     }
   };
 
@@ -843,7 +963,8 @@ const filtered = useMemo(() => {
           fullName: payload.fullName,
           phone: payload.phone,
           email: payload.email,
-          university: payload.university || "Mzuzu University",
+          universityId: payload.universityId,
+          university: payload.university,
           faculty: payload.faculty || "",
           program: payload.program || "",
           yearOfStudy: payload.yearOfStudy ? Number(payload.yearOfStudy) : undefined,
@@ -1060,7 +1181,12 @@ const filtered = useMemo(() => {
                   </Link>,
                   <Link key="communication-mobile" href="/admin/communication" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
                     Communication
-                  </Link>
+                  </Link>,
+                  userRole === "super_admin" ? (
+                    <Link key="users-mobile" href="/admin/users" className="shrink-0 rounded-lg border border-primary-600/30 bg-primary-100/80 px-3 py-2 text-xs font-semibold text-primary-900">
+                      Users
+                    </Link>
+                  ) : null
                 );
               }
               return items;
@@ -1130,7 +1256,12 @@ const filtered = useMemo(() => {
                   </Link>,
                   <Link key="communication-desktop" href="/admin/communication" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
                     Communication Center
-                  </Link>
+                  </Link>,
+                  userRole === "super_admin" ? (
+                    <Link key="users-desktop" href="/admin/users" className="block rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition opacity-70 hover:opacity-100 hover:bg-primary-100">
+                      User Management
+                    </Link>
+                  ) : null
                 );
               }
               return items;
@@ -1157,19 +1288,40 @@ const filtered = useMemo(() => {
                 <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">🔎</span>
                 <input
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setBookingPage(1);
+                  }}
                   placeholder="Search bookings..."
                   className="w-full pl-9 pr-3 py-2 border border-[#d7ebff] rounded-xl text-sm bg-[#eef6ff] text-[#101815] placeholder:text-[#64748b] focus:outline-none focus:ring-4 focus:ring-[#0f3f78]/20 focus:border-[#0f3f78]"
                 />
                 {search && (
                   <button
-                    onClick={() => setSearch("")}
+                    onClick={() => {
+                      setSearch("");
+                      setBookingPage(1);
+                    }}
                     className="absolute inset-y-0 right-2 flex items-center text-slate-400 hover:text-slate-600"
                   >
                     ✕
                   </button>
                 )}
               </div>
+              {(activeTab === "bookings" || activeTab === "trips") && universities.length > 0 && (
+                <select
+                  value={universityFilter}
+                  onChange={(e) => {
+                    setUniversityFilter(e.target.value);
+                    setBookingPage(1);
+                  }}
+                  className="rounded-xl border border-[#d7ebff] bg-[#eef6ff] px-3 py-2 text-sm text-[#101815] focus:outline-none focus:ring-4 focus:ring-[#0f3f78]/20 focus:border-[#0f3f78]"
+                >
+                  <option value="all">All campuses</option>
+                  {universities.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              )}
               <Link
                 href="/admin/reports"
                 className="inline-flex items-center justify-center rounded-lg border border-[#d7ebff] bg-white px-3 py-2 text-sm font-semibold text-[#0f3f78] shadow-sm transition hover:bg-[#eef6ff] sm:hidden"
@@ -1211,7 +1363,7 @@ const filtered = useMemo(() => {
             <>
               {effectiveActiveTab === "overview" && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3 sm:gap-4">
                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                       <p className="text-xs text-slate-500">Total Bookings</p>
                       <h3 className="text-2xl font-extrabold text-primary-900">{overviewStats.total}</h3>
@@ -1225,6 +1377,14 @@ const filtered = useMemo(() => {
                       <h3 className="text-2xl font-extrabold text-primary-700">{overviewStats.activeDispatches}</h3>
                     </div>
                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs text-slate-500">Completed</p>
+                      <h3 className="text-2xl font-extrabold text-emerald-700">{overviewStats.completed}</h3>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs text-slate-500">Cancelled</p>
+                      <h3 className="text-2xl font-extrabold text-danger">{overviewStats.cancelled}</h3>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                       <p className="text-xs text-slate-500">Students</p>
                       <h3 className="text-2xl font-extrabold text-primary-900">{overviewStats.uniqueStudents}</h3>
                     </div>
@@ -1232,30 +1392,60 @@ const filtered = useMemo(() => {
                       <p className="text-xs text-slate-500">Total Seats</p>
                       <h3 className="text-2xl font-extrabold text-primary-900">{overviewStats.totalSeats}</h3>
                     </div>
-                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                      <p className="text-xs text-slate-500">Total Revenue</p>
-                      <h3 className="text-2xl font-extrabold text-primary-700">MWK {overviewStats.totalRevenue.toLocaleString()}</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-xs font-semibold text-emerald-700">Total Collected</p>
+                      <h3 className="text-2xl font-extrabold text-emerald-800">MWK {overviewStats.totalCollected.toLocaleString()}</h3>
+                      <p className="mt-1 text-[11px] text-emerald-700/80">Booking fees + fares actually received</p>
+                    </div>
+                    <div className="rounded-xl border border-warning/20 bg-warning/10 p-4">
+                      <p className="text-xs font-semibold text-warning">Total Outstanding</p>
+                      <h3 className="text-2xl font-extrabold text-warning">MWK {overviewStats.totalOutstanding.toLocaleString()}</h3>
+                      <p className="mt-1 text-[11px] text-warning/80">Booking fees + fares still awaiting payment</p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                    <div className="rounded-xl border border-warning/20 bg-warning/10 p-4">
-                      <p className="text-xs text-warning">Pending</p>
-                      <h3 className="text-xl font-bold text-warning">{overviewStats.pending}</h3>
-                      <p className="text-[10px] text-warning/80">MWK {overviewStats.pendingRevenue.toLocaleString()}</p>
+                  <div>
+                    <h4 className="mb-2 text-sm font-bold text-primary-900">Booking Fees</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <p className="text-xs text-emerald-700">Paid</p>
+                        <h3 className="text-xl font-bold text-emerald-800">{overviewStats.bookingFeePaidCount}</h3>
+                        <p className="text-[10px] text-emerald-700/80">MWK {overviewStats.bookingFeePaid.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl border border-warning/20 bg-warning/10 p-4">
+                        <p className="text-xs text-warning">Pending</p>
+                        <h3 className="text-xl font-bold text-warning">{overviewStats.bookingFeePendingCount}</h3>
+                        <p className="text-[10px] text-warning/80">MWK {overviewStats.bookingFeePending.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl border border-danger/20 bg-danger/10 p-4">
+                        <p className="text-xs text-danger">Needs attention</p>
+                        <h3 className="text-xl font-bold text-danger">{overviewStats.bookingFeeAttentionCount}</h3>
+                        <p className="text-[10px] text-danger/80">MWK {overviewStats.bookingFeeAttention.toLocaleString()}</p>
+                      </div>
                     </div>
-                    <div className="rounded-xl border border-primary-200 bg-primary-100 p-4">
-                      <p className="text-xs text-primary-700">Confirmed</p>
-                      <h3 className="text-xl font-bold text-primary-800">{overviewStats.confirmed}</h3>
-                      <p className="text-[10px] text-primary-700/80">MWK {overviewStats.confirmedRevenue.toLocaleString()}</p>
-                    </div>
-                    <div className="rounded-xl border border-primary-200 bg-primary-100 p-4">
-                      <p className="text-xs text-primary-700">Completed</p>
-                      <h3 className="text-xl font-bold text-primary-800">{overviewStats.completed}</h3>
-                    </div>
-                    <div className="rounded-xl border border-danger/20 bg-danger/10 p-4">
-                      <p className="text-xs text-danger">Cancelled</p>
-                      <h3 className="text-xl font-bold text-danger">{overviewStats.cancelled}</h3>
+                  </div>
+
+                  <div>
+                    <h4 className="mb-2 text-sm font-bold text-primary-900">Transport Fares</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <p className="text-xs text-emerald-700">Paid / Collected</p>
+                        <h3 className="text-xl font-bold text-emerald-800">{overviewStats.farePaidCount}</h3>
+                        <p className="text-[10px] text-emerald-700/80">MWK {overviewStats.farePaid.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl border border-warning/20 bg-warning/10 p-4">
+                        <p className="text-xs text-warning">Pending</p>
+                        <h3 className="text-xl font-bold text-warning">{overviewStats.farePendingCount}</h3>
+                        <p className="text-[10px] text-warning/80">MWK {overviewStats.farePending.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl border border-danger/20 bg-danger/10 p-4">
+                        <p className="text-xs text-danger">Needs attention</p>
+                        <h3 className="text-xl font-bold text-danger">{overviewStats.fareAttentionCount}</h3>
+                        <p className="text-[10px] text-danger/80">MWK {overviewStats.fareAttention.toLocaleString()}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1274,6 +1464,8 @@ const filtered = useMemo(() => {
                         const dest = passengers[0]?.destination || "—";
                         const date = passengers[0]?.travelDate || "—";
                         const status = passengers[0]?.status || "Pending";
+                        const universityId = passengers[0]?.universityId;
+                        const campusName = universityId ? universityById.get(universityId)?.name : undefined;
                         const totalSeats = passengers.reduce((s, p) => s + (p.seats || 1), 0);
                         const maxSeats = parseInt(settings.maxSeats) || 15;
                         const fillPercent = Math.min(100, Math.round((totalSeats / maxSeats) * 100));
@@ -1288,6 +1480,7 @@ const filtered = useMemo(() => {
                               <div className="min-w-0 flex-1">
                                 <h3 className="font-extrabold text-primary-900 text-sm sm:text-base truncate break-words-force">{tripId}</h3>
                                 <p className="text-[11px] text-slate-500 mt-1 break-words-force">📍 {dest}</p>
+                                {campusName && <p className="text-[11px] text-slate-400">🎓 {campusName}</p>}
                                 <p className="text-[11px] text-slate-400">📅 {date}</p>
                               </div>
                               <StatusBadge status={status} />
@@ -1320,13 +1513,8 @@ const filtered = useMemo(() => {
                             </p>
 
                             <div className="grid grid-cols-2 gap-1.5 mb-3">
-                              {[
-                                ["Confirm", "Confirmed"],
-                                ["Boarding", "Boarding"],
-                                ["Departed", "Departed"],
-                                ["Cancel", "Cancelled"],
-                              ].map((option) => {
-                                const [label, statusValue] = option as [string, string];
+                              {getAllowedJourneyTransitions(status).map((statusValue) => {
+                                const label = statusValue === "Cancelled" ? "Cancel" : statusValue;
                                 if (isViewer) return null;
                                 return (
                                   <button
@@ -1370,6 +1558,56 @@ const filtered = useMemo(() => {
               {/* ================= BOOKINGS TAB ================= */}
               {effectiveActiveTab === "bookings" && (
                 <div className="bg-[#eef6ff] border border-[#d7ebff] rounded-xl shadow-sm overflow-hidden">
+                  <div className="grid gap-3 border-b border-[#d7ebff] bg-white p-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <select
+                      value={journeyFilter}
+                      onChange={(event) => {
+                        setJourneyFilter(event.target.value);
+                        setBookingPage(1);
+                      }}
+                      className="input-field"
+                    >
+                      <option value="all">All journey statuses</option>
+                      {Object.keys(JOURNEY_STATUS_COLORS).map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={paymentFilter}
+                      onChange={(event) => {
+                        setPaymentFilter(event.target.value);
+                        setBookingPage(1);
+                      }}
+                      className="input-field"
+                    >
+                      <option value="all">All payment states</option>
+                      <option value="booking_fee_paid">Booking fee paid</option>
+                      <option value="booking_fee_pending">Booking fee pending</option>
+                      <option value="fare_paid">Fare paid / collected</option>
+                      <option value="fare_pending">Fare pending</option>
+                    </select>
+                    <input
+                      type="date"
+                      value={travelDateFilter}
+                      onChange={(event) => {
+                        setTravelDateFilter(event.target.value);
+                        setBookingPage(1);
+                      }}
+                      className="input-field"
+                      aria-label="Filter by travel date"
+                    />
+                    <button
+                      onClick={() => {
+                        setJourneyFilter("all");
+                        setPaymentFilter("all");
+                        setTravelDateFilter("");
+                        setBookingPage(1);
+                      }}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Clear booking filters
+                    </button>
+                  </div>
                   {filtered.length === 0 ? (
                     <div className="p-8 text-center">
                       <p className="text-slate-700 font-semibold">No bookings found</p>
@@ -1383,27 +1621,37 @@ const filtered = useMemo(() => {
                             <th className="text-left p-3 font-semibold text-slate-600 text-xs">Name</th>
                             <th className="text-left p-3 font-semibold text-slate-600 text-xs hidden md:table-cell">Student</th>
                             <th className="text-left p-3 font-semibold text-slate-600 text-xs hidden md:table-cell">Destination</th>
+                            <th className="text-left p-3 font-semibold text-slate-600 text-xs hidden lg:table-cell">Campus</th>
                             <th className="text-left p-3 font-semibold text-slate-600 text-xs hidden sm:table-cell">Date</th>
                             <th className="text-center p-3 font-semibold text-slate-600 text-xs">Seats</th>
-                            <th className="text-center p-3 font-semibold text-slate-600 text-xs">Status</th>
+                            <th className="text-center p-3 font-semibold text-slate-600 text-xs">Journey</th>
+                            <th className="text-center p-3 font-semibold text-slate-600 text-xs">Payments</th>
                             <th className="text-right p-3 font-semibold text-slate-600 text-xs">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {filtered.map((b, i) => (
+                          {paginatedBookings.map((b, i) => (
                             <tr key={`${b.bookingId || i}`} className="hover:bg-[#f4f8fd] transition">
                               <td className="p-3 font-mono text-xs text-slate-600 break-words-force max-w-25">{b.bookingId || "—"}</td>
                               <td className="p-3 font-medium text-slate-900 break-words-force">{b.name || "—"}</td>
                               <td className="p-3 text-slate-600 hidden md:table-cell break-words-force">{b.studentId || "—"}</td>
                               <td className="p-3 text-slate-600 hidden md:table-cell break-words-force">{b.destination || "—"}</td>
+                              <td className="p-3 text-slate-600 hidden lg:table-cell">{b.universityId ? universityById.get(b.universityId)?.name ?? "—" : "—"}</td>
                               <td className="p-3 text-slate-600 hidden sm:table-cell">{b.travelDate || "—"}</td>
                               <td className="p-3 text-center font-semibold">{b.seats || 1}</td>
                               <td className="p-3 text-center">
                                 <StatusBadge status={b.status} />
                               </td>
                               <td className="p-3 text-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  <PaymentBadge status={b.paymentStatus} />
+                                <div className="flex min-w-32 flex-col items-start gap-1.5">
+                                  <div className="flex items-center gap-1">
+                                    <span className="w-16 text-left text-[10px] text-slate-500">Booking fee</span>
+                                    <MoneyStatusBadge status={b.bookingFeeStatus || "unpaid"} colors={BOOKING_FEE_STATUS_COLORS} />
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="w-16 text-left text-[10px] text-slate-500">Fare</span>
+                                    <MoneyStatusBadge status={b.fareStatus || "unpaid"} colors={FARE_STATUS_COLORS} />
+                                  </div>
                                   {b.receiptSent ? (
                                     <span className="text-[10px] text-emerald-700">Receipt sent</span>
                                   ) : null}
@@ -1411,12 +1659,13 @@ const filtered = useMemo(() => {
                               </td>
                               <td className="p-3 text-right">
                                 <div className="flex flex-wrap gap-1 justify-end">
-                                  {[
-                                    ["Confirm", "Confirmed"],
-                                    ["Boarding", "Boarding"],
-                                    ["Departed", "Departed"],
-                                    ["Cancel", "Cancelled"],
-                                  ].map(([label, s]) => (
+                                  <button
+                                    onClick={() => void openBookingDetails(b)}
+                                    className="rounded-lg border border-[#b8dcff] bg-white px-2 py-1 text-[10px] font-semibold text-primary-700 hover:bg-[#eef6ff]"
+                                  >
+                                    View
+                                  </button>
+                                  {getAllowedJourneyTransitions(b.status).map((s) => (
                                     !isViewer ? (
                                       <button
                                         key={s}
@@ -1424,50 +1673,60 @@ const filtered = useMemo(() => {
                                         disabled={statusUpdating === b.bookingId}
                                         className={`${(JOURNEY_STATUS_COLORS[s] || JOURNEY_STATUS_COLORS.Confirmed).button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
                                       >
-                                        {statusUpdating === b.bookingId ? "..." : label}
+                                        {statusUpdating === b.bookingId ? "..." : s === "Cancelled" ? "Cancel" : s}
                                       </button>
                                     ) : null
                                   ))}
 
-                                  {/* Payment confirmation shortcut */}
-                                  {!isViewer ? (
+                                  {!isViewer && canRecordManualFarePayment(b.bookingFeeStatus, b.fareStatus) ? (
                                     <button
                                       onClick={async () => {
                                         const id = b.bookingId || "";
                                         if (!id) return;
-                                        setPaymentUpdating(id);
+                                        const selectedMethod = prompt("Payment method: cash, bank_transfer, or manual_adjustment", b.fareStatus === "cash_selected" ? "cash" : "bank_transfer")?.trim().toLowerCase();
+                                        if (!selectedMethod || !["cash", "bank_transfer", "manual_adjustment"].includes(selectedMethod)) {
+                                          if (selectedMethod) alert("Use cash, bank_transfer, or manual_adjustment.");
+                                          return;
+                                        }
+                                        const reference = selectedMethod === "bank_transfer" ? prompt("Enter the bank transfer reference:")?.trim() || "" : prompt("Optional payment reference:")?.trim() || "";
+                                        if (selectedMethod === "bank_transfer" && !reference) {
+                                          alert("A bank transfer reference is required.");
+                                          return;
+                                        }
+                                        const notes = prompt("Optional admin notes:")?.trim() || "";
+                                        if (!confirm(`Record this fare as paid by ${selectedMethod.replaceAll("_", " ")}?`)) return;
+                                        setFareCashUpdating(id);
                                         try {
-                                          const res = await authFetch("/api/payments/confirm", {
+                                          const res = await authFetch("/api/payments/fare/record-manual", {
                                             method: "POST",
-                                            headers: {
-                                              "Content-Type": "application/json",
-                                            },
-                                            body: JSON.stringify({ bookingId: id }),
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ bookingId: id, paymentMethod: selectedMethod, reference, notes }),
                                           });
                                           const result = await res.json();
                                           if (!result?.success) {
-                                            alert(result?.error || "Failed to confirm payment");
+                                            alert(result?.error || "Failed to record fare payment");
                                           }
                                         } catch (e) {
                                           console.error(e);
-                                          alert("Network error confirming payment");
+                                          alert("Network error recording fare payment");
                                         } finally {
                                           await refreshBookings();
-                                          setPaymentUpdating(null);
+                                          setFareCashUpdating(null);
                                         }
                                       }}
-                                      disabled={paymentUpdating === b.bookingId || b.paymentStatus === "Payment Confirmed"}
-                                      className={`${PAYMENT_STATUS_COLORS["Payment Confirmed"].button} text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition`}
+                                      disabled={fareCashUpdating === b.bookingId}
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition"
                                     >
-                                      {paymentUpdating === b.bookingId ? "..." : b.paymentStatus === "Payment Confirmed" ? "Paid" : "Confirm Payment"}
+                                      {fareCashUpdating === b.bookingId ? "..." : b.fareStatus === "cash_selected" ? "Confirm Cash Fare" : "Record Fare Payment"}
                                     </button>
                                   ) : null}
 
-                                  {!isViewer && b.fareStatus !== "paid" && b.fareStatus !== "cash_collected" ? (
+                                  {!isViewer && canConfirmCashFare(b.bookingFeeStatus, b.fareStatus) ? (
                                     <button
                                       onClick={async () => {
                                         const id = b.bookingId || "";
                                         if (!id) return;
+                                        if (!confirm("Confirm that the cash fare was collected from the customer?")) return;
                                         setFareCashUpdating(id);
                                         try {
                                           const res = await authFetch("/api/payments/fare/confirm-cash", {
@@ -1477,65 +1736,56 @@ const filtered = useMemo(() => {
                                           });
                                           const result = await res.json();
                                           if (!result?.success) {
-                                            alert(result?.error || "Failed to record cash fare collection");
+                                            alert(result?.error || "Failed to confirm cash fare");
                                           }
                                         } catch (e) {
                                           console.error(e);
-                                          alert("Network error recording cash fare collection");
+                                          alert("Network error confirming cash fare");
                                         } finally {
                                           await refreshBookings();
                                           setFareCashUpdating(null);
                                         }
                                       }}
                                       disabled={fareCashUpdating === b.bookingId}
-                                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition"
+                                      className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-50 transition"
                                     >
-                                      {fareCashUpdating === b.bookingId ? "..." : "Mark Fare Cash Collected"}
+                                      {fareCashUpdating === b.bookingId ? "..." : "Confirm Cash Fare"}
                                     </button>
                                   ) : null}
 
-                                  {!isViewer && b.paymentStatus === "Payment Confirmed" ? (
+                                  {!isViewer && (b.bookingFeeStatus === "paid" || b.fareStatus === "paid" || b.fareStatus === "cash_collected") ? (
                                     <>
-                                      <button
-                                        onClick={() => {
-                                          const id = b.bookingId || "";
-                                          if (!id) return;
-                                          try {
-                                            const receiptBooking = {
-                                              ...b,
-                                              fare:
-                                                typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0
-                                                  ? b.fare
-                                                  : resolveRouteFareIfAvailable(b.destination, settings.routes),
-                                            };
-                                            const pdfBlob = generateReceiptPdfBlob(receiptBooking);
-                                            const url = URL.createObjectURL(pdfBlob);
-                                            const anchor = document.createElement("a");
-                                            anchor.href = url;
-                                            anchor.download = `${b.receiptNumber || b.bookingId || "receipt"}.pdf`;
-                                            anchor.click();
-                                            URL.revokeObjectURL(url);
-                                            setGeneratedReceiptBookingId(id);
-                                          } catch (error) {
-                                            console.error("Receipt generation failed", error);
-                                            alert("Failed to generate receipt PDF.");
-                                          }
-                                        }}
-                                        className="bg-slate-800 hover:bg-slate-900 text-white text-[10px] px-2 py-1 rounded-lg font-semibold transition"
-                                      >
-                                        Generate Receipt
-                                      </button>
+                                      {b.bookingFeeStatus === "paid" ? (
+                                        <button
+                                          onClick={() => void downloadPaymentReceipt(b.bookingId || "", "booking_fee")}
+                                          className="bg-slate-800 hover:bg-slate-900 text-white text-[10px] px-2 py-1 rounded-lg font-semibold transition"
+                                        >
+                                          Booking Fee PDF
+                                        </button>
+                                      ) : null}
+                                      {b.fareStatus === "paid" || b.fareStatus === "cash_collected" ? (
+                                        <button
+                                          onClick={() => void downloadPaymentReceipt(b.bookingId || "", "transport_fare")}
+                                          className="bg-slate-800 hover:bg-slate-900 text-white text-[10px] px-2 py-1 rounded-lg font-semibold transition"
+                                        >
+                                          Fare PDF
+                                        </button>
+                                      ) : null}
                                       <button
                                         onClick={async () => {
                                           const id = b.bookingId || "";
                                           if (!id) return;
                                           if (!b.email) return;
+                                          const hasFareReceipt = b.fareStatus === "paid" || b.fareStatus === "cash_collected";
+                                          const paymentType = hasFareReceipt && b.bookingFeeStatus === "paid"
+                                            ? (confirm("Send the transport fare receipt? Select Cancel to send the booking fee receipt.") ? "transport_fare" : "booking_fee")
+                                            : hasFareReceipt ? "transport_fare" : "booking_fee";
                                           setSendingReceipt(id);
                                           try {
                                             const res = await authFetch("/api/payments/send-receipt", {
                                               method: "POST",
                                               headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ bookingId: id }),
+                                              body: JSON.stringify({ bookingId: id, paymentType }),
                                             });
                                             const result = await res.json();
                                             if (!result?.success) {
@@ -1550,34 +1800,45 @@ const filtered = useMemo(() => {
                                             setSendingReceipt(null);
                                           }
                                         }}
-                                        disabled={!b.email || sendingReceipt === b.bookingId || generatedReceiptBookingId !== b.bookingId}
+                                        disabled={!b.email || sendingReceipt === b.bookingId}
                                         className="rounded-lg bg-primary-600 px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-primary-700 disabled:bg-primary-200 disabled:text-slate-500"
                                       >
                                         {sendingReceipt === b.bookingId ? "Sending..." : "Send Receipt"}
                                       </button>
                                       {!b.email ? (
                                         <span className="block text-[10px] text-slate-500 mt-1">No customer email available.</span>
-                                      ) : generatedReceiptBookingId !== b.bookingId ? (
-                                        <span className="block text-[10px] text-slate-500 mt-1">Generate receipt first.</span>
                                       ) : null}
                                     </>
                                   ) : null}
 
-                                  {!isViewer ? (
-                                    <button
-                                      onClick={() => void deleteBooking(b.bookingId || "")}
-                                      disabled={deleting === b.bookingId}
-                                      className="rounded-lg bg-danger px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
-                                    >
-                                      {deleting === b.bookingId ? "..." : "✕"}
-                                    </button>
-                                  ) : null}
                                 </div>
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                      <div className="sticky left-0 flex min-w-full items-center justify-between gap-3 border-t border-[#d7ebff] bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">
+                          Showing {(safeBookingPage - 1) * BOOKINGS_PAGE_SIZE + 1}–{Math.min(safeBookingPage * BOOKINGS_PAGE_SIZE, filtered.length)} of {filtered.length}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setBookingPage((page) => Math.max(1, page - 1))}
+                            disabled={safeBookingPage === 1}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40"
+                          >
+                            Previous
+                          </button>
+                          <span className="text-xs font-semibold text-slate-600">Page {safeBookingPage} of {bookingPageCount}</span>
+                          <button
+                            onClick={() => setBookingPage((page) => Math.min(bookingPageCount, page + 1))}
+                            disabled={safeBookingPage === bookingPageCount}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1632,7 +1893,8 @@ const filtered = useMemo(() => {
                                   </span>
                                   <div className="flex items-center gap-1">
                                     <StatusBadge status={b.status} />
-                                    <PaymentBadge status={b.paymentStatus} />
+                                    <MoneyStatusBadge status={b.bookingFeeStatus || "unpaid"} colors={BOOKING_FEE_STATUS_COLORS} />
+                                    <MoneyStatusBadge status={b.fareStatus || "unpaid"} colors={FARE_STATUS_COLORS} />
                                   </div>
                                 </div>
                               </div>
@@ -2030,6 +2292,22 @@ const filtered = useMemo(() => {
             </>
           )}
         </main>
+        {selectedBooking ? (
+          <BookingDetailsPanel
+            key={selectedBooking.bookingId}
+            booking={selectedBooking}
+            universityName={selectedBooking.universityId ? universityById.get(selectedBooking.universityId)?.name : undefined}
+            isViewer={isViewer}
+            rescheduling={reschedulingBooking === selectedBooking.bookingId}
+            history={bookingHistory}
+            historyLoading={bookingHistoryLoading}
+            onClose={() => {
+              setSelectedBooking(null);
+              setBookingHistory([]);
+            }}
+            onReschedule={(travelDate) => rescheduleBooking(selectedBooking, travelDate)}
+          />
+        ) : null}
       </div>
     </div>
   );

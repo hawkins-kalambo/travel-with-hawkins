@@ -165,6 +165,32 @@ export async function sendBookingConfirmationSms({
   });
 }
 
+export async function sendBookingJourneyUpdateSms({
+  bookingId,
+  phone,
+  change,
+  travelDate,
+  cancellationReason,
+}: {
+  bookingId: string;
+  phone: string;
+  change: "cancelled" | "rescheduled";
+  travelDate?: string;
+  cancellationReason?: string;
+}): Promise<SmsNotificationResult> {
+  const reason = cancellationReason?.replace(/\s+/g, " ").trim().slice(0, 80);
+  const message = change === "cancelled"
+    ? `Travel With Hawkins booking ${bookingId} was cancelled.${reason ? ` Reason: ${reason}` : ""} Contact support for help.`
+    : `Travel With Hawkins booking ${bookingId} was rescheduled to ${travelDate || "a new date"}. Contact support if you need help.`;
+
+  return deliverSms({
+    phone,
+    message,
+    logLabel: "Booking journey update SMS",
+    logContext: { bookingId, change },
+  });
+}
+
 export async function sendOtpSms({
   phone,
   otp,

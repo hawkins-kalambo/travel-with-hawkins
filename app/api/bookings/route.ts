@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { GET as getAdminBookings, PATCH as patchAdminBookings } from "@/app/api/admin/bookings/route";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { sendBookingConfirmationSms } from "@/lib/africasTalking";
 import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
-import { normalizeJourneyStatus } from "@/lib/statusUtils";
-import { shouldReverseCommission, isCommissionNeedingManualReview, buildCommissionReversalUpdate } from "@/lib/commissionLifecycle";
+import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourneyDirection } from "@/lib/journeyDirection";
+import { resolveActiveUniversity } from "@/lib/universityResolver";
 import {
   generateBookingId,
   generateTripId,
@@ -26,11 +26,6 @@ type NotificationStatus = "sent" | "failed" | "skipped";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
-}
-
-function getBookingId(value: unknown): string | undefined {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  return undefined;
 }
 
 function getPositiveNumber(value: unknown): number | undefined {
@@ -233,47 +228,7 @@ async function sendUserConfirmationEmail(
 // customers must use POST /api/track-booking instead, which verifies the
 // booking's own email/phone before returning anything.
 export async function GET(req: NextRequest) {
-  const response = NextResponse.next();
-  const { authorized, error: authError } = await requireAdminUser(req, response);
-
-  if (!authorized) {
-    return jsonError(authError || "Unauthorized", 401);
-  }
-
-  try {
-    const url = new URL(req.url);
-    const trackingId = url.searchParams.get("trackingId");
-
-    let query = supabase.from("bookings").select("*");
-
-    if (trackingId) {
-      query = query.eq("booking_id", trackingId).limit(1);
-    } else {
-      query = query.order("created_at", { ascending: false });
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    const routesText = extractRouteSettingsData(settingsData ?? null);
-
-    const bookings = (data ?? []).map((row) => {
-      const booking = normalizeBookingRecord(row as Record<string, unknown>);
-      if (typeof booking.fare !== "number" || !Number.isFinite(booking.fare) || booking.fare <= 0) {
-        booking.fare = resolveRouteFareIfAvailable(booking.destination, routesText);
-      }
-      return booking;
-    });
-
-    return NextResponse.json({
-      success: true,
-      bookings,
-      booking: trackingId ? bookings[0] : null,
-    });
-  } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unknown error");
-  }
+  return getAdminBookings(req);
 }
 
 export async function POST(req: Request) {
@@ -293,15 +248,117 @@ export async function POST(req: Request) {
       name,
       email,
       phone,
-      destination,
+      destination: submittedDestination,
       travelDate,
       studentId,
       seats,
-      pickup,
-      location,
+      pickup: submittedPickup,
+      location: submittedLocation,
       bookingType,
       referralCode,
+      journeyDirection: submittedJourneyDirection,
+      homeDistrict: submittedHomeDistrict,
     } = validation.data;
+
+    let destination = submittedDestination;
+    let pickup = submittedPickup;
+    let location = submittedLocation;
+    let journeyDirection = submittedJourneyDirection;
+    let homeDistrict = submittedHomeDistrict;
+    let journeyOrigin: string | undefined;
+    let journeyDestination: string | undefined;
+    let resolvedUniversityId: string | undefined;
+    let resolvedDistrictPickupPointId: string | undefined;
+    let resolvedUniversityPickupPointId: string | undefined;
+    let resolvedRouteCommission: { amount: number; type: "fixed" | "percentage" } | undefined;
+    const requestedRouteId = getNonEmptyString(payload.routeId ?? payload.route_id);
+    const requestedUniversityId = getNonEmptyString(payload.universityId ?? payload.university_id);
+
+    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const routesText = extractRouteSettingsData(settingsData ?? null);
+    const routeFare = resolveRouteFareIfAvailable(destination, routesText);
+    let fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : undefined;
+
+    if (requestedRouteId) {
+      const { data: routeRow, error: routeError } = await supabase
+        .from("routes")
+        .select("id, fare, status, university_id, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
+        .eq("id", requestedRouteId)
+        .maybeSingle();
+
+      if (routeError) {
+        logError("Failed to resolve selected route", { error: routeError.message, routeId: requestedRouteId });
+        return jsonError("Unable to verify the selected route. Please try again.", 503);
+      }
+      if (!routeRow) return jsonError("The selected route no longer exists.", 400);
+
+      const relation = routeRow as unknown as {
+        university?: { name?: string; status?: string } | null;
+        pickupPoint?: { label?: string; status?: string } | null;
+        districtPickupPoint?: { district?: string; label?: string; status?: string } | null;
+      };
+      if (
+        routeRow.status !== "active"
+        || relation.university?.status !== "active"
+        || relation.districtPickupPoint?.status !== "active"
+        || (relation.pickupPoint && relation.pickupPoint.status !== "active")
+      ) {
+        return jsonError("The selected route is not currently available.", 400);
+      }
+
+      const verifiedDirection = isJourneyDirection(routeRow.direction) ? routeRow.direction : "to_university";
+      if (verifiedDirection !== submittedJourneyDirection) {
+        return jsonError("The selected route does not match this journey. Please search again.", 400);
+      }
+
+      const universityName = relation.university?.name || "University";
+      const verifiedHomeDistrict = typeof routeRow.origin_district === "string" ? routeRow.origin_district : "";
+      if (!verifiedHomeDistrict) return jsonError("The selected route has no home district configured.", 500);
+      journeyDirection = verifiedDirection;
+      homeDistrict = verifiedHomeDistrict;
+      destination = buildJourneyName(verifiedHomeDistrict, universityName, journeyDirection);
+      const endpoints = getJourneyEndpoints(verifiedHomeDistrict, universityName, journeyDirection);
+      journeyOrigin = endpoints.origin;
+      journeyDestination = endpoints.destination;
+      pickup = getJourneyPickupLabel(
+        journeyDirection,
+        relation.districtPickupPoint?.label,
+        relation.pickupPoint?.label,
+        verifiedHomeDistrict,
+        universityName
+      );
+      location = journeyDirection === "from_university" ? "University" : "Home district";
+      resolvedUniversityId = routeRow.university_id ?? undefined;
+      resolvedDistrictPickupPointId = routeRow.district_pickup_point_id ?? undefined;
+      resolvedUniversityPickupPointId = routeRow.pickup_point_id ?? undefined;
+
+      const structuredFare = Number(routeRow.fare);
+      fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
+      const rawCommissionAmount = Number(routeRow.commission_amount);
+      resolvedRouteCommission = {
+        amount: Number.isFinite(rawCommissionAmount) && rawCommissionAmount >= 0 ? rawCommissionAmount : 0,
+        type: routeRow.commission_type === "percentage" ? "percentage" : "fixed",
+      };
+    } else if (requestedUniversityId) {
+      try {
+        const university = await resolveActiveUniversity({ universityId: requestedUniversityId });
+        resolvedUniversityId = university.id;
+
+        // A customer-selected university is authoritative. Rebuild the
+        // journey label from the verified catalogue record rather than
+        // trusting a client-provided destination string.
+        if (homeDistrict) {
+          destination = buildJourneyName(homeDistrict, university.name, journeyDirection);
+          const endpoints = getJourneyEndpoints(homeDistrict, university.name, journeyDirection);
+          journeyOrigin = endpoints.origin;
+          journeyDestination = endpoints.destination;
+          pickup = journeyDirection === "from_university" ? university.name : homeDistrict;
+          location = journeyDirection === "from_university" ? "University" : "Home district";
+        }
+      } catch (error) {
+        return jsonError(error instanceof Error ? error.message : "The selected university is not available", 400);
+      }
+    }
 
     // Guards against two concurrent submissions of the same booking (a
     // double-click, a retried request) both landing as separate rows. A
@@ -311,7 +368,7 @@ export async function POST(req: Request) {
     // transaction, so only one caller at a time can ever observe an unclaimed
     // key (see db/migrations/2026_08_03_booking_dedupe_claim.sql).
     const dedupeWindowSeconds = 120;
-    const dedupeKey = `booking:${phone}|${studentId}|${destination}|${travelDate}|${seats}`;
+    const dedupeKey = `booking:${phone}|${studentId}|${requestedRouteId || destination}|${journeyDirection}|${travelDate}|${seats}`;
     const { data: dedupeRows, error: dedupeError } = await supabase.rpc("claim_booking_dedupe", {
       p_key: dedupeKey,
       p_window_seconds: dedupeWindowSeconds,
@@ -367,8 +424,6 @@ export async function POST(req: Request) {
 
     const bookingId = generateBookingId();
     const tripId = generateTripId(destination, travelDate);
-    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    const routesText = extractRouteSettingsData(settingsData ?? null);
     // Fare is only ever resolved server-side from the configured routes —
     // never from the client. The booking form doesn't send `fare` in its
     // request body at all, so payload.fare had no legitimate caller; it
@@ -377,15 +432,25 @@ export async function POST(req: Request) {
     // unset here is safe: initiatePayChanguPayment() already rejects with
     // "amount_not_configured" if a booking has no valid fare, rather than
     // trusting whatever the client sent.
-    const routeFare = resolveRouteFareIfAvailable(destination, routesText);
-    const fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : undefined;
-
+    // If the client identified a specific structured route (the district ->
+    // university trip-search flow), that's authoritative and overrides the
+    // fuzzy-matched fare above — same "never trust the client's number"
+    // rule applies: only the route's own `fare` column is used, and only
+    // once both the route and its university are confirmed active server-
+    // side (an inactive/draft route, e.g. a LUANAR leg with a placeholder
+    // fare pre-launch, must never be bookable just because its id leaked
+    // into a request).
+    // Set only once the route above has been verified active — carries the
+    // route's own commission fields so the referral block below can use
+    // them instead of the string-keyed commission_rules lookup, which never
+    // matches this flow's "District - University (CODE)" destination text.
     // Booking fee is always resolved server-side from settings — the client
     // never gets to decide what it owes.
     const bookingFeeAmount = getPositiveNumber((settingsData as Record<string, unknown> | null)?.booking_fee) ?? 0;
     const bookingExpiresAt = computeBookingExpiryIso();
 
     let ambassadorId: string | undefined;
+    let ambassadorUniversityId: string | undefined;
     let referralSource: string | undefined;
     let commissionAmount = 0;
     let selfReferralBlocked = false;
@@ -393,7 +458,7 @@ export async function POST(req: Request) {
     if (referralCode) {
       const { data: ambassadorData, error: ambassadorError } = await supabase
         .from("ambassadors")
-        .select("id, referral_code, status, phone, email")
+        .select("id, referral_code, status, phone, email, university_id")
         .eq("referral_code", referralCode.toUpperCase())
         .maybeSingle();
 
@@ -414,8 +479,20 @@ export async function POST(req: Request) {
         logWarn("Blocked self-referral attempt", { referralCode: ambassadorData.referral_code, ambassadorId: ambassadorData.id });
       } else {
         ambassadorId = ambassadorData.id;
+        ambassadorUniversityId = ambassadorData.university_id || undefined;
         referralSource = `referral:${ambassadorData.referral_code}`;
-        commissionAmount = await resolveCommissionAmount(destination, fare, routesText);
+        // A resolved structured route is authoritative for commission too —
+        // it's fully self-describing (fare + commission on the one row an
+        // admin edits). Only falls back to the string-keyed commission_rules
+        // lookup for the legacy/custom-destination flow, unchanged from before.
+        if (resolvedRouteCommission) {
+          commissionAmount =
+            resolvedRouteCommission.type === "percentage"
+              ? Math.round(((fare ?? 0) * resolvedRouteCommission.amount) / 100)
+              : resolvedRouteCommission.amount;
+        } else {
+          commissionAmount = await resolveCommissionAmount(destination, fare, routesText);
+        }
       }
     }
 
@@ -434,6 +511,18 @@ export async function POST(req: Request) {
       location,
       bookingType,
       fare,
+      // Only ever stamped once the route/university pair has been verified
+      // active above — an unresolved or rejected routeId is dropped rather
+      // than recorded, so a booking never references a route that wasn't
+      // actually live when it was made.
+      routeId: resolvedUniversityId ? requestedRouteId : undefined,
+      universityId: resolvedUniversityId,
+      districtPickupPointId: resolvedDistrictPickupPointId,
+      universityPickupPointId: resolvedUniversityPickupPointId,
+      journeyDirection,
+      homeDistrict,
+      journeyOrigin,
+      journeyDestination,
       referralCode,
       ambassadorId,
       referralSource,
@@ -452,8 +541,20 @@ export async function POST(req: Request) {
     if (error) {
       const reason = String(error?.message || error?.details || error).toLowerCase();
       const missingFareColumn = reason.includes("fare") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
-      if (missingFareColumn) {
-        delete (bookingPayload as Record<string, unknown>).fare;
+      // route_id/university_id are new (2026_08_04_universities_and_structured_routes.sql) —
+      // fail open the same way the fare column already does if that migration
+      // hasn't been applied to this environment yet, rather than blocking every booking.
+      const missingRouteColumns =
+        (reason.includes("route_id") || reason.includes("university_id")) &&
+        (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+
+      if (missingFareColumn) delete (bookingPayload as Record<string, unknown>).fare;
+      if (missingRouteColumns) {
+        delete (bookingPayload as Record<string, unknown>).route_id;
+        delete (bookingPayload as Record<string, unknown>).university_id;
+      }
+
+      if (missingFareColumn || missingRouteColumns) {
         const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
         data = retry.data as Record<string, unknown> | null;
         error = retry.error;
@@ -501,6 +602,8 @@ export async function POST(req: Request) {
             customer_name: name,
             customer_phone: phone,
             route: destination,
+            route_id: resolvedUniversityId ? requestedRouteId : undefined,
+            university_id: resolvedUniversityId ?? ambassadorUniversityId,
             travel_date: travelDate,
             commission_amount: commissionAmount,
             commission_status: "pending",
@@ -560,106 +663,11 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(req, response);
-
-  if (!authorized) {
-    return jsonError(error || "Unauthorized", 401);
-  }
-
-  try {
-    const body = await req.json();
-    const payload = body as Record<string, unknown>;
-    const bookingId = getBookingId(payload.bookingId ?? payload.id);
-    const status = getNonEmptyString(payload.status);
-    const paymentStatus = getNonEmptyString(payload.paymentStatus);
-    const paymentNotes = getNonEmptyString(payload.paymentNotes);
-
-    if (!bookingId) {
-      return jsonError("bookingId is required", 400);
-    }
-
-    const updatePayload: Record<string, unknown> = {};
-    if (status) updatePayload.status = status;
-    if (paymentStatus) updatePayload.payment_status = paymentStatus;
-    if (paymentNotes !== undefined) updatePayload.payment_notes = paymentNotes;
-
-    if (Object.keys(updatePayload).length === 0) {
-      return jsonError("No update fields provided", 400);
-    }
-
-    const { data, error } = await supabase
-      .from("bookings")
-      .update(updatePayload)
-      .eq("booking_id", bookingId)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    const record = normalizeBookingRecord((data as Record<string, unknown>) ?? {});
-
-    // Commission reversal on cancellation (AMB-002). Only ever moves a
-    // pending/approved commission to cancelled — a commission already
-    // marked paid is left untouched (real money may have moved) and
-    // surfaced for manual admin review instead of being silently reversed.
-    let commissionReversal: { reversed: boolean; needsManualReview?: boolean } | undefined;
-    if (status && normalizeJourneyStatus(status) === "Cancelled") {
-      const { data: referral, error: referralLookupError } = await supabase
-        .from("referrals")
-        .select("id, commission_status")
-        .eq("booking_id", bookingId)
-        .maybeSingle();
-
-      if (!referralLookupError && referral) {
-        if (shouldReverseCommission("Cancelled", referral.commission_status)) {
-          const { error: reversalError } = await supabase
-            .from("referrals")
-            .update(buildCommissionReversalUpdate("Booking cancelled"))
-            .eq("id", referral.id);
-
-          if (reversalError) {
-            logError("Failed to reverse commission for cancelled booking", { bookingId, referralId: referral.id, error: reversalError.message });
-          } else {
-            commissionReversal = { reversed: true };
-          }
-        } else if (isCommissionNeedingManualReview("Cancelled", referral.commission_status)) {
-          commissionReversal = { reversed: false, needsManualReview: true };
-          logWarn("Booking cancelled but its commission was already paid — needs manual admin review", { bookingId, referralId: referral.id });
-        }
-      }
-    }
-
-    return NextResponse.json({ success: true, booking: record, message: "Booking updated", commissionReversal });
-  } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unknown error");
-  }
+  return patchAdminBookings(req);
 }
 
 export async function DELETE(req: NextRequest) {
-  const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(req, response);
-
-  if (!authorized) {
-    return jsonError(error || "Unauthorized", 401);
-  }
-
-  try {
-    const body = await req.json();
-    const payload = body as Record<string, unknown>;
-    const bookingId = getBookingId(payload.bookingId ?? payload.id);
-
-    if (!bookingId) {
-      return jsonError("bookingId is required", 400);
-    }
-
-    const { error } = await supabase.from("bookings").delete().eq("booking_id", bookingId);
-
-    if (error) throw error;
-
-    return NextResponse.json({ success: true, message: "Booking deleted" });
-  } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unknown error");
-  }
+  void req;
+  return jsonError("Bookings cannot be permanently deleted. Cancel the booking instead.", 405);
 }
 

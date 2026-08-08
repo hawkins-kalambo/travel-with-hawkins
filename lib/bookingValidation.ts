@@ -1,6 +1,8 @@
 import "server-only";
 
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { isJourneyDirection, type JourneyDirection } from "@/lib/journeyDirection";
+import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -17,6 +19,8 @@ export type ValidatedBookingInput = {
   location: string;
   bookingType: string;
   referralCode?: string;
+  journeyDirection: JourneyDirection;
+  homeDistrict?: string;
 };
 
 export type BookingValidationResult =
@@ -46,6 +50,10 @@ export function validateBookingInput(payload: Record<string, unknown>): BookingV
   const bookingType = cleanText(payload.bookingType, 30) || "Online";
   const referralCode = cleanText(payload.referralCode ?? payload.referral_code, 50).toUpperCase() || undefined;
   const seats = typeof payload.seats === "number" ? payload.seats : Number(payload.seats);
+  const journeyDirection = isJourneyDirection(payload.journeyDirection ?? payload.journey_direction)
+    ? (payload.journeyDirection ?? payload.journey_direction) as JourneyDirection
+    : "to_university";
+  const homeDistrict = cleanText(payload.homeDistrict ?? payload.home_district, 80) || undefined;
 
   if (name.length < 2 || !/^[\p{L}\p{M}][\p{L}\p{M}\s.'\u2019-]*$/u.test(name)) {
     return { success: false, error: "Please enter a valid name." };
@@ -68,6 +76,9 @@ export function validateBookingInput(payload: Record<string, unknown>): BookingV
   if (referralCode && !/^[A-Z0-9_-]+$/.test(referralCode)) {
     return { success: false, error: "Please enter a valid referral code." };
   }
+  if (homeDistrict && !(MALAWI_DISTRICTS as readonly string[]).includes(homeDistrict)) {
+    return { success: false, error: "Please select a valid Malawi home district." };
+  }
 
   return {
     success: true,
@@ -83,6 +94,8 @@ export function validateBookingInput(payload: Record<string, unknown>): BookingV
       location,
       bookingType,
       referralCode,
+      journeyDirection,
+      homeDistrict,
     },
   };
 }

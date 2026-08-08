@@ -40,3 +40,25 @@ change (they're designed to be applied together — several application-code
 fixes assume the schema changes above are already in place, e.g. the
 commission-reversal logic assumes `referrals.cancelled_reason`/`reversed_at`
 exist, and the rate limiter assumes `rate_limit_hit()` exists).
+
+## University route migrations
+
+Apply these in order before deploying the directional booking flow:
+
+1. `2026_08_04_universities_and_structured_routes.sql`
+2. `2026_08_04_route_commission_fields.sql`
+3. `2026_08_08_directional_routes.sql`
+4. `2026_08_08_university_admin_assignments.sql`
+5. `2026_08_08_ambassador_university_scope.sql`
+6. `2026_08_09_district_pickup_points.sql`
+
+The directional-routes migration keeps every existing structured route as
+`to_university`, creates an independently editable `from_university` reverse
+leg, and adds nullable journey-direction fields to bookings. It is required
+before the directional application code is deployed.
+
+The university-admin migration must be applied before assigning the
+`university_admin` role. It preserves existing `super_admin` and `admin`
+behavior while adding explicit user-to-university operational assignments.
+The ambassador-scope migration then backfills and protects university
+ownership across applications, ambassadors, referrals, and commissions.

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { authFetch } from "@/lib/auth";
 import Card from "@/app/components/ui/Card";
@@ -73,6 +73,7 @@ export default function AdminAmbassadorProfilePage() {
   const [verificationUpdating, setVerificationUpdating] = useState(false);
   const [pendingVerificationAction, setPendingVerificationAction] = useState<"verify" | "unverify" | null>(null);
   const [copiedReferral, setCopiedReferral] = useState<"code" | "link" | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
 
   const referralLink = useMemo(() => {
     const code = ambassador?.referral_code?.trim();
@@ -81,7 +82,7 @@ export default function AdminAmbassadorProfilePage() {
     return `${appUrl.replace(/\/$/, "")}/book?ref=${encodeURIComponent(code)}`;
   }, [ambassador?.referral_code]);
 
-  const loadDetails = async () => {
+  const loadDetails = useCallback(async () => {
     try {
       const res = await authFetch(`/api/ambassadors/${params.id}`, { method: "GET" });
       if (!res.ok) throw new Error("Unable to load ambassador profile");
@@ -102,11 +103,18 @@ export default function AdminAmbassadorProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [params.id]);
 
   useEffect(() => {
-    void loadDetails();
-  }, [params.id]);
+    const initialLoadId = window.setTimeout(() => {
+      void loadDetails();
+      void authFetch("/api/profile")
+        .then(async (response) => response.json() as Promise<{ profile?: { role?: string } }>)
+        .then((body) => setReadOnly(body.profile?.role === "university_admin"))
+        .catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(initialLoadId);
+  }, [loadDetails]);
 
   const resetPassword = async (mode: "send-reset" | "temporary-password") => {
     if (!ambassador?.email) return;
@@ -277,7 +285,7 @@ export default function AdminAmbassadorProfilePage() {
                     {ambassador?.university || "—"} • {ambassador?.program || "—"}
                   </p>
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
+                {!readOnly && <div className="mt-4 flex flex-wrap gap-2">
                   <Button variant="muted" onClick={() => setPendingPasswordAction("send-reset")}>
                     Reset password
                   </Button>
@@ -299,7 +307,7 @@ export default function AdminAmbassadorProfilePage() {
                       Verify ambassador
                     </Button>
                   )}
-                </div>
+                </div>}
               </div>
             </div>
           </Card>
@@ -462,7 +470,7 @@ export default function AdminAmbassadorProfilePage() {
               </div>
             </div>
 
-            <form onSubmit={saveProfile} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            {!readOnly && <form onSubmit={saveProfile} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-black text-gray-800">Edit profile</h2>
               <div className="mt-4 grid gap-3">
                 <input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone" className="input-field" />
@@ -480,7 +488,7 @@ export default function AdminAmbassadorProfilePage() {
                   {savingProfile ? "Saving..." : "Save profile changes"}
                 </button>
               </div>
-            </form>
+            </form>}
           </div>
         </div>
 

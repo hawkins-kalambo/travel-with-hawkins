@@ -6,13 +6,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import WhatsAppButton from "../components/WhatsAppButton";
 import { IconRoute, IconSearch } from "../components/Icon";
-import { MALAWI_DISTRICTS, MALAWI_PUBLIC_UNIVERSITIES } from "@/lib/tripSearchData";
+import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
+import { getJourneyEndpoints, type JourneyDirection } from "@/lib/journeyDirection";
 
 type TripsClientProps = {
   initialDeparture: string;
   initialUniversity: string;
   initialDate: string;
   initialSeats: number;
+  universities: string[];
+  initialDirection: JourneyDirection;
 };
 
 type SearchedTrip = {
@@ -20,6 +23,7 @@ type SearchedTrip = {
   university: string;
   date: string;
   seats: number;
+  direction: JourneyDirection;
 };
 
 export default function TripsClient({
@@ -27,6 +31,8 @@ export default function TripsClient({
   initialUniversity,
   initialDate,
   initialSeats,
+  universities,
+  initialDirection,
 }: TripsClientProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -34,9 +40,10 @@ export default function TripsClient({
   const [university, setUniversity] = useState(initialUniversity);
   const [travelDate, setTravelDate] = useState(initialDate);
   const [seats, setSeats] = useState(initialSeats);
+  const [direction, setDirection] = useState<JourneyDirection>(initialDirection);
   const [searchedTrip, setSearchedTrip] = useState<SearchedTrip | null>(
     initialDeparture && initialUniversity
-      ? { departure: initialDeparture, university: initialUniversity, date: initialDate, seats: initialSeats }
+      ? { departure: initialDeparture, university: initialUniversity, date: initialDate, seats: initialSeats, direction: initialDirection }
       : null
   );
   const searchReady = Boolean(departure && university);
@@ -56,10 +63,10 @@ export default function TripsClient({
     event.preventDefault();
     if (!searchReady) return;
 
-    const result = { departure, university, date: travelDate, seats };
+    const result = { departure, university, date: travelDate, seats, direction };
     setSearchedTrip(result);
 
-    const params = new URLSearchParams({ departure, university, seats: String(seats) });
+    const params = new URLSearchParams({ departure, university, direction, seats: String(seats) });
     if (travelDate) params.set("date", travelDate);
     router.replace(`/trips?${params.toString()}`, { scroll: false });
   };
@@ -68,6 +75,7 @@ export default function TripsClient({
     ? new URLSearchParams({
         departure: searchedTrip.departure,
         university: searchedTrip.university,
+        direction: searchedTrip.direction,
         ...(searchedTrip.date ? { date: searchedTrip.date } : {}),
         seats: String(searchedTrip.seats),
       }).toString()
@@ -140,7 +148,7 @@ export default function TripsClient({
             Find your student trip
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-blue-100 sm:text-lg">
-            Choose your departure district and university destination to plan a route anywhere in Malawi.
+            Choose whether you are going home or going to university, then select your district and campus.
           </p>
         </div>
       </section>
@@ -148,20 +156,36 @@ export default function TripsClient({
       <section className="px-4 py-10 sm:px-8">
         <div className="mx-auto max-w-6xl">
           <form onSubmit={handleSearch} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xl sm:p-7">
+            <fieldset className="mb-5">
+              <legend className="mb-2 text-sm font-bold text-slate-700">Where are you travelling?</legend>
+              <div className="grid max-w-md grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+                {([["to_university", "Going to university"], ["from_university", "Going home"]] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={direction === value}
+                    onClick={() => { setDirection(value); setSearchedTrip(null); }}
+                    className={`min-h-11 rounded-lg px-3 text-xs font-black transition ${direction === value ? "bg-white text-[#0f3f78] shadow-sm" : "text-slate-600"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
             <div className="grid gap-5 lg:grid-cols-[1fr_1.35fr_0.8fr_0.65fr_auto] lg:items-end">
               <label className="block text-sm font-bold text-slate-700">
-                <span className="mb-2 block">Select departure district</span>
+                <span className="mb-2 block">{direction === "from_university" ? "To home district" : "From home district"}</span>
                 <select required className="template-input" value={departure} onChange={(event) => updateDeparture(event.target.value)}>
-                  <option value="">Select departure district</option>
+                  <option value="">Select home district</option>
                   {MALAWI_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}
                 </select>
               </label>
 
               <label className="block text-sm font-bold text-slate-700">
-                <span className="mb-2 block">Select destination university</span>
+                <span className="mb-2 block">{direction === "from_university" ? "From university" : "To university"}</span>
                 <select required className="template-input" value={university} onChange={(event) => updateUniversity(event.target.value)}>
-                  <option value="">Select destination university</option>
-                  {MALAWI_PUBLIC_UNIVERSITIES.map((item) => <option key={item} value={item}>{item}</option>)}
+                  <option value="">Select university</option>
+                  {universities.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
 
@@ -190,7 +214,7 @@ export default function TripsClient({
             </div>
             {!searchReady && (
               <p className="mt-4 text-sm text-slate-500" aria-live="polite">
-                Select both a departure district and destination university to continue.
+                Select both your home district and university to continue.
               </p>
             )}
           </form>
@@ -203,7 +227,12 @@ export default function TripsClient({
                 </div>
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0f3f78]">Customized route</p>
-                  <h2 className="mt-1 text-xl font-black text-slate-900">{searchedTrip.departure} to {searchedTrip.university}</h2>
+                  <h2 className="mt-1 text-xl font-black text-slate-900">
+                    {(() => {
+                      const endpoints = getJourneyEndpoints(searchedTrip.departure, searchedTrip.university, searchedTrip.direction);
+                      return `${endpoints.origin} to ${endpoints.destination}`;
+                    })()}
+                  </h2>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     {searchedTrip.date ? `Travel date: ${searchedTrip.date}. ` : ""}
                     {searchedTrip.seats} passenger{searchedTrip.seats === 1 ? "" : "s"}. Submit a booking request and our team will confirm availability and fare.

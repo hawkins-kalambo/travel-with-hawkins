@@ -1,7 +1,7 @@
 import Link from "next/link";
-import Image from "next/image";
 
 const sections = [
+  { slug: "universities", title: "Universities", description: "Manage campuses and their pickup points — a university only appears to customers once activated." },
   { slug: "routes-and-fares", title: "Routes & Fares", description: "Manage every route, fare, capacity and status from a single business object." },
   { slug: "commission-rates", title: "Commission Rates", description: "Control fixed and percentage commissions by route and preserve historical commission amounts." },
   { slug: "referral-program", title: "Referral Program", description: "Configure your referral workflow, code policies, eligibility and defaults." },

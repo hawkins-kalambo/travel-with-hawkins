@@ -3,6 +3,8 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { verifyPayChanguTransaction, PayChanguClientError } from "./paychangu-client";
 import { validatePayChanguVerification } from "./verification-validator";
+import { emailReceiptForPayment } from "./receipt-service";
+import { logError } from "@/lib/logger";
 
 // Shared by the webhook route and the browser return/callback route — both
 // are just different triggers for the same "independently verify with
@@ -81,6 +83,17 @@ export async function verifyAndFinalizePayment(txRef: string, paymentEventId: st
 
   if (!outcome || outcome.outcome === "rejected") {
     return { outcome: "rejected", reason: outcome?.reason || "finalize_rejected" };
+  }
+
+  // Email delivery is best-effort and idempotent. It must never change the
+  // result of a payment that PayChangu has already verified and finalized.
+  try {
+    await emailReceiptForPayment(trimmedTxRef);
+  } catch (error) {
+    logError("Automatic payment receipt delivery failed", {
+      txRef: trimmedTxRef,
+      error: error instanceof Error ? error.message : "unknown",
+    });
   }
 
   return {

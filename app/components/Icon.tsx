@@ -309,6 +309,35 @@ export function IconInbox({ className, title }: IconProps) {
   );
 }
 
+export function IconArrowLeftRight({ className, title }: IconProps) {
+  return (
+    <SvgIcon className={className} title={title}>
+      <path d="m8 3-4 4 4 4" />
+      <path d="M4 7h16" />
+      <path d="m16 21 4-4-4-4" />
+      <path d="M20 17H4" />
+    </SvgIcon>
+  );
+}
+
+export function IconArrowRight({ className, title }: IconProps) {
+  return (
+    <SvgIcon className={className} title={title}>
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </SvgIcon>
+  );
+}
+
+export function IconCreditCard({ className, title }: IconProps) {
+  return (
+    <SvgIcon className={className} title={title}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+    </SvgIcon>
+  );
+}
+
 export function IconStar({ className, title }: IconProps) {
   return (
     <svg

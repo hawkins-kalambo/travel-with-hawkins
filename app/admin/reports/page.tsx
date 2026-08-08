@@ -7,6 +7,7 @@ import { generatePassengerManifestPdfBlob } from "@/lib/reportPdf";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { groupByDateThenTrip, groupByTrip, summarizeReportRows } from "@/lib/reportUtils";
 import { supabase } from "@/lib/auth";
+import { BOOKING_FEE_STATUS_VALUES, FARE_STATUS_VALUES } from "@/lib/paymentTypes";
 
 const REPORT_TYPES = [
   { key: "tripManifest", label: "Trip Manifest" },
@@ -17,7 +18,6 @@ const REPORT_TYPES = [
 type ReportType = (typeof REPORT_TYPES)[number]["key"];
 
 const JOURNEY_STATUS_OPTIONS = ["Booked", "Confirmed", "Boarding", "Arrived", "Completed", "Cancelled"];
-const PAYMENT_STATUS_OPTIONS = ["Pending", "Payment Confirmed", "Failed"];
 const DEFAULT_ROUTE_OPTIONS = [
   "Mzuzu - Lilongwe",
   "Mzuzu - Blantyre",
@@ -71,14 +71,21 @@ function statusBadge(status?: string) {
   return <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold border ${colors[label] ?? colors.Booked}`}>{label}</span>;
 }
 
-function paymentBadge(status?: string) {
-  const label = status || "Pending";
+function moneyStatusBadge(status?: string) {
+  const label = status || "unpaid";
   const colors: Record<string, string> = {
-    Pending: "bg-[color:var(--warning)]/10 text-[color:var(--warning)] border-[color:var(--warning)]/20",
-    "Payment Confirmed": "bg-primary-100 text-primary-700 border-primary-200",
-    Failed: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20",
+    unpaid: "bg-[color:var(--warning)]/10 text-[color:var(--warning)] border-[color:var(--warning)]/20",
+    processing: "bg-sky-50 text-sky-700 border-sky-200",
+    paid: "bg-primary-100 text-primary-700 border-primary-200",
+    cash_selected: "bg-amber-50 text-amber-700 border-amber-200",
+    cash_collected: "bg-primary-100 text-primary-700 border-primary-200",
+    failed: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20",
+    refunded: "bg-slate-100 text-slate-600 border-slate-200",
+    partially_refunded: "bg-slate-100 text-slate-600 border-slate-200",
+    partially_paid: "bg-amber-50 text-amber-700 border-amber-200",
   };
-  return <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold border ${colors[label] ?? colors.Pending}`}>{label}</span>;
+  const display = label.split("_").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+  return <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold border ${colors[label] ?? colors.unpaid}`}>{display}</span>;
 }
 
 function buildQueryString(filters: Record<string, string | undefined>) {
@@ -210,7 +217,8 @@ export default function AdminReportsPage() {
       Destination: filters.destination || undefined,
       Pickup: filters.pickup || undefined,
       Status: filters.status || undefined,
-      "Payment Status": filters.paymentStatus || undefined,
+      "Booking Fee Status": filters.bookingFeeStatus || undefined,
+      "Fare Status": filters.fareStatus || undefined,
     };
 
     try {
@@ -259,12 +267,12 @@ export default function AdminReportsPage() {
         <p className="mt-2 text-2xl font-bold text-primary-900">{summary.cancelledJourneys}</p>
       </div>
       <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Payment Confirmed</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.paymentConfirmed}</p>
+        <p className="text-xs text-slate-500">Booking Fees Paid</p>
+        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.bookingFeePaid}</p>
       </div>
       <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Pending Payments</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.pendingPayments}</p>
+        <p className="text-xs text-slate-500">Fares Settled</p>
+        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.fareSettled}</p>
       </div>
     </div>
   );
@@ -418,7 +426,8 @@ export default function AdminReportsPage() {
                   <dt className="text-slate-500">Status</dt>
                   <dd className="flex flex-wrap gap-2">
                     {statusBadge(row.status)}
-                    {paymentBadge(row.paymentStatus)}
+                    {moneyStatusBadge(row.bookingFeeStatus)}
+                    {moneyStatusBadge(row.fareStatus)}
                   </dd>
                 </div>
               </dl>
@@ -440,7 +449,8 @@ export default function AdminReportsPage() {
                 <th className="px-3 py-3 text-left font-semibold text-slate-600">Travel Date</th>
                 <th className="px-3 py-3 text-left font-semibold text-slate-600">Seats</th>
                 <th className="px-3 py-3 text-left font-semibold text-slate-600">Journey Status</th>
-                <th className="px-3 py-3 text-left font-semibold text-slate-600">Payment Status</th>
+                <th className="px-3 py-3 text-left font-semibold text-slate-600">Booking Fee</th>
+                <th className="px-3 py-3 text-left font-semibold text-slate-600">Fare</th>
                 <th className="px-3 py-3 text-left font-semibold text-slate-600">Actions</th>
               </tr>
             </thead>
@@ -457,7 +467,8 @@ export default function AdminReportsPage() {
                   <td className="px-3 py-3 text-slate-700">{formatDisplayDate(row.travelDate)}</td>
                   <td className="px-3 py-3 text-slate-700">{row.seats || 1}</td>
                   <td className="px-3 py-3">{statusBadge(row.status)}</td>
-                  <td className="px-3 py-3">{paymentBadge(row.paymentStatus)}</td>
+                  <td className="px-3 py-3">{moneyStatusBadge(row.bookingFeeStatus)}</td>
+                  <td className="px-3 py-3">{moneyStatusBadge(row.fareStatus)}</td>
                   <td className="px-3 py-3">
                     <button
                       type="button"
@@ -581,14 +592,27 @@ export default function AdminReportsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Payment Status</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Booking Fee Status</label>
                     <select
-                      value={filters.paymentStatus ?? ""}
-                      onChange={(event) => setFilters((prev) => ({ ...prev, paymentStatus: event.target.value }))}
+                      value={filters.bookingFeeStatus ?? ""}
+                      onChange={(event) => setFilters((prev) => ({ ...prev, bookingFeeStatus: event.target.value }))}
                       className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600/50"
                     >
                       <option value="">Any</option>
-                      {PAYMENT_STATUS_OPTIONS.map((status) => (
+                      {BOOKING_FEE_STATUS_VALUES.map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fare Status</label>
+                    <select
+                      value={filters.fareStatus ?? ""}
+                      onChange={(event) => setFilters((prev) => ({ ...prev, fareStatus: event.target.value }))}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600/50"
+                    >
+                      <option value="">Any</option>
+                      {FARE_STATUS_VALUES.map((status) => (
                         <option key={status} value={status}>{status}</option>
                       ))}
                     </select>
@@ -763,6 +787,8 @@ export default function AdminReportsPage() {
                     <p className="font-semibold text-slate-900">{selectedRow.tripId || "—"}</p>
                     <p className="text-sm text-slate-500">Student ID</p>
                     <p className="font-semibold text-slate-900">{selectedRow.studentId || "—"}</p>
+                    <p className="text-sm text-slate-500">Booking Fee</p>
+                    <div>{moneyStatusBadge(selectedRow.bookingFeeStatus)}</div>
                   </div>
                   <div className="space-y-3">
                     <p className="text-sm text-slate-500">Phone</p>
@@ -771,6 +797,8 @@ export default function AdminReportsPage() {
                     <p className="font-semibold text-slate-900">{selectedRow.destination || "—"}</p>
                     <p className="text-sm text-slate-500">Travel Date</p>
                     <p className="font-semibold text-slate-900">{formatDisplayDate(selectedRow.travelDate)}</p>
+                    <p className="text-sm text-slate-500">Transport Fare</p>
+                    <div>{moneyStatusBadge(selectedRow.fareStatus)}</div>
                   </div>
                 </div>
               </div>

@@ -6,6 +6,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendEmail } from "@/lib/resend";
 import { buildAmbassadorWelcomeEmailHtml } from "@/lib/ambassadorEmail";
 import { generateReferralCode } from "@/lib/ambassadorCode";
+import { resolveExistingUniversity } from "@/lib/universityResolver";
+import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ success: false, error: message }, { status });
@@ -109,13 +111,15 @@ function generateTemporaryPassword() {
 
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();
-  const { authorized, error } = await requireAdminUser(req, response);
-  if (!authorized) return jsonError(error || "Unauthorized", 401);
+  const access = await requireUniversityOperationsUser(req, response, "viewAmbassadors");
+  if (!access.authorized) return jsonError(access.error, access.status);
 
-  const { data, error: fetchError } = await supabaseAdmin
+  const query = supabaseAdmin
     .from("ambassadors")
     .select("*")
     .order("created_at", { ascending: false });
+  if (!access.isGlobal) query.in("university_id", access.universityIds);
+  const { data, error: fetchError } = await query;
 
   if (fetchError) return jsonError(fetchError.message || "Unable to load ambassadors", 500);
   return NextResponse.json({ success: true, ambassadors: data ?? [] });
@@ -133,7 +137,8 @@ export async function POST(req: NextRequest) {
     const fullName = getString(body.fullName ?? body.full_name);
     const phone = getString(body.phone);
     const email = getString(body.email)?.toLowerCase();
-    const university = getString(body.university) ?? "Mzuzu University";
+    const requestedUniversity = getString(body.university);
+    const requestedUniversityId = getString(body.universityId ?? body.university_id);
     const faculty = getString(body.faculty);
     const program = getString(body.program);
     const yearOfStudy = typeof body.yearOfStudy === "number" ? body.yearOfStudy : parseInt(String(body.yearOfStudy ?? ""), 10);
@@ -144,6 +149,17 @@ export async function POST(req: NextRequest) {
     if (!fullName || !phone || !email) {
       return jsonError("fullName, phone, and email are required", 400);
     }
+
+    let universityRecord;
+    try {
+      universityRecord = await resolveExistingUniversity({
+        universityId: requestedUniversityId,
+        universityName: requestedUniversity,
+      });
+    } catch (error) {
+      return jsonError(getErrorMessage(error, "A valid university is required"), 400);
+    }
+    const university = universityRecord.name;
 
     // Fixes AMB-022 from docs/ambassador-system-audit.md — an admin can
     // still supply a custom code, but the auto-generated default now uses
@@ -229,6 +245,7 @@ export async function POST(req: NextRequest) {
       phone,
       email,
       university,
+      university_id: universityRecord.id,
       faculty,
       program,
       year_of_study: Number.isFinite(yearOfStudy) ? yearOfStudy : null,
@@ -262,7 +279,7 @@ export async function POST(req: NextRequest) {
 
       const { data: updatedAmbassador, error: updateError } = await supabaseAdmin
         .from("ambassadors")
-        .update({ user_id: userId, updated_at: new Date().toISOString() })
+        .update({ user_id: userId, university, university_id: universityRecord.id, updated_at: new Date().toISOString() })
         .eq("id", existingAmbassadorByEmail.id)
         .select()
         .single();
@@ -284,6 +301,7 @@ export async function POST(req: NextRequest) {
               phone,
               email,
               university,
+              university_id: universityRecord.id,
               faculty,
               program,
               year_of_study: Number.isFinite(yearOfStudy) ? yearOfStudy : null,

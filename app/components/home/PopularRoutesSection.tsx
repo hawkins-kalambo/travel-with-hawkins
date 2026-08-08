@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { IconRoute } from "../Icon";
+import { IconArrowRight, IconRoute } from "../Icon";
 import { formatMwk } from "@/lib/routePricing";
 
 export const ROUTES_DATA = [
@@ -18,14 +18,14 @@ type PopularRoutesSectionProps = {
 
 export default function PopularRoutesSection({ routePrices, onBookRoute, onCustomize }: PopularRoutesSectionProps) {
   return (
-    <section id="routes" className="scroll-mt-24 border-t border-slate-100 bg-white px-4 py-12 sm:border-t-0 sm:py-12">
+    <section id="routes" className="scroll-mt-24 bg-navy-midnight px-4 py-12 sm:py-16">
       <div className="mx-auto max-w-7xl">
         <div className="mb-5 flex items-end justify-between gap-4">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#0f3f78]">Popular Routes</p>
-            <h2 className="mt-1 text-2xl font-black sm:text-3xl">Top Destinations</h2>
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-orange">Popular Routes</p>
+            <h2 className="mt-1 text-2xl font-black text-white sm:text-3xl">Top Destinations</h2>
           </div>
-          <a href="#routes" className="shrink-0 rounded-lg px-2 py-2 text-xs font-bold text-[#0f3f78] transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-100 sm:text-sm">
+          <a href="#routes" className="shrink-0 rounded-lg px-2 py-2 text-xs font-bold text-white/80 transition hover:text-orange focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30 sm:text-sm">
             View all routes →
           </a>
         </div>
@@ -33,8 +33,9 @@ export default function PopularRoutesSection({ routePrices, onBookRoute, onCusto
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
           {ROUTES_DATA.map((route) => {
             const fare = routePrices[route.route] || route.fallbackPrice;
+            const [origin, destination] = route.route.split(" - ");
             return (
-              <article key={route.route} className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
+              <article key={route.route} className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border-light bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-orange/40 hover:shadow-lg">
                 <Image
                   src={route.img}
                   width={420}
@@ -44,14 +45,18 @@ export default function PopularRoutesSection({ routePrices, onBookRoute, onCusto
                   alt={route.route}
                 />
                 <div className="flex flex-1 flex-col p-3">
-                  <h3 className="text-sm font-black leading-5 text-slate-900">{route.route}</h3>
+                  <h3 className="flex items-center gap-1.5 text-sm font-black leading-5 text-navy">
+                    <span className="truncate">{origin}</span>
+                    <IconArrowRight className="h-3.5 w-3.5 shrink-0 text-orange" title="One-way route" />
+                    <span className="truncate">{destination}</span>
+                  </h3>
                   <p className="mt-1 truncate text-[11px] text-slate-500">{route.buses}</p>
-                  <p className="mt-1 text-xs font-black text-[#0f3f78]">Fare {formatMwk(fare)}</p>
+                  <p className="mt-1 text-xs font-black text-navy">Fare {formatMwk(fare)}</p>
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-[10px] font-bold text-amber-600">★ {route.rating}</span>
                     <button
                       onClick={() => onBookRoute(route.route)}
-                      className="inline-flex min-h-11 items-center justify-center rounded-lg border border-[#0f3f78] px-3 py-2 text-xs font-black text-[#0f3f78] transition hover:bg-[#0f3f78] hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                      className="inline-flex min-h-11 items-center justify-center rounded-lg border border-navy/25 px-3 py-2 text-xs font-black text-navy transition hover:bg-orange hover:border-orange hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30"
                     >
                       Book Now
                     </button>
@@ -61,19 +66,19 @@ export default function PopularRoutesSection({ routePrices, onBookRoute, onCusto
             );
           })}
 
-          <article className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
-            <div className="grid h-24 place-items-center bg-[linear-gradient(135deg,#071f3d,#155ea6)] text-white sm:h-28">
+          <article className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border-light bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-orange/40 hover:shadow-lg">
+            <div className="grid h-24 place-items-center bg-[linear-gradient(135deg,#0B1931,#0D2E5C)] text-white sm:h-28">
               <div className="grid h-12 w-12 place-items-center rounded-xl border border-white/20 bg-white/10 transition group-hover:scale-105">
                 <IconRoute className="h-6 w-6" title="Customized route" />
               </div>
             </div>
             <div className="flex flex-1 flex-col p-3">
-              <h3 className="text-sm font-black leading-5 text-slate-900">Customized Route</h3>
+              <h3 className="text-sm font-black leading-5 text-navy">Customized Route</h3>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">Choose your own departure district and university destination.</p>
               <button
                 type="button"
                 onClick={onCustomize}
-                className="mt-auto inline-flex min-h-11 items-center justify-center rounded-lg border border-[#0f3f78] px-3 py-2 text-xs font-black text-[#0f3f78] transition hover:bg-[#0f3f78] hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                className="mt-auto inline-flex min-h-11 items-center justify-center rounded-lg border border-navy/25 px-3 py-2 text-xs font-black text-navy transition hover:bg-orange hover:border-orange hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30"
               >
                 Customize Route
               </button>
@@ -84,7 +89,7 @@ export default function PopularRoutesSection({ routePrices, onBookRoute, onCusto
         <div className="mt-6 flex justify-center">
           <a
             href="#routes"
-            className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#0f3f78] px-6 text-sm font-black text-[#0f3f78] transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+            className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/40 px-6 text-sm font-black text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30"
           >
             View All Routes
           </a>

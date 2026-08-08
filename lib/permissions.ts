@@ -1,4 +1,4 @@
-export type AppRole = "super_admin" | "admin" | "viewer" | "ambassador" | "customer" | "unknown";
+export type AppRole = "super_admin" | "admin" | "university_admin" | "viewer" | "ambassador" | "customer" | "unknown";
 
 export type PermissionKey =
   | "viewDashboard"
@@ -68,6 +68,18 @@ const ROLE_PERMISSIONS: Record<AppRole, PermissionKey[]> = {
     "viewCommissionDashboard",
     "viewProfile",
   ],
+  // University scope is enforced server-side through
+  // university_admin_assignments. These role permissions describe which
+  // operations are possible, never which university rows are visible.
+  university_admin: [
+    "viewDashboard",
+    "viewReports",
+    "viewBookings",
+    "manageBookings",
+    "manageTrips",
+    "printManifests",
+    "viewProfile",
+  ],
   viewer: [
     "viewDashboard",
     "viewReports",
@@ -99,6 +111,7 @@ export function normalizeAppRole(role: unknown): AppRole {
   const normalized = role.trim().toLowerCase();
   if (normalized === "super_admin") return "super_admin";
   if (normalized === "admin") return "admin";
+  if (normalized === "university_admin") return "university_admin";
   if (normalized === "viewer") return "viewer";
   if (normalized === "ambassador") return "ambassador";
   if (normalized === "customer") return "customer";
@@ -115,7 +128,7 @@ export function hasPermission(role: unknown, permission: PermissionKey): boolean
 
 export function isAdminLikeRole(role: unknown): boolean {
   const normalizedRole = normalizeAppRole(role);
-  return normalizedRole === "super_admin" || normalizedRole === "admin" || normalizedRole === "viewer";
+  return normalizedRole === "super_admin" || normalizedRole === "admin" || normalizedRole === "university_admin" || normalizedRole === "viewer";
 }
 
 export function canManageUsers(role: unknown): boolean {

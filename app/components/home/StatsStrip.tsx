@@ -9,15 +9,15 @@ const STATS = [
 
 export default function StatsStrip() {
   return (
-    <section className="bg-[#f4f8fd] px-4 py-10 sm:py-8">
-      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm sm:p-6 md:grid-cols-4">
+    <section className="bg-brand-off-white px-4 py-10 sm:py-8">
+      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 rounded-2xl border border-border-light bg-white p-4 shadow-sm sm:p-6 md:grid-cols-4">
         {STATS.map(({ value, label, Icon }) => (
-          <div key={label} className="flex items-center gap-3 border-slate-200 md:border-r md:last:border-r-0">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#0f3f78] text-white">
+          <div key={label} className="flex items-center gap-3 border-border-light md:border-r md:last:border-r-0">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-orange-soft text-orange">
               <Icon className="h-5 w-5" title={label} />
             </span>
             <div>
-              <div className="text-2xl font-black text-[#0a2d56]">{value}</div>
+              <div className="text-2xl font-black text-navy">{value}</div>
               <div className="text-xs font-medium text-slate-600">{label}</div>
             </div>
           </div>

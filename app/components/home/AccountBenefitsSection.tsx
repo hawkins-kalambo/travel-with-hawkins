@@ -21,19 +21,19 @@ const ACCOUNT_BENEFITS = [
 
 export default function AccountBenefitsSection() {
   return (
-    <section id="why-account" className="bg-[#f8fbff] px-4 py-12 sm:py-10">
+    <section id="why-account" className="bg-brand-off-white px-4 py-12 sm:py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 text-center">
-          <h2 className="mt-1 text-2xl font-black text-[#101815] sm:text-3xl">Your Account. Your Journey.</h2>
+          <h2 className="mt-1 text-2xl font-black text-navy sm:text-3xl">Your Account. Your Journey.</h2>
           <p className="mt-2 text-sm font-medium text-slate-600">Create an account to enjoy a smoother travel experience.</p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           {ACCOUNT_BENEFITS.map(({ title, body, Icon }) => (
-            <div key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-3 grid h-11 w-11 place-items-center rounded-xl bg-blue-50 text-[#0f3f78]">
+            <div key={title} className="rounded-2xl border border-border-light bg-white p-5 shadow-sm">
+              <div className="mb-3 grid h-11 w-11 place-items-center rounded-xl bg-orange-soft text-orange">
                 <Icon className="h-5 w-5" title={`${title} benefit`} />
               </div>
-              <h3 className="text-base font-black text-[#0f3f78]">{title}</h3>
+              <h3 className="text-base font-black text-navy">{title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-600">{body}</p>
             </div>
           ))}
@@ -41,7 +41,7 @@ export default function AccountBenefitsSection() {
         <div className="mt-6 flex justify-center">
           <Link
             href="/customer/login"
-            className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#0f3f78] px-6 text-sm font-black text-white shadow-sm transition hover:bg-[#0a2d56] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+            className="inline-flex min-h-12 items-center justify-center rounded-full bg-orange px-6 text-sm font-black text-white shadow-sm transition hover:bg-orange-hover focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30"
           >
             Create Account / Sign In
           </Link>

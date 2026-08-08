@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import TripsClient from "./TripsClient";
-import { MALAWI_DISTRICTS, MALAWI_PUBLIC_UNIVERSITIES } from "@/lib/tripSearchData";
+import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isJourneyDirection } from "@/lib/journeyDirection";
 
 export const metadata: Metadata = {
   title: "Search Student Trips",
@@ -16,6 +18,7 @@ type TripsPageProps = {
     university?: string | string[];
     date?: string | string[];
     seats?: string | string[];
+    direction?: string | string[];
   }>;
 };
 
@@ -28,13 +31,19 @@ export default async function TripsPage({ searchParams }: TripsPageProps) {
   const requestedDeparture = firstValue(params.departure);
   const requestedUniversity = firstValue(params.university);
   const requestedSeats = Number(firstValue(params.seats));
+  const requestedDirection = firstValue(params.direction);
 
   const departure = MALAWI_DISTRICTS.includes(requestedDeparture as (typeof MALAWI_DISTRICTS)[number])
     ? requestedDeparture
     : "";
-  const university = MALAWI_PUBLIC_UNIVERSITIES.includes(requestedUniversity as (typeof MALAWI_PUBLIC_UNIVERSITIES)[number])
-    ? requestedUniversity
-    : "";
+  const { data: activeUniversities } = await supabaseAdmin
+    .from("universities")
+    .select("name")
+    .eq("status", "active")
+    .order("name", { ascending: true });
+
+  const universities = (activeUniversities ?? []).map((row) => String(row.name));
+  const university = universities.includes(requestedUniversity) ? requestedUniversity : "";
 
   return (
     <TripsClient
@@ -42,6 +51,8 @@ export default async function TripsPage({ searchParams }: TripsPageProps) {
       initialUniversity={university}
       initialDate={firstValue(params.date)}
       initialSeats={Number.isInteger(requestedSeats) && requestedSeats >= 1 && requestedSeats <= 10 ? requestedSeats : 1}
+      initialDirection={isJourneyDirection(requestedDirection) ? requestedDirection : "to_university"}
+      universities={universities}
     />
   );
 }

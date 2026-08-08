@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { formatMwk, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 
@@ -17,7 +18,6 @@ type BookingRecord = {
   studentId?: string;
   pickup?: string;
   bookingType?: string;
-  paymentStatus?: string;
   receiptNumber?: string;
   fare?: number;
   bookingFeeAmount?: number;
@@ -26,6 +26,9 @@ type BookingRecord = {
   fareStatus?: string;
   farePaymentMethod?: string;
   farePaidAt?: string;
+  journeyDirection?: JourneyDirection;
+  journeyOrigin?: string;
+  journeyDestination?: string;
   [key: string]: unknown;
 };
 
@@ -35,11 +38,11 @@ function StatusBadge({ status }: { status: BookingStatus }) {
   const s = String(status || "Booked");
   const colors: Record<string, string> = {
     Booked: "bg-amber-50 text-amber-700 border-amber-200",
-    Confirmed: "bg-blue-50 text-blue-700 border-blue-200",
-    Boarding: "bg-sky-50 text-sky-700 border-sky-200",
-    Departed: "bg-sky-50 text-sky-700 border-sky-200",
-    Arrived: "bg-cyan-50 text-cyan-700 border-cyan-200",
-    Completed: "bg-blue-50 text-blue-700 border-blue-200",
+    Confirmed: "bg-navy/10 text-navy border-navy/20",
+    Boarding: "bg-orange-soft text-orange border-orange/30",
+    Departed: "border-muted-bluegray/40 bg-muted-bluegray/15 text-navy-secondary",
+    Arrived: "bg-navy-secondary/10 text-navy-secondary border-navy-secondary/20",
+    Completed: "bg-success/10 text-success border-success/30",
     Cancelled: "bg-red-50 text-red-700 border-red-200",
   };
   return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${colors[s] ?? colors.Booked}`}>{s}</span>;
@@ -55,12 +58,12 @@ function StepperTimeline({ currentStatus }: { currentStatus: BookingStatus }) {
           return (
             <div key={label} className="flex flex-1 items-start last:flex-none">
               <div className="flex flex-col items-center">
-                <div className={`grid h-8 w-8 place-items-center rounded-full border-2 text-xs font-bold ${active ? "border-[#0f3f78] bg-[#0f3f78] text-white" : "border-slate-200 bg-white text-slate-400"}`}>
+                <div className={`grid h-8 w-8 place-items-center rounded-full border-2 text-xs font-bold ${active ? "border-navy bg-navy text-white" : "border-slate-200 bg-white text-slate-400"}`}>
                   {active ? "OK" : i + 1}
                 </div>
-                <span className={`mt-1 max-w-14 text-center text-[10px] leading-tight ${active ? "font-semibold text-[#0f3f78]" : "text-slate-500"}`}>{label}</span>
+                <span className={`mt-1 max-w-14 text-center text-[10px] leading-tight ${active ? "font-semibold text-navy" : "text-slate-500"}`}>{label}</span>
               </div>
-              {i < STATUS_ORDER.length - 1 && <div className={`mx-1 mt-4 h-0.5 flex-1 ${i < activeIndex ? "bg-[#0f3f78]" : "bg-slate-200"}`} />}
+              {i < STATUS_ORDER.length - 1 && <div className={`mx-1 mt-4 h-0.5 flex-1 ${i < activeIndex ? "bg-navy" : "bg-slate-200"}`} />}
             </div>
           );
         })}
@@ -91,7 +94,7 @@ export default function TrackModal({ trackId, onTrackIdChange, trackContact, onT
             <h2 className="text-2xl font-black">Track Booking</h2>
             <p className="text-sm text-slate-600">Enter your Booking ID and the email or phone number you booked with.</p>
           </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-md bg-slate-100">x</button>
+          <button onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200">x</button>
         </div>
         {trackError && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{trackError}</div>}
         <input className="template-input" placeholder="Enter Booking ID" value={trackId} onChange={(e) => onTrackIdChange(e.target.value)} />
@@ -101,7 +104,7 @@ export default function TrackModal({ trackId, onTrackIdChange, trackContact, onT
           value={trackContact}
           onChange={(e) => onTrackContactChange(e.target.value)}
         />
-        <button onClick={onTrack} disabled={trackLoading} className="mt-3 w-full rounded-md bg-[#0f3f78] py-3.5 font-black text-white disabled:bg-slate-300">
+        <button onClick={onTrack} disabled={trackLoading} className="mt-3 w-full rounded-md bg-orange py-3.5 font-black text-white transition hover:bg-orange-hover disabled:bg-slate-300 disabled:hover:bg-slate-300">
           {trackLoading ? "Searching..." : "Check Status"}
         </button>
         {trackResult && (() => {
@@ -143,12 +146,12 @@ export default function TrackModal({ trackId, onTrackIdChange, trackContact, onT
             )}
 
             {!needsAction && fareStatus === "cash_selected" && (
-              <div className="mb-3 rounded-md border-2 border-sky-300 bg-sky-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-sky-800">Fare: pay in cash on boarding day</p>
-                <p className="mt-1 text-xs text-sky-700">Booking fee paid. You&apos;ve chosen to pay the fare in cash when you board.</p>
+              <div className="mb-3 rounded-md border-2 border-navy/25 bg-navy/5 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-navy">Fare: pay in cash on boarding day</p>
+                <p className="mt-1 text-xs text-navy-secondary">Booking fee paid. You&apos;ve chosen to pay the fare in cash when you board.</p>
                 <Link
                   href={paymentHref}
-                  className="mt-3 inline-flex w-full items-center justify-center rounded-md border-2 border-sky-600 bg-white py-3 text-sm font-black text-sky-700"
+                  className="mt-3 inline-flex w-full items-center justify-center rounded-md border-2 border-navy bg-white py-3 text-sm font-black text-navy"
                 >
                   Manage Payment
                 </Link>
@@ -167,11 +170,14 @@ export default function TrackModal({ trackId, onTrackIdChange, trackContact, onT
               </div>
             )}
 
-            <div className="space-y-2 rounded-md border border-blue-100 bg-blue-50 p-4 text-sm">
+            <div className="space-y-2 rounded-md border border-navy/15 bg-navy/5 p-4 text-sm">
               {[
                 ["name", trackResult.name],
                 ["status", trackResult.status || "Booked"],
                 ["destination", trackResult.destination],
+                ["direction", trackResult.journeyDirection ? journeyDirectionLabel(trackResult.journeyDirection) : undefined],
+                ["from", trackResult.journeyOrigin],
+                ["to", trackResult.journeyDestination],
                 ["travelDate", trackResult.travelDate],
                 ["seats", trackResult.seats],
                 ["bookingType", trackResult.bookingType],

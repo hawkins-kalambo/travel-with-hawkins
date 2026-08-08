@@ -7,13 +7,11 @@ import HeroSection from "./components/home/HeroSection";
 import TripSearchCard from "./components/home/TripSearchCard";
 import StatsStrip from "./components/home/StatsStrip";
 import PopularRoutesSection from "./components/home/PopularRoutesSection";
-import CustomizeJourneyBanner from "./components/home/CustomizeJourneyBanner";
 import AccountBenefitsSection from "./components/home/AccountBenefitsSection";
 import WhyChooseUsSection from "./components/home/WhyChooseUsSection";
 import TeamSection from "./components/home/TeamSection";
 import AppBanner from "./components/home/AppBanner";
 import FAQSection from "./components/home/FAQSection";
-import ContactCardsSection from "./components/home/ContactCardsSection";
 import SiteFooter from "./components/home/SiteFooter";
 import BookingModal, { type BookingFormState, type ReferralValidationState } from "./components/home/BookingModal";
 import TrackModal from "./components/home/TrackModal";
@@ -22,6 +20,10 @@ import WhatsAppButton from "./components/WhatsAppButton";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { REFERRAL_STORAGE_KEY, resolveInitialReferral, type ReferralSource } from "@/lib/referralStorage";
+import { fetchActiveUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
+import { fetchActiveRoutes } from "@/lib/routesClient";
+import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { buildJourneyName, type JourneyDirection } from "@/lib/journeyDirection";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
 type BookingRecord = {
@@ -36,11 +38,18 @@ type BookingRecord = {
   [key: string]: unknown;
 };
 
+type RouteOption = { routeId: string; label: string };
+
 type HomeProps = {
   initialTrip?: {
     destination: string;
     travelDate?: string;
     seats?: number;
+    routeId?: string;
+    routeOptions?: RouteOption[];
+    journeyDirection?: JourneyDirection;
+    homeDistrict?: string;
+    university?: string;
   };
   initialReferralCode?: string | null;
 };
@@ -51,8 +60,9 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   const departureSelectRef = useRef<HTMLSelectElement>(null);
   const [bookingType, setBookingType] = useState<"route" | "custom">("custom");
   const [selectedRoute, setSelectedRoute] = useState("");
-  const [departureDistrict, setDepartureDistrict] = useState("Lilongwe");
-  const [destinationUniversity, setDestinationUniversity] = useState("Mzuzu University (MZUNI)");
+  const [departureDistrict, setDepartureDistrict] = useState(initialTrip?.homeDistrict ?? "Lilongwe");
+  const [destinationUniversity, setDestinationUniversity] = useState(initialTrip?.university ?? "");
+  const [journeyDirection, setJourneyDirection] = useState<JourneyDirection>(initialTrip?.journeyDirection ?? "to_university");
   const [customDestination, setCustomDestination] = useState(initialTrip?.destination ?? "");
   const [showBooking, setShowBooking] = useState(Boolean(initialTrip?.destination || initialReferralCode));
   const [showTrack, setShowTrack] = useState(false);
@@ -66,6 +76,10 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   const [urgencyDestination, setUrgencyDestination] = useState<string | null>(null);
   const [routePrices, setRoutePrices] = useState<Record<string, number>>({});
   const [settingsText, setSettingsText] = useState<string | Record<string, unknown>>("");
+  const [universities, setUniversities] = useState<string[]>([]);
+  const [activeUniversities, setActiveUniversities] = useState<ActiveUniversity[]>([]);
+  const [routeOptions, setRouteOptions] = useState<RouteOption[]>(initialTrip?.routeOptions ?? []);
+  const [selectedRouteId, setSelectedRouteId] = useState(initialTrip?.routeId ?? "");
   const [successData, setSuccessData] = useState<BookingSuccessData | null>(null);
   const [referralValidation, setReferralValidation] = useState<ReferralValidationState>({ state: "idle" });
   const [referralSource, setReferralSource] = useState<ReferralSource | null>(null);
@@ -126,21 +140,74 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       } catch {}
     };
 
+    const fetchUniversities = async () => {
+      const active = await fetchActiveUniversities();
+      setUniversities(active.map((u) => u.name));
+      setActiveUniversities(active);
+
+      if (active.length > 0) {
+        const mzuzu = active.find((university) => university.name.startsWith("Mzuzu University"));
+        if (mzuzu) {
+          const popularDistricts = ["Lilongwe", "Blantyre", "Zomba", "Kasungu", "Karonga"];
+          const routeResults = await Promise.all(
+            popularDistricts.map(async (district) => ({
+              district,
+              routes: await fetchActiveRoutes(district, mzuzu.id, "to_university"),
+            }))
+          );
+          const structuredPrices: Record<string, number> = {};
+          for (const result of routeResults) {
+            const fare = result.routes[0]?.fare;
+            if (typeof fare === "number" && fare > 0) structuredPrices[`${result.district} - Mzuzu`] = fare;
+          }
+          setRoutePrices((current) => ({ ...current, ...structuredPrices }));
+        }
+      }
+    };
+
     fetchUrgencySignal();
-    fetchSettings();
+    const loadRouteConfiguration = async () => {
+      await fetchSettings();
+      await fetchUniversities();
+    };
+    void loadRouteConfiguration();
     const interval = setInterval(fetchUrgencySignal, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const isFormValid = () => form.name.trim() && form.phone.trim() && form.seats >= 1 && form.travelDate.trim();
+  const isFormValid = () =>
+    Boolean(form.name.trim() && normalizeMalawiPhone(form.phone) && form.seats >= 1 && form.travelDate.trim() && !(routeOptions.length > 1 && !selectedRouteId));
   const getFareForDestination = (destination: string) => resolveRouteFareIfAvailable(destination, settingsText);
   const urgencyDisplay = urgencyDestination;
   const tripSearchReady = Boolean(departureDistrict && destinationUniversity);
 
   const openBooking = (route = "") => {
+    const popularHomeDistrict = route.split(" - ")[0]?.trim();
+    if (route && popularHomeDistrict) {
+      setDepartureDistrict(popularHomeDistrict);
+      setDestinationUniversity("Mzuzu University (MZUNI)");
+      setJourneyDirection("to_university");
+    }
     setSelectedRoute(route);
     setBookingType(route ? "route" : "custom");
     setCustomDestination("");
+    setRouteOptions([]);
+    setSelectedRouteId("");
+    setError("");
+    setShowBooking(true);
+  };
+
+  const openPopularRoute = (route: string) => {
+    const homeDistrict = route.split(" - ")[0]?.trim() || "";
+    const universityName = "Mzuzu University (MZUNI)";
+    setDepartureDistrict(homeDistrict);
+    setDestinationUniversity(universityName);
+    setJourneyDirection("to_university");
+    setSelectedRoute("");
+    setBookingType("custom");
+    setCustomDestination(buildJourneyName(homeDistrict, universityName, "to_university"));
+    setRouteOptions([]);
+    setSelectedRouteId("");
     setError("");
     setShowBooking(true);
   };
@@ -178,6 +245,8 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     setSelectedRoute("");
     setCustomDestination("");
     setBookingType("custom");
+    setRouteOptions([]);
+    setSelectedRouteId("");
     setError("");
   };
 
@@ -193,6 +262,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     const params = new URLSearchParams({
       departure: departureDistrict,
       university: destinationUniversity,
+      direction: journeyDirection,
       date: form.travelDate,
       seats: String(form.seats),
     });
@@ -231,6 +301,22 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       return false;
     }
   };
+
+  useEffect(() => {
+    // Only debounce codes the customer is actively typing — an
+    // auto-captured link code is already validated once on mount, and
+    // re-validating it here on every render would just repeat that call.
+    if (referralSource !== "manual") return;
+    const code = form.referralCode.trim();
+    const debounceTimer = window.setTimeout(() => {
+      if (!code) {
+        setReferralValidation({ state: "idle" });
+        return;
+      }
+      void validateReferralCode(code);
+    }, 500);
+    return () => window.clearTimeout(debounceTimer);
+  }, [form.referralCode, referralSource]);
 
   useEffect(() => {
     // Capture ?ref=CODE from an ambassador's referral link (app/book/page.tsx
@@ -297,12 +383,25 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     }
 
     setLoading(true);
-    const destination = bookingType === "custom" ? customDestination.trim() : selectedRoute;
+    const destination = selectedRouteId || bookingType === "custom"
+      ? customDestination.trim()
+      : selectedRoute;
     const fare = getFareForDestination(destination);
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        body: JSON.stringify({ ...form, destination, pickup: "Mzuzu University", location: "Campus", bookingType, referralCode: finalReferralCode || undefined }),
+        body: JSON.stringify({
+          ...form,
+          destination,
+          pickup: journeyDirection === "from_university" ? destinationUniversity : departureDistrict,
+          location: journeyDirection === "from_university" ? "University" : "Home district",
+          bookingType,
+          routeId: selectedRouteId || undefined,
+          universityId: activeUniversities.find((university) => university.name === destinationUniversity)?.id,
+          journeyDirection,
+          homeDistrict: bookingType === "route" ? selectedRoute.split(" - ")[0]?.trim() || departureDistrict : departureDistrict,
+          referralCode: finalReferralCode || undefined,
+        }),
       });
       const result = await res.json();
       if (result?.success) {
@@ -319,6 +418,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           bookingId: normalized.bookingId || result.bookingId || "PENDING",
           fare: finalFare,
           bookingFeeAmount: normalized.bookingFeeAmount,
+          journeyDirection,
         });
         localStorage.setItem("twh_profile", JSON.stringify({ name: form.name.trim(), studentId: form.studentId.trim(), phone: form.phone.trim() }));
         closeBooking();
@@ -371,6 +471,9 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
         onDepartureChange={setDepartureDistrict}
         destinationUniversity={destinationUniversity}
         onDestinationChange={setDestinationUniversity}
+        journeyDirection={journeyDirection}
+        onJourneyDirectionChange={setJourneyDirection}
+        universities={universities}
         travelDate={form.travelDate}
         onDateChange={(value) => setForm({ ...form, travelDate: value })}
         seats={form.seats}
@@ -382,9 +485,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
 
       <StatsStrip />
 
-      <PopularRoutesSection routePrices={routePrices} onBookRoute={openBooking} onCustomize={focusTripSearch} />
-
-      <CustomizeJourneyBanner onCustomize={focusTripSearch} />
+      <PopularRoutesSection routePrices={routePrices} onBookRoute={openPopularRoute} onCustomize={focusTripSearch} />
 
       <AccountBenefitsSection />
 
@@ -395,8 +496,6 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       <AppBanner />
 
       <FAQSection />
-
-      <ContactCardsSection />
 
       <SiteFooter />
 
@@ -413,6 +512,17 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
             setCustomDestination("");
           }}
           onCustomDestinationChange={setCustomDestination}
+          routeOptions={routeOptions}
+          onRouteOptionsChange={setRouteOptions}
+          selectedRouteId={selectedRouteId}
+          onSelectRouteId={setSelectedRouteId}
+          activeUniversities={activeUniversities}
+          journeyDirection={journeyDirection}
+          onJourneyDirectionChange={setJourneyDirection}
+          initialHomeDistrict={departureDistrict}
+          initialUniversityName={destinationUniversity}
+          onHomeDistrictChange={setDepartureDistrict}
+          onUniversityNameChange={setDestinationUniversity}
           error={error}
           form={form}
           onFormChange={(nextForm) => {

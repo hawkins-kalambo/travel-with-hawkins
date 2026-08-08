@@ -34,7 +34,6 @@ function toGuestSafeView(record: BookingRecord) {
     location: record.location,
     bookingType: record.bookingType,
     status: record.status,
-    paymentStatus: record.paymentStatus,
     receiptNumber: record.receiptNumber,
     fare: record.fare,
     bookingFeeAmount: record.bookingFeeAmount,

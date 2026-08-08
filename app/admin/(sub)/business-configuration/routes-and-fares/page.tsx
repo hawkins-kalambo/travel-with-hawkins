@@ -2,7 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { loadBusinessSettings, saveBusinessSettings } from "@/app/admin/(sub)/business-configuration/businessConfigClient";
+import {
+  loadBusinessSettings,
+  saveBusinessSettings,
+  loadUniversities,
+  loadRoutes,
+  createRoute as createStructuredRouteApi,
+  updateRoute as updateStructuredRouteApi,
+  deleteRoute as deleteStructuredRouteApi,
+  loadDistrictPickupPoints,
+  createDistrictPickupPoint,
+  updateDistrictPickupPoint,
+  type University,
+  type StructuredRoute,
+  type DistrictPickupPoint,
+} from "@/app/admin/(sub)/business-configuration/businessConfigClient";
+import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
+import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
+import { authFetch } from "@/lib/auth";
 
 interface RouteObject {
   id: string;
@@ -72,12 +89,40 @@ function deriveRoutes(settings: Record<string, unknown>): RouteObject[] {
     });
 }
 
+const COMMISSION_TYPES: { value: "fixed" | "percentage"; label: string }[] = [
+  { value: "fixed", label: "Fixed amount" },
+  { value: "percentage", label: "Percentage" },
+];
+
+function emptyRouteDraft() {
+  return {
+    originDistrict: "",
+    universityId: "",
+    pickupPointId: "",
+    districtPickupPointId: "",
+    direction: "to_university" as JourneyDirection,
+    fare: "0",
+    commissionAmount: "0",
+    commissionType: "fixed" as "fixed" | "percentage",
+  };
+}
+
 export default function RoutesAndFaresPage() {
   const [routes, setRoutes] = useState<RouteObject[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [universities, setUniversities] = useState<University[]>([]);
+  const [structuredRoutes, setStructuredRoutes] = useState<StructuredRoute[]>([]);
+  const [structuredLoading, setStructuredLoading] = useState(true);
+  const [structuredSaving, setStructuredSaving] = useState<string | null>(null);
+  const [structuredError, setStructuredError] = useState<string | null>(null);
+  const [routeDraft, setRouteDraft] = useState(emptyRouteDraft());
+  const [districtPickupPoints, setDistrictPickupPoints] = useState<DistrictPickupPoint[]>([]);
+  const [districtPointDraft, setDistrictPointDraft] = useState({ universityId: "", district: "", label: "" });
+  const [isUniversityAdmin, setIsUniversityAdmin] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -93,6 +138,166 @@ export default function RoutesAndFaresPage() {
 
     void load();
   }, []);
+
+  useEffect(() => {
+    void authFetch("/api/profile")
+      .then(async (response) => response.json() as Promise<{ profile?: { role?: string } }>)
+      .then((body) => setIsUniversityAdmin(body.profile?.role === "university_admin"))
+      .catch(() => undefined);
+  }, []);
+
+  const refreshStructured = async () => {
+    const [universitiesData, routesData, districtPointsData] = await Promise.all([loadUniversities(), loadRoutes(), loadDistrictPickupPoints()]);
+    setUniversities(universitiesData);
+    setStructuredRoutes(routesData);
+    setDistrictPickupPoints(districtPointsData);
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const [universitiesData, routesData, districtPointsData] = await Promise.all([loadUniversities(), loadRoutes(), loadDistrictPickupPoints()]);
+        setUniversities(universitiesData);
+        setStructuredRoutes(routesData);
+        setDistrictPickupPoints(districtPointsData);
+      } catch (err) {
+        setStructuredError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setStructuredLoading(false);
+      }
+    };
+
+    void init();
+  }, []);
+
+  const flashStructured = (text: string) => {
+    setMessage(text);
+    window.setTimeout(() => setMessage(null), 3000);
+  };
+
+  const pickupPointsFor = (universityId: string) =>
+    universities.find((u) => u.id === universityId)?.pickupPoints || [];
+
+  const districtPointsFor = (universityId: string, district: string) =>
+    districtPickupPoints.filter((point) => point.university_id === universityId && point.district === district);
+
+  const addDistrictPoint = async () => {
+    if (!districtPointDraft.universityId || !districtPointDraft.district || !districtPointDraft.label.trim()) {
+      setStructuredError("Choose a university and district, then enter the pickup point name.");
+      return;
+    }
+    setStructuredSaving("new-district-point");
+    setStructuredError(null);
+    try {
+      await createDistrictPickupPoint({ ...districtPointDraft, status: "active" });
+      setDistrictPointDraft({ ...districtPointDraft, label: "" });
+      await refreshStructured();
+      flashStructured("District pickup point added.");
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStructuredSaving(null);
+    }
+  };
+
+  const toggleDistrictPoint = async (point: DistrictPickupPoint) => {
+    setStructuredSaving(point.id);
+    setStructuredError(null);
+    try {
+      await updateDistrictPickupPoint({ id: point.id, status: point.status === "active" ? "inactive" : "active" });
+      await refreshStructured();
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStructuredSaving(null);
+    }
+  };
+
+  const saveDistrictPointLabel = async (point: DistrictPickupPoint) => {
+    if (!point.label.trim()) return;
+    setStructuredSaving(point.id);
+    setStructuredError(null);
+    try {
+      await updateDistrictPickupPoint({ id: point.id, label: point.label.trim() });
+      await refreshStructured();
+      flashStructured("District pickup point updated.");
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStructuredSaving(null);
+    }
+  };
+
+  const addStructuredRoute = async () => {
+    if (!routeDraft.originDistrict || !routeDraft.universityId || !routeDraft.districtPickupPointId) {
+      setStructuredError("Choose a home district, university and district pickup/drop-off point.");
+      return;
+    }
+    setStructuredSaving("new");
+    setStructuredError(null);
+    try {
+      await createStructuredRouteApi({
+        originDistrict: routeDraft.originDistrict,
+        universityId: routeDraft.universityId,
+        pickupPointId: routeDraft.pickupPointId || undefined,
+        districtPickupPointId: routeDraft.districtPickupPointId,
+        fare: Number(routeDraft.fare) || 0,
+        commissionAmount: Number(routeDraft.commissionAmount) || 0,
+        commissionType: routeDraft.commissionType,
+        direction: routeDraft.direction,
+        status: "inactive",
+      });
+      setRouteDraft(emptyRouteDraft());
+      await refreshStructured();
+      flashStructured("Route added as inactive — activate it once the fare is confirmed.");
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStructuredSaving(null);
+    }
+  };
+
+  const saveStructuredRoute = async (route: StructuredRoute) => {
+    setStructuredSaving(route.id);
+    setStructuredError(null);
+    try {
+      await updateStructuredRouteApi({
+        id: route.id,
+        fare: route.fare,
+        status: route.status,
+        estimatedTravelTime: route.estimated_travel_time || undefined,
+        capacity: route.capacity ?? undefined,
+        commissionAmount: route.commission_amount,
+        commissionType: route.commission_type,
+        direction: route.direction,
+        pickupPointId: route.pickup_point_id || undefined,
+        districtPickupPointId: route.district_pickup_point_id || undefined,
+      });
+      await refreshStructured();
+      flashStructured("Route updated.");
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStructuredSaving(null);
+    }
+  };
+
+  const removeStructuredRoute = async (id: string) => {
+    setStructuredSaving(id);
+    setStructuredError(null);
+    try {
+      await deleteStructuredRouteApi(id);
+      await refreshStructured();
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStructuredSaving(null);
+    }
+  };
+
+  const updateStructuredField = (id: string, changes: Partial<StructuredRoute>) => {
+    setStructuredRoutes((current) => current.map((route) => (route.id === id ? { ...route, ...changes } : route)));
+  };
 
   const save = async () => {
     setSaving(true);
@@ -150,7 +355,7 @@ export default function RoutesAndFaresPage() {
               <p className="mt-2 text-sm text-slate-500">Add and edit routes without code, including origin, destination, fare, capacity and active status.</p>
             </div>
             <Link
-              href="/admin/business-configuration"
+              href={isUniversityAdmin ? "/admin" : "/admin/business-configuration"}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               Back to Business Configuration
@@ -161,7 +366,7 @@ export default function RoutesAndFaresPage() {
         {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{message}</div>}
         {error && <div className="rounded-2xl border border-danger/20 bg-danger/10 p-4 text-sm text-danger">{error}</div>}
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        {!isUniversityAdmin && <><div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Routes</p>
             <p className="mt-3 text-3xl font-semibold text-slate-900">{routeSummary.total}</p>
@@ -292,6 +497,334 @@ export default function RoutesAndFaresPage() {
               {saving ? "Saving…" : "Save routes"}
             </button>
           </div>
+        </div></>}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-semibold text-slate-900">University travel routes</h2>
+            <Link href="/admin/business-configuration/universities" className="text-sm font-semibold text-[#0f3f78] hover:underline">
+              Manage universities &amp; pickup points →
+            </Link>
+          </div>
+          <p className="mb-5 text-sm text-slate-500">
+            These power both home district → university and university → home district journeys. A route only appears to customers once both its university and its own status are
+            &quot;active&quot;. New routes are added inactive by design, so a placeholder fare never goes live by accident.
+          </p>
+
+          {structuredError && <div className="mb-4 rounded-2xl border border-danger/20 bg-danger/10 p-4 text-sm text-danger">{structuredError}</div>}
+
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-bold text-slate-900">District pickup and drop-off points</h3>
+            <p className="mt-1 text-sm text-slate-500">Create the actual landmark where students board when going to university, or leave the vehicle when going home.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-4 md:items-end">
+              <select
+                value={districtPointDraft.universityId}
+                onChange={(e) => setDistrictPointDraft({ ...districtPointDraft, universityId: e.target.value })}
+                className="input-field"
+              >
+                <option value="">Select university</option>
+                {universities.map((university) => <option key={university.id} value={university.id}>{university.name}</option>)}
+              </select>
+              <select
+                value={districtPointDraft.district}
+                onChange={(e) => setDistrictPointDraft({ ...districtPointDraft, district: e.target.value })}
+                className="input-field"
+              >
+                <option value="">Select district</option>
+                {MALAWI_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}
+              </select>
+              <input
+                value={districtPointDraft.label}
+                onChange={(e) => setDistrictPointDraft({ ...districtPointDraft, label: e.target.value })}
+                placeholder="e.g. Game Complex car park"
+                className="input-field"
+              />
+              <button onClick={addDistrictPoint} disabled={structuredSaving === "new-district-point"} className="rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                Add district point
+              </button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {districtPickupPoints.map((point) => (
+                <div key={point.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
+                  <span className="text-xs font-bold text-slate-500">{point.district}</span>
+                  <input
+                    value={point.label}
+                    onChange={(e) => setDistrictPickupPoints((current) => current.map((item) => item.id === point.id ? { ...item, label: e.target.value } : item))}
+                    className="min-w-48 rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                  />
+                  <button onClick={() => saveDistrictPointLabel(point)} disabled={structuredSaving === point.id} className="text-xs font-bold text-[#0f3f78]">Save</button>
+                  <button
+                    onClick={() => toggleDistrictPoint(point)}
+                    disabled={structuredSaving === point.id}
+                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${point.status === "active" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-300 bg-slate-50 text-slate-500"}`}
+                  >
+                    {point.status}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mb-6 grid gap-4 rounded-2xl border border-dashed border-slate-300 p-4 md:grid-cols-4 lg:grid-cols-7 lg:items-end">
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Direction</span>
+              <select
+                value={routeDraft.direction}
+                onChange={(e) => setRouteDraft({ ...routeDraft, direction: e.target.value as JourneyDirection })}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="to_university">Going to university</option>
+                <option value="from_university">Going home</option>
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Home district</span>
+              <select
+                value={routeDraft.originDistrict}
+                onChange={(e) => setRouteDraft({ ...routeDraft, originDistrict: e.target.value, districtPickupPointId: "" })}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="">Select district</option>
+                {MALAWI_DISTRICTS.map((district) => (
+                  <option key={district} value={district}>{district}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">University</span>
+              <select
+                value={routeDraft.universityId}
+                onChange={(e) => setRouteDraft({ ...routeDraft, universityId: e.target.value, pickupPointId: "", districtPickupPointId: "" })}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="">Select university</option>
+                {universities.map((university) => (
+                  <option key={university.id} value={university.id}>{university.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Campus point</span>
+              <select
+                value={routeDraft.pickupPointId}
+                onChange={(e) => setRouteDraft({ ...routeDraft, pickupPointId: e.target.value })}
+                disabled={!routeDraft.universityId}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
+              >
+                <option value="">Default</option>
+                {pickupPointsFor(routeDraft.universityId).map((point) => (
+                  <option key={point.id} value={point.id}>{point.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">District point</span>
+              <select
+                value={routeDraft.districtPickupPointId}
+                onChange={(e) => setRouteDraft({ ...routeDraft, districtPickupPointId: e.target.value })}
+                disabled={!routeDraft.universityId || !routeDraft.originDistrict}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
+              >
+                <option value="">Select point</option>
+                {districtPointsFor(routeDraft.universityId, routeDraft.originDistrict).map((point) => (
+                  <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Fare (MWK)</span>
+              <input
+                type="number"
+                value={routeDraft.fare}
+                onChange={(e) => setRouteDraft({ ...routeDraft, fare: e.target.value })}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Ambassador commission</span>
+              <select
+                value={routeDraft.commissionType}
+                onChange={(e) => setRouteDraft({ ...routeDraft, commissionType: e.target.value as "fixed" | "percentage" })}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                {COMMISSION_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">
+                {routeDraft.commissionType === "percentage" ? "Commission (%)" : "Commission (MWK)"}
+              </span>
+              <input
+                type="number"
+                value={routeDraft.commissionAmount}
+                onChange={(e) => setRouteDraft({ ...routeDraft, commissionAmount: e.target.value })}
+                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </label>
+            <button
+              onClick={addStructuredRoute}
+              disabled={structuredSaving === "new"}
+              className="rounded-lg bg-[#0f3f78] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a2d56] disabled:opacity-60"
+            >
+              {structuredSaving === "new" ? "Adding…" : "Add route"}
+            </button>
+          </div>
+
+          {structuredLoading ? (
+            <p className="text-sm text-slate-500">Loading routes…</p>
+          ) : structuredRoutes.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-500">
+              No university travel routes configured yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {structuredRoutes.map((route) => (
+                <div key={route.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">
+                        {route.direction === "from_university"
+                          ? `${route.university?.name || "Unknown university"} → ${route.origin_district}`
+                          : `${route.origin_district} → ${route.university?.name || "Unknown university"}`}
+                        {route.districtPickupPoint ? ` · District: ${route.districtPickupPoint.label}` : ""}
+                        {route.pickupPoint ? ` · Campus: ${route.pickupPoint.label}` : ""}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-[#0f3f78]">{journeyDirectionLabel(route.direction)}</p>
+                      {route.university?.status !== "active" && (
+                        <p className="mt-1 text-xs font-semibold text-amber-700">University is inactive — this route stays hidden regardless of its own status.</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeStructuredRoute(route.id)}
+                      disabled={structuredSaving === route.id}
+                      className="rounded-full border border-danger/30 bg-white px-4 py-2 text-xs font-semibold text-danger transition hover:bg-danger/5 disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-5">
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Direction</span>
+                      <select
+                        value={route.direction}
+                        onChange={(e) => updateStructuredField(route.id, { direction: e.target.value as JourneyDirection })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="to_university">Going to university</option>
+                        <option value="from_university">Going home</option>
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Fare (MWK)</span>
+                      <input
+                        type="number"
+                        value={String(route.fare)}
+                        onChange={(e) => updateStructuredField(route.id, { fare: Number(e.target.value) || 0 })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Travel time</span>
+                      <input
+                        value={route.estimated_travel_time || ""}
+                        onChange={(e) => updateStructuredField(route.id, { estimated_travel_time: e.target.value })}
+                        placeholder="3h 20m"
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Capacity</span>
+                      <input
+                        type="number"
+                        value={String(route.capacity ?? 0)}
+                        onChange={(e) => updateStructuredField(route.id, { capacity: Number(e.target.value) || 0 })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Status</span>
+                      <select
+                        value={route.status}
+                        onChange={(e) => updateStructuredField(route.id, { status: e.target.value })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">District pickup / drop-off</span>
+                      <select
+                        value={route.district_pickup_point_id || ""}
+                        onChange={(e) => updateStructuredField(route.id, { district_pickup_point_id: e.target.value || null })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Select district point</option>
+                        {districtPointsFor(route.university_id, route.origin_district).map((point) => (
+                          <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">University campus point</span>
+                      <select
+                        value={route.pickup_point_id || ""}
+                        onChange={(e) => updateStructuredField(route.id, { pickup_point_id: e.target.value || null })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Default campus</option>
+                        {pickupPointsFor(route.university_id).map((point) => (
+                          <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Ambassador commission</span>
+                      <select
+                        value={route.commission_type}
+                        onChange={(e) => updateStructuredField(route.id, { commission_type: e.target.value as "fixed" | "percentage" })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        {COMMISSION_TYPES.map((type) => (
+                          <option key={type.value} value={type.value}>{type.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">
+                        {route.commission_type === "percentage" ? "Commission (%)" : "Commission (MWK)"}
+                      </span>
+                      <input
+                        type="number"
+                        value={String(route.commission_amount)}
+                        onChange={(e) => updateStructuredField(route.id, { commission_amount: Number(e.target.value) || 0 })}
+                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      onClick={() => saveStructuredRoute(route)}
+                      disabled={structuredSaving === route.id}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      {structuredSaving === route.id ? "Saving…" : "Save changes"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
