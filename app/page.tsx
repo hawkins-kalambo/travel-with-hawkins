@@ -453,7 +453,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   };
 
   return (
-    <main className="min-h-screen bg-white text-[#101815]">
+    <main className="min-h-screen overflow-x-hidden bg-white text-[#101815]">
       <SiteHeader onOpenBooking={() => openBooking()} onOpenTrack={() => setShowTrack(true)} />
 
       {urgencyDisplay && (

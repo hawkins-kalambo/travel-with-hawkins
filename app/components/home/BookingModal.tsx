@@ -198,9 +198,9 @@ export default function BookingModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex min-h-screen items-center justify-center overflow-y-auto overflow-x-hidden bg-black/60 p-4 sm:p-6">
-      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-5">
+    <div className="fixed inset-0 z-[9999] flex min-h-screen w-screen items-start justify-center overflow-y-auto overflow-x-hidden bg-black/60 p-2 sm:items-center sm:p-6">
+      <div className="my-2 flex max-h-[calc(100dvh-1rem)] w-full max-w-[min(100%,28rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:my-0 sm:max-h-[calc(100vh-3rem)]">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-5">
           <div className="mb-4 flex items-start justify-between">
             <div>
               <h2 className="text-2xl font-black">Book Trip</h2>
@@ -215,7 +215,7 @@ export default function BookingModal({
 
           <div className="mb-5">
             <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Popular routes</p>
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex flex-wrap gap-2 pb-1">
               {POPULAR_ROUTES.map((route) => (
                 <button
                   key={route}

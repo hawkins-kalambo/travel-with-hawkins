@@ -112,6 +112,7 @@
 html {
   font-size: 16px;
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -120,6 +121,7 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   font-size: 1rem;
   line-height: 1.6;
+  overflow-x: hidden;
 }
 
 input, select, textarea {
