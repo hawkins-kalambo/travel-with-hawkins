@@ -198,9 +198,9 @@ export default function BookingModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 sm:items-center">
-      <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
-        <div className="flex-1 overflow-y-auto p-5">
+    <div className="fixed inset-0 z-[9999] flex min-h-screen items-center justify-center overflow-y-auto overflow-x-hidden bg-black/60 p-4 sm:p-6">
+      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-5">
           <div className="mb-4 flex items-start justify-between">
             <div>
               <h2 className="text-2xl font-black">Book Trip</h2>
