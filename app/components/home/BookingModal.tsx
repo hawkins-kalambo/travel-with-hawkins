@@ -193,7 +193,7 @@ export default function BookingModal({
     onUniversityNameChange?.(university?.name || "Mzuzu University (MZUNI)");
     resetResolvedRoute();
     onJourneyDirectionChange("to_university");
-    onSelectRoute("");
+    onSelectRoute(route);
     onCustomDestinationChange(buildJourneyName(homeDistrict, university?.name || "Mzuzu University (MZUNI)", "to_university"));
   };
 
