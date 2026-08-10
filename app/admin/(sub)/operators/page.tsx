@@ -29,6 +29,44 @@ type OperatorDocument = {
   createdAt: string;
 };
 
+type Vehicle = {
+  id: string;
+  service_type: string;
+  registration_number: string;
+  make: string | null;
+  model: string | null;
+  status: string;
+};
+
+type Driver = {
+  id: string;
+  full_name: string;
+  phone: string;
+  license_number: string;
+  status: string;
+};
+
+const VEHICLE_ADMIN_ACTIONS: Record<string, { label: string; next: string }[]> = {
+  pending: [
+    { label: "Verify", next: "active" },
+    { label: "Suspend", next: "suspended" },
+  ],
+  active: [{ label: "Suspend", next: "suspended" }],
+  maintenance: [{ label: "Suspend", next: "suspended" }],
+  expired_documents: [{ label: "Suspend", next: "suspended" }],
+  suspended: [{ label: "Reinstate", next: "active" }],
+};
+
+const DRIVER_ADMIN_ACTIONS: Record<string, { label: string; next: string }[]> = {
+  pending: [
+    { label: "Verify", next: "verified" },
+    { label: "Suspend", next: "suspended" },
+  ],
+  verified: [{ label: "Suspend", next: "suspended" }],
+  inactive: [{ label: "Suspend", next: "suspended" }],
+  suspended: [{ label: "Reinstate", next: "verified" }],
+};
+
 const APPLICATION_FILTERS = ["all", "submitted", "under_review", "changes_required", "approved", "rejected"];
 
 export default function AdminOperatorsPage() {
@@ -38,6 +76,8 @@ export default function AdminOperatorsPage() {
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<OperatorDocument[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -71,9 +111,16 @@ export default function AdminOperatorsPage() {
   const loadDocumentsFor = async (operatorId: string) => {
     setDocumentsLoading(true);
     try {
-      const response = await authFetch(`/api/admin/operators/documents?operatorId=${operatorId}`);
-      const result = await response.json();
-      if (result.success) setDocuments(result.documents);
+      const [documentsRes, fleetRes] = await Promise.all([
+        authFetch(`/api/admin/operators/documents?operatorId=${operatorId}`),
+        authFetch(`/api/admin/operators/fleet?operatorId=${operatorId}`),
+      ]);
+      const [documentsResult, fleetResult] = await Promise.all([documentsRes.json(), fleetRes.json()]);
+      if (documentsResult.success) setDocuments(documentsResult.documents);
+      if (fleetResult.success) {
+        setVehicles(fleetResult.vehicles);
+        setDrivers(fleetResult.drivers);
+      }
     } finally {
       setDocumentsLoading(false);
     }
@@ -87,6 +134,21 @@ export default function AdminOperatorsPage() {
 
     setExpandedId(operatorId);
     await loadDocumentsFor(operatorId);
+  };
+
+  const updateFleetEntity = async (entityType: "vehicle" | "driver", entityId: string, status: string) => {
+    setActionError("");
+    const response = await authFetch("/api/admin/operators/fleet", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entityType, entityId, status }),
+    });
+    const result = await response.json();
+    if (!result.success) {
+      setActionError(result.error || "Action failed");
+      return;
+    }
+    if (expandedId) await loadDocumentsFor(expandedId);
   };
 
   const updateOperator = async (operatorId: string, payload: Record<string, unknown>) => {
@@ -172,7 +234,7 @@ export default function AdminOperatorsPage() {
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button onClick={() => toggleExpand(operator.id)} className="btn-secondary">
-                {expandedId === operator.id ? "Hide documents" : "Review documents"}
+                {expandedId === operator.id ? "Hide details" : "Review fleet & documents"}
               </button>
               {operator.application_status !== "approved" && (
                 <button onClick={() => updateOperator(operator.id, { applicationStatus: "approved" })} className="btn-primary">
@@ -199,9 +261,55 @@ export default function AdminOperatorsPage() {
 
             {expandedId === operator.id && (
               <div className="mt-4 border-t border-gray-100 pt-4">
-                {documentsLoading && <p className="text-sm text-gray-500">Loading documents…</p>}
+                {documentsLoading && <p className="text-sm text-gray-500">Loading…</p>}
+
+                {!documentsLoading && (vehicles.length > 0 || drivers.length > 0) && (
+                  <div className="mb-4 space-y-2">
+                    <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500">Fleet</h3>
+                    {vehicles.map((vehicle) => (
+                      <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 px-4 py-3">
+                        <p className="text-sm font-semibold text-gray-800">
+                          {vehicle.registration_number} {vehicle.make && `· ${vehicle.make} ${vehicle.model ?? ""}`}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Badge tone="neutral">{vehicle.status}</Badge>
+                          {(VEHICLE_ADMIN_ACTIONS[vehicle.status] ?? []).map((action) => (
+                            <button
+                              key={action.label}
+                              onClick={() => updateFleetEntity("vehicle", vehicle.id, action.next)}
+                              className="btn-secondary px-3 py-1 text-xs"
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {drivers.map((driver) => (
+                      <div key={driver.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 px-4 py-3">
+                        <p className="text-sm font-semibold text-gray-800">
+                          {driver.full_name} · {driver.license_number}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Badge tone="neutral">{driver.status}</Badge>
+                          {(DRIVER_ADMIN_ACTIONS[driver.status] ?? []).map((action) => (
+                            <button
+                              key={action.label}
+                              onClick={() => updateFleetEntity("driver", driver.id, action.next)}
+                              className="btn-secondary px-3 py-1 text-xs"
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500">Documents</h3>
                 {!documentsLoading && documents.length === 0 && <p className="text-sm text-gray-500">No documents uploaded yet.</p>}
-                <div className="space-y-2">
+                <div className="mt-2 space-y-2">
                   {documents.map((doc) => (
                     <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 px-4 py-3">
                       <div>

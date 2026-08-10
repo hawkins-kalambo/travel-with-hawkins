@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { authFetch, logout } from "@/lib/auth";
 import DocumentsPanel from "./_components/DocumentsPanel";
+import FleetPanel from "./_components/FleetPanel";
 
 type OperatorMe = {
   operator: {
@@ -150,11 +151,12 @@ export default function OperatorDashboardPage() {
           </dl>
         </div>
 
+        {(data.permissions.includes("manageVehicles") || data.permissions.includes("manageDrivers")) && <FleetPanel />}
         {data.permissions.includes("manageDocuments") && <DocumentsPanel operatorId={data.operator.id} />}
 
         {data.operator.status === "active" && (
           <div className="surface-card mt-6 p-6 text-center text-gray-500">
-            Vehicle, driver, and route management is coming soon.
+            Route and trip management is coming soon.
           </div>
         )}
       </div>
