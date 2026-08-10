@@ -62,3 +62,21 @@ The university-admin migration must be applied before assigning the
 behavior while adding explicit user-to-university operational assignments.
 The ambassador-scope migration then backfills and protects university
 ownership across applications, ambassadors, referrals, and commissions.
+
+## Marketplace Expansion — Stage 1 (shared data foundation)
+
+Apply after all of the above:
+
+1. `2026_08_10_operators_fleet_foundation.sql`
+
+Introduces `operators`, `operator_memberships`, `service_approvals`,
+`vehicles`, `drivers`, and `operator_documents` — none of which exist before
+this migration. Also makes `routes.university_id` nullable, adds
+`routes.operator_id` and `routes.destination_label` so a route can terminate
+at a plain public destination instead of only a university, and backfills a
+single internal "Travel With Hawkins" operator onto every existing route so
+nothing customer-facing changes. See `docs/route-model-decision.md` for the
+reasoning behind generalizing `routes` instead of building a third,
+operator-aware route system alongside the existing two. Purely additive and
+schema-only — no application code depends on any of this yet (that starts
+Stage 2).
