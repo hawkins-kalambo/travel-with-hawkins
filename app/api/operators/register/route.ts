@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       operatorId: result.operatorId,
-      message: "Application submitted. Check your email to confirm your address, then sign in to track your application status.",
+      message: "Application submitted. You can sign in right away to track your application status.",
     });
   } catch (error) {
     console.error("POST /api/operators/register error", error);

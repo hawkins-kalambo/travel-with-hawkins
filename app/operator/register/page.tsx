@@ -67,10 +67,10 @@ export default function OperatorRegisterPage() {
       >
         <div className="rounded-[28px] border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[#0A4D8C]">Application submitted</p>
-          <h2 className="mt-2 text-2xl font-black text-slate-900">Check your email</h2>
+          <h2 className="mt-2 text-2xl font-black text-slate-900">You&apos;re all set</h2>
           <p className="mt-3 text-sm text-slate-600">
-            Confirm your email address, then sign in to track your application status. Our team reviews new operator
-            applications and will follow up with next steps.
+            Sign in now to track your application status. Our team reviews new operator applications and will follow
+            up with next steps.
           </p>
           <Link
             href="/operator/login"

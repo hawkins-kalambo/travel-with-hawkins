@@ -18,12 +18,17 @@ export type OperatorRegistrationResult =
   | { success: false; error: string };
 
 // Registers a new operator organization and its owner account together.
-// Unlike customer registration, there is no OTP email-verification step —
-// Supabase's own confirmation email (email_confirm: false) is sufficient
-// here because operators additionally go through a substantive admin
-// review of documents before their service ever goes live (Master Plan
-// §4.2); email OTP exists for customers mainly to gate self-service booking
-// immediately, which doesn't apply to an operator application.
+// Unlike customer registration, there is no OTP or email-confirmation step
+// gating login — email_confirm is set true immediately. Operators go
+// through a substantive admin review of documents before their service
+// ever goes live (Master Plan §4.2), so proving inbox ownership up front
+// buys nothing extra and only adds a failure point: Supabase's own
+// confirmation email depends on the project's default mail sender, which
+// is unreliable (rate-limited, easily lands in spam, often silently never
+// arrives) until a custom SMTP provider is configured. Blocking login on
+// an email that may never arrive was a real bug here in practice, not a
+// theoretical risk — do not reintroduce email_confirm: false without also
+// wiring up a verified outbound mail provider.
 export async function registerOperator(data: OperatorRegistrationData): Promise<OperatorRegistrationResult> {
   const legalName = data.legalName.trim();
   const displayName = data.displayName.trim();
@@ -46,7 +51,7 @@ export async function registerOperator(data: OperatorRegistrationData): Promise<
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email: ownerEmail,
     password: data.ownerPassword,
-    email_confirm: false,
+    email_confirm: true,
     user_metadata: {
       full_name: ownerFullName,
       phone: ownerPhone,
