@@ -16,6 +16,7 @@ export type OperatorPermissionKey =
   | "manageTrips"
   | "manageBookings"
   | "manageFinance"
+  | "manageDocuments"
   | "viewManifests"
   | "reportIncidents"
   | "manageOwnProfile";
@@ -30,6 +31,7 @@ const OPERATOR_ROLE_PERMISSIONS: Record<OperatorStaffRole, OperatorPermissionKey
     "manageTrips",
     "manageBookings",
     "manageFinance",
+    "manageDocuments",
     "viewManifests",
     "reportIncidents",
     "manageOwnProfile",
@@ -41,6 +43,7 @@ const OPERATOR_ROLE_PERMISSIONS: Record<OperatorStaffRole, OperatorPermissionKey
     "manageStaff",
     "manageRoutes",
     "manageTrips",
+    "manageDocuments",
     "viewManifests",
     "reportIncidents",
     "manageOwnProfile",

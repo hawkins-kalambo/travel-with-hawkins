@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { authFetch, logout } from "@/lib/auth";
+import DocumentsPanel from "./_components/DocumentsPanel";
 
 type OperatorMe = {
   operator: {
@@ -148,6 +149,8 @@ export default function OperatorDashboardPage() {
             </div>
           </dl>
         </div>
+
+        {data.permissions.includes("manageDocuments") && <DocumentsPanel operatorId={data.operator.id} />}
 
         {data.operator.status === "active" && (
           <div className="surface-card mt-6 p-6 text-center text-gray-500">

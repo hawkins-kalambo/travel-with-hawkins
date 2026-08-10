@@ -52,6 +52,15 @@ test("driver is limited to their own assigned scope", () => {
   assert.equal(hasOperatorPermission("driver", "manageVehicles"), false);
 });
 
+test("only owner and manager can manage compliance documents", () => {
+  assert.equal(hasOperatorPermission("owner", "manageDocuments"), true);
+  assert.equal(hasOperatorPermission("manager", "manageDocuments"), true);
+  assert.equal(hasOperatorPermission("dispatcher", "manageDocuments"), false);
+  assert.equal(hasOperatorPermission("finance_officer", "manageDocuments"), false);
+  assert.equal(hasOperatorPermission("booking_agent", "manageDocuments"), false);
+  assert.equal(hasOperatorPermission("driver", "manageDocuments"), false);
+});
+
 test("an unrecognized role has zero permissions rather than throwing", () => {
   assert.deepEqual(getOperatorRolePermissions("not_a_real_role"), []);
   assert.equal(hasOperatorPermission("not_a_real_role", "viewDashboard"), false);
