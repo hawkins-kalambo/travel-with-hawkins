@@ -1,402 +1,140 @@
-# 🚀 Travel with Hawkins - Developer Quick Start Guide
+# Travel with Hawkins — Developer Guide
 
-## 📋 Project Overview
+## Project Overview
 
-**Travel with Hawkins** is a student transport booking platform for Mzuzu University. It allows students to book verified routes or custom destinations across Malawi, with an admin dashboard for trip management.
+**Travel with Hawkins** is a university student transport booking platform. Students book verified routes or custom destinations, referral "ambassadors" earn commission for driving signups, and staff manage trips, payments, and support through an admin portal.
 
 ### Tech Stack
-- **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4
-- **Backend:** Google Apps Script (deployed)
-- **Database:** Google Sheets (Sheet1)
-- **Hosting:** Vercel (recommended)
+- **Frontend/Backend:** Next.js 16 (App Router), React 19, TypeScript (`strict: true`)
+- **Styling:** Tailwind CSS v4
+- **Database & Auth:** Supabase (Postgres + Supabase Auth; no Prisma/ORM — queries go through `@supabase/supabase-js` directly)
+- **Payments:** PayChangu (Standard Checkout) — webhook-verified, HMAC-SHA256 signed
+- **Email:** Resend
+- **SMS:** Africa's Talking
+- **Hosting:** Vercel
+
+> Note: `AGENTS.md` at the repo root warns this is a customized Next.js setup with breaking changes from a typical install — check `node_modules/next/dist/docs/` before relying on unfamiliar App Router APIs.
 
 ---
 
-## 🏃 Getting Started
+## Getting Started
 
 ### Prerequisites
 ```bash
 Node.js 18+
-npm or yarn
-Git
+npm
 ```
 
 ### Installation
 ```bash
-# Clone repository
-git clone <repo-url>
-cd travel-with-hawkins
-
-# Install dependencies
 npm install
-
-# Start development server
+cp .env.example .env.local   # fill in real values — see below
 npm run dev
+```
+Open http://localhost:3000.
 
-# Open browser
-http://localhost:3000
+### Environment Variables
+See `.env.example` for the full annotated list. Required for local dev:
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL`
+- `RESEND_API_KEY`, `ADMIN_NOTIFICATION_EMAIL`
+- `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`
+- `PAYCHANGU_SECRET_KEY`, `PAYCHANGU_WEBHOOK_SECRET` (never prefix Paychangu keys with `NEXT_PUBLIC_` — server-only)
+
+`SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security. It's only ever imported by server-side modules (`lib/supabaseAdmin.ts` and `route.ts` handlers) — never import it into a `"use client"` component.
+
+---
+
+## Project Structure
+
+```
+app/
+├── page.tsx                 # Public homepage / booking entry point
+├── admin/                   # Admin portal (staff/super_admin/university ops roles)
+│   ├── page.tsx              # Main bookings dashboard
+│   ├── reports/              # Trip manifests, passenger reports
+│   └── (sub)/                # Ambassadors, applications, business-configuration, commission-rates, communication, referral-bookings
+├── ambassador/               # Referral ambassador portal
+│   └── (protected)/          # Dashboard, commissions, customers, communication, profile
+├── customer/                 # Customer self-service portal
+│   ├── dashboard/ profile/ messages/ register/ login/ settings/ verify-email/
+├── communication/            # Shared support-ticket/messaging UI
+├── api/                      # Route handlers — see below
+└── components/                # Shared UI (app/components/ui/*) + homepage sections
+
+lib/
+├── auth.ts                   # Browser Supabase client + authFetch (session-token-attaching fetch wrapper)
+├── adminAuth.ts, staffLogin.ts, universityAdminAuth.ts   # Admin/staff auth & role helpers
+├── customerAuth*.ts          # Customer auth (OTP, registration, session)
+├── supabaseAdmin.ts          # Service-role Supabase client — SERVER ONLY
+├── supabaseServer.ts         # Server-side session/role resolution
+├── bookingLifecycle.ts, bookingPaymentStatus.ts, bookingValidation.ts, bookingTypes.ts
+├── bookingServerUtils.ts / bookingClientUtils.ts   # Thin server/client re-export shims over bookingUtils.ts
+├── payments/                 # PayChangu integration, webhook verification, reference generation
+├── commissionLifecycle.ts, ambassadorCode.ts, referralStorage.ts, selfReferral.ts
+├── rateLimit.ts              # Postgres-RPC-backed rate limiting (fails open on error, by design)
+└── apiResponse.ts            # Shared jsonError() helper for API routes
+
+proxy.ts                      # Next 16 middleware — route whitelisting, rate limiting, role-based route bucketing (defense-in-depth layer #1)
+```
+
+`app/api/` route groups: `admin`, `ambassadors`, `announcements`, `applications`, `auth`, `bookings`, `commission-rules`, `commissions`, `communication(s)`, `contact`, `customers`, `district-pickup-points`, `payments`, `profile`, `referrals`, `reports`, `resend`, `routes`, `settings`, `support-tickets`, `track-booking`, `universities`.
+
+---
+
+## Auth Model
+
+There are **three separate user types**, all backed by Supabase Auth:
+1. **Admin/staff** — roles include `admin`, `super_admin`, and scoped university-operations roles. Resolved via `resolveAdminRole` in `lib/supabaseServer.ts`.
+2. **Ambassador** — referral partners, separate login at `app/ambassador/login`.
+3. **Customer** — self-service accounts with OTP-based email verification.
+
+Authorization is **layered**, not single-gated:
+- `proxy.ts` (middleware) whitelists public routes, applies rate limiting to sensitive endpoints, and buckets API routes by required role.
+- Each `route.ts` handler independently re-checks auth (`requireAdminUser`, `requireUniversityOperationsUser`, etc.) — never assume the middleware alone is sufficient when adding a new route; call the appropriate `require*` helper inside the handler too.
+
+Client-side, `authFetch` (in `lib/auth.ts`) attaches the current Supabase session token to API calls and retries once on a 401 after a session refresh. **Import this shared helper rather than re-implementing it** — earlier duplicate copies existed in three admin pages and have been consolidated.
+
+---
+
+## Payments
+
+`app/api/payments/webhook/route.ts` verifies the PayChangu webhook signature (HMAC-SHA256, `timingSafeEqual`, over the raw body) before parsing JSON, and uses idempotency-keyed event claiming to avoid double-processing. `lib/payments/verification-validator.ts` treats only the local DB record as authoritative for amount/booking ID — never trust amounts from the client or blindly from the provider payload. Booking fare is always re-verified server-side (`app/api/bookings/route.ts`), and a Postgres advisory-lock RPC (`claim_booking_dedupe`) prevents duplicate booking submissions.
+
+---
+
+## Development Tasks
+
+### Run tests
+```bash
+npm test        # runs 13 files via `node --test` — pure business-logic unit tests only
+npm run typecheck
+npm run lint
+```
+There is currently no integration/route-handler test coverage (no jest/vitest/supertest configured) — auth-check regressions in a `route.ts` handler won't be caught by `npm test`. If you're adding tests for a new route, this is a known gap worth closing rather than a pattern to follow.
+
+### Add a new API route
+Use `jsonError` from `lib/apiResponse.ts` for error responses rather than redefining it locally. Add the appropriate `require*` auth check from `lib/universityAdminAuth.ts` / `lib/adminAuth.ts` at the top of the handler, and update `proxy.ts`'s route bucketing if the route needs specific role gating at the middleware layer too.
+
+### Repair scripts
+```bash
+npm run repair:ambassadors   # node scripts/repair_ambassadors_user_id.js
 ```
 
 ---
 
-## 📁 Project Structure
-
-```
-travel-with-hawkins/
-├── app/
-│   ├── page.tsx              # HomePage (booking interface)
-│   ├── layout.tsx            # Root layout
-│   ├── globals.css           # Global styles
-│   ├── admin/
-│   │   └── page.tsx          # AdminPage (dashboard)
-│   └── login/
-│       └── page.tsx          # LoginPage
-├── public/
-│   ├── logo.png              # Branding logo
-│   └── hero.png              # Hero image
-├── Code.gs                   # Google Apps Script backend
-├── package.json              # Dependencies
-├── next.config.ts            # Next.js config
-├── tsconfig.json             # TypeScript config
-├── tailwind.config.ts        # Tailwind config
-├── postcss.config.mjs        # PostCSS config
-└── README.md                 # Project README
-```
-
----
-
-## 🔌 API Integration
-
-### Backend URL
-```javascript
-const API_URL = "https://script.google.com/macros/s/.../exec"; // see internal deployment notes for the real URL
-```
-
-### Update API URL
-To change the backend URL, search for `API_URL` in:
-- `app/page.tsx` (line ~67)
-- `app/admin/page.tsx` (line ~37)
-
----
-
-## 🔑 Admin Credentials
-
-Default login:
-```
-Username: admin
-Password: 1234
-```
-
-⚠️ Change these in production!
-
----
-
-## 📝 Key Features
-
-### HomePage (app/page.tsx)
-- ✅ Route booking selection
-- ✅ Custom destination booking
-- ✅ Seats selector (1-10)
-- ✅ Form validation
-- ✅ Error handling
-- ✅ Success modal with booking details
-- ✅ Trust metrics section
-- ✅ How it works guide
-- ✅ Call-to-action footer
-
-### AdminPage (app/admin/page.tsx)
-- ✅ Dashboard with statistics
-- ✅ Real-time booking management
-- ✅ Trip card interface
-- ✅ 6 status management buttons
-- ✅ Advanced search/filter
-- ✅ Trip detail modal
-- ✅ Passenger list view
-- ✅ Logout functionality
-
-### LoginPage (app/login/page.tsx)
-- ✅ Simple admin authentication
-- ✅ LocalStorage-based session
-- ✅ Desktop and mobile UI
-
----
-
-## 🔄 Data Flow
-
-### Booking Creation
-```
-User → HomePage Form → Validation → POST to Code.gs
-         ↓
-    Code.gs generates bookingId & tripId
-         ↓
-    Saves to Google Sheet
-         ↓
-    Returns IDs to Frontend
-         ↓
-    Show Success Modal
-```
-
-### Status Update
-```
-Admin → AdminPage → Select Trip → Choose Status Action → POST to Code.gs
-         ↓
-    Code.gs finds all bookings with tripId
-         ↓
-    Updates status for all matching bookings
-         ↓
-    Saves to Google Sheet
-         ↓
-    Returns updatedCount to Frontend
-         ↓
-    Frontend refreshes list
-```
-
----
-
-## 🛠️ Development Tasks
-
-### Add New Route
-1. Edit `app/page.tsx` → Find "Available Routes" section
-2. Add new route to array:
-```typescript
-["Mzuzu → New City", "X–Y Hours"],
-```
-
-### Change Admin Password
-1. Edit `app/login/page.tsx` → Find `handleLogin` function
-2. Change condition:
-```typescript
-if (username === "admin" && password === "NEW_PASSWORD") {
-```
-
-### Modify Status Colors
-1. Edit `app/admin/page.tsx` → Find `statusColors` object
-2. Update color classes for any status
-
-### Change API Endpoint
-1. Find `API_URL` constant in both files
-2. Replace with new Google Apps Script deployment URL
-
----
-
-## 🐛 Debugging
-
-### Console Errors
-```typescript
-// Check browser console for errors (F12)
-// Network tab to verify API calls
-// Look for CORS issues if API not responding
-```
-
-### Google Sheets Issues
-```
-// Verify Sheet1 exists and has data
-// Check column mappings in Code.gs
-// Ensure Google Apps Script is deployed
-```
-
-### Auth Issues
-```typescript
-// Check localStorage has 'auth' key
-// Verify login page was used
-// Clear localStorage if stuck: localStorage.clear()
-```
-
----
-
-## 📦 Building for Production
+## Deployment
 
 ```bash
-# Build
 npm run build
-
-# Start production server
 npm start
-
-# Or deploy to Vercel
-vercel deploy
+# or: vercel deploy
 ```
+Set all `.env.example` variables in the Vercel project settings — the app will throw on boot if `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` are missing (see `lib/auth.ts`).
 
 ---
 
-## ✅ Testing
-
-### Manual Testing Checklist
-- [ ] Book a route with 1 seat
-- [ ] Book a route with 5 seats
-- [ ] Book custom destination
-- [ ] Verify booking shows in admin
-- [ ] Admin: Confirm trip
-- [ ] Admin: Update to Boarding
-- [ ] Admin: Update to Departed
-- [ ] Admin: Cancel trip
-- [ ] Search by student name
-- [ ] Search by booking ID
-- [ ] Mobile: Test responsive design
-
-### Automated Testing (Setup)
-```bash
-# Create tests directory if needed
-mkdir -p __tests__
-
-# Run tests
-npm test
-```
-
----
-
-## 🚀 Deployment
-
-### Vercel (Recommended)
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel
-
-# Add environment variables if needed
-vercel env add API_URL
-```
-
-### Traditional Server
-```bash
-# Build
-npm run build
-
-# Run on server
-npm start
-```
-
----
-
-## 📱 Mobile Testing
-
-```bash
-# Test on mobile devices
-npm run dev
-
-# Access from mobile on same network
-http://<your-ip>:3000
-```
-
----
-
-## 🔐 Security Notes
-
-1. **Change Admin Password** before production
-2. **Secure Google Apps Script** with proper authentication
-3. **Enable HTTPS** on all deployments
-4. **Never commit** sensitive credentials
-5. **Use environment variables** for API URLs
-6. **Validate all inputs** on backend
-
----
-
-## 🐛 Common Issues
-
-### Issue: API not responding
-**Solution:** Check if Google Apps Script is deployed and URL is correct
-
-### Issue: Bookings not showing in admin
-**Solution:** Verify Google Sheet has data, refresh admin page
-
-### Issue: Authentication keeps redirecting
-**Solution:** Clear browser storage: `localStorage.clear()`
-
-### Issue: Images not loading
-**Solution:** Verify public/logo.png and public/hero.png exist
-
-### Issue: Tailwind styles not applying
-**Solution:** Run `npm run dev` and restart the dev server
-
----
-
-## 📚 Additional Resources
-
-### Files to Read
-- `SYSTEM_UPDATES.md` - Complete change log
-- `API_REFERENCE.md` - API documentation
-- `DEPLOYMENT_REPORT.md` - Deployment info
-
-### Official Docs
-- [Next.js Docs](https://nextjs.org/docs)
-- [React Docs](https://react.dev)
-- [Tailwind CSS](https://tailwindcss.com)
-- [Google Apps Script](https://developers.google.com/apps-script)
-
----
-
-## 🤝 Contributing
-
-### Code Style
-- Use TypeScript for type safety
-- Follow ESLint rules
-- Use Tailwind classes over custom CSS
-- Keep components focused and reusable
-
-### Git Workflow
-```bash
-git checkout -b feature/your-feature
-# Make changes
-git commit -m "Add your feature"
-git push origin feature/your-feature
-# Create pull request
-```
-
----
-
-## 📞 Support
-
-For issues or questions:
-- Email: hgkalambo@gmail.com
-- Phone: +265989127308
-- WhatsApp: https://wa.me/265989127308
-
----
-
-## 📄 License
-
-This project is proprietary. All rights reserved.
-
----
-
-## 🎉 Ready to Code!
-
-You now have a complete understanding of the project structure and can start developing. Happy coding! 🚀
-
----
-
-## Quick Command Reference
-
-```bash
-# Development
-npm run dev              # Start dev server
-npm run build            # Build for production
-npm start                # Start production server
-npm run lint             # Run ESLint
-
-# Useful scripts to add (optional)
-npm run format           # Format code with Prettier
-npm run type-check       # Check TypeScript types
-npm test                 # Run tests
-```
-
----
-
-## Environment Variables (Optional)
-
-Create `.env.local`:
-```
-NEXT_PUBLIC_API_URL=https://script.google.com/macros/s/.../exec
-NEXT_PUBLIC_APP_NAME=Travel with Hawkins
-```
-
-Use in code:
-```typescript
-const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-```
-
----
-
-Happy developing! 🚀
+## Further Reading
+- `AGENTS.md` — Next.js version-specific quirks to check before writing App Router code
+- `docs/` — includes `ambassador-system-audit.md`, referenced in code comments (`AMB-###`) as the source of specific fixes already applied
+- Official docs: [Next.js](https://nextjs.org/docs), [React](https://react.dev), [Supabase](https://supabase.com/docs), [Tailwind CSS](https://tailwindcss.com)
