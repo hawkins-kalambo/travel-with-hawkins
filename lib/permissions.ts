@@ -1,4 +1,4 @@
-export type AppRole = "super_admin" | "admin" | "university_admin" | "viewer" | "ambassador" | "customer" | "unknown";
+export type AppRole = "super_admin" | "admin" | "university_admin" | "viewer" | "ambassador" | "operator_staff" | "customer" | "unknown";
 
 export type PermissionKey =
   | "viewDashboard"
@@ -102,6 +102,10 @@ const ROLE_PERMISSIONS: Record<AppRole, PermissionKey[]> = {
     "manageOwnProfile",
   ],
   customer: ["viewProfile", "bookTrips", "manageOwnBookings", "manageOwnProfile"],
+  // Operator staff never touch the admin panel this permission map governs —
+  // their permissions are resolved separately, from operator_memberships.staff_role
+  // via lib/operatorPermissions.ts, scoped to their own operator only.
+  operator_staff: [],
   unknown: [],
 };
 
@@ -114,6 +118,7 @@ export function normalizeAppRole(role: unknown): AppRole {
   if (normalized === "university_admin") return "university_admin";
   if (normalized === "viewer") return "viewer";
   if (normalized === "ambassador") return "ambassador";
+  if (normalized === "operator_staff") return "operator_staff";
   if (normalized === "customer") return "customer";
   return "unknown";
 }
