@@ -14,13 +14,10 @@ import { sendEmail } from "@/lib/resend";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { generateTripId, normalizeBookingRecord } from "@/lib/bookingServerUtils";
+import { jsonError } from "@/lib/apiResponse";
 import {
   requireUniversityOperationsUser,
 } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ success: false, error: message, ...(details ? { details } : {}) }, { status });
-}
 
 function getIdentifier(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value.trim();
@@ -357,6 +354,64 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
-  return jsonError("Bookings cannot be permanently deleted. Cancel the booking instead.", 405);
+export async function DELETE(request: NextRequest) {
+  const response = NextResponse.next();
+  const auth = await requireUniversityOperationsUser(request, response, "manageBookings");
+  if (!auth.authorized) return jsonError(auth.error, auth.status);
+  if (auth.role !== "super_admin") {
+    return jsonError("Only super admins can permanently delete bookings", 403);
+  }
+
+  try {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const bookingId = getIdentifier(body.bookingId);
+    if (!bookingId) return jsonError("bookingId is required", 400);
+
+    const { data: existing, error: lookupError } = await supabaseAdmin
+      .from("bookings")
+      .select("*")
+      .eq("booking_id", bookingId)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.error("Failed to load booking before permanent deletion", lookupError);
+      return jsonError("Unable to load booking", 500);
+    }
+    if (!existing) return jsonError("Booking not found", 404);
+
+    const booking = normalizeBookingRecord(existing as Record<string, unknown>);
+    if (booking.status !== "Cancelled") {
+      return jsonError("Only cancelled bookings can be permanently deleted", 409);
+    }
+
+    const { data: deleted, error: deleteError } = await supabaseAdmin
+      .from("bookings")
+      .delete()
+      .eq("booking_id", bookingId)
+      .eq("status", existing.status)
+      .select("booking_id")
+      .maybeSingle();
+
+    if (deleteError) {
+      console.error("Failed to permanently delete cancelled booking", deleteError);
+      return jsonError("Unable to delete booking", 500);
+    }
+    if (!deleted) return jsonError("Booking changed before it could be deleted", 409);
+
+    await writeBookingAudit({
+      request,
+      actorUserId: auth.user.id,
+      actorRole: auth.role,
+      action: "permanently_delete_booking",
+      entityId: bookingId,
+      previousValue: existing,
+      newValue: null,
+      metadata: { previousStatus: booking.status },
+      universityId: booking.universityId,
+    });
+
+    return NextResponse.json({ success: true, message: "Cancelled booking permanently deleted" });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Unknown error");
+  }
 }

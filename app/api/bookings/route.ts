@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { GET as getAdminBookings, PATCH as patchAdminBookings } from "@/app/api/admin/bookings/route";
+import { DELETE as deleteAdminBooking, GET as getAdminBookings, PATCH as patchAdminBookings } from "@/app/api/admin/bookings/route";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
@@ -10,6 +10,7 @@ import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
 import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourneyDirection } from "@/lib/journeyDirection";
 import { resolveActiveUniversity } from "@/lib/universityResolver";
+import { jsonError } from "@/lib/apiResponse";
 import {
   generateBookingId,
   generateTripId,
@@ -23,10 +24,6 @@ export const runtime = "nodejs";
 
 const supabase = supabaseAdmin;
 type NotificationStatus = "sent" | "failed" | "skipped";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 function getPositiveNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
@@ -667,7 +664,6 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  void req;
-  return jsonError("Bookings cannot be permanently deleted. Cancel the booking instead.", 405);
+  return deleteAdminBooking(req);
 }
 

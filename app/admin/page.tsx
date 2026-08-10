@@ -4,7 +4,8 @@ import { Suspense, useEffect, useMemo, useState, useCallback, type ReactNode } f
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { supabase } from "@/lib/auth";
+import { Trash2 } from "lucide-react";
+import { authFetch, supabase } from "@/lib/auth";
 import { isViewerAllowedTab, normalizeAdminRole } from "@/lib/adminAuth";
 import { type BookingRecord } from "@/lib/bookingTypes";
 import { getAllowedJourneyTransitions } from "@/lib/bookingLifecycle";
@@ -14,6 +15,7 @@ import { fetchAllUniversities, type ActiveUniversity } from "@/lib/universitiesC
 import AmbassadorCreationSuccess from "@/app/admin/components/AmbassadorCreationSuccess";
 import AmbassadorCreationWizard from "@/app/admin/components/AmbassadorCreationWizard";
 import BookingDetailsPanel, { type BookingAuditEntry } from "@/app/admin/components/BookingDetailsPanel";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 
 // ================= TYPES =================
 type JourneyStatus =
@@ -196,45 +198,6 @@ const BOOKINGS_PAGE_SIZE = 25;
 // Helper that attaches the current Supabase session access token as a
 // Bearer Authorization header when available. This allows server-side
 // auth helpers to accept the token when cookies are not present.
-async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
-  const doFetch = async (token?: string) => {
-    const headers = new Headers(init?.headers as HeadersInit | undefined);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    return fetch(input, { ...init, headers, credentials: "same-origin" });
-  };
-
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    let token = session?.access_token;
-    if (!token) {
-      const refreshResult = await supabase.auth.refreshSession();
-      token = refreshResult.data?.session?.access_token ?? undefined;
-    }
-
-    let res = await doFetch(token);
-
-    if (res.status === 401) {
-      const refreshResult = await supabase.auth.refreshSession();
-      token = refreshResult.data?.session?.access_token ?? undefined;
-      if (token) {
-        res = await doFetch(token);
-      }
-    }
-
-    if (res.status === 401) {
-      // Fall back to cookie-based auth if header-based auth failed.
-      res = await doFetch();
-    }
-
-    return res;
-  } catch {
-    return doFetch();
-  }
-}
-
 const TABS: { key: TabName; label: string; icon: string }[] = [
   { key: "overview", label: "Overview", icon: "" },
   { key: "trips", label: "Trips", icon: "" },
@@ -340,13 +303,13 @@ function AdminPageContent() {
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [fareCashUpdating, setFareCashUpdating] = useState<string | null>(null);
   const [sendingReceipt, setSendingReceipt] = useState<string | null>(null);
+  const [pendingBookingDelete, setPendingBookingDelete] = useState<EnrichedBooking | null>(null);
 
   const defaultSettings = useMemo(
     () => ({
       ticketFee: "5000",
       bookingFee: "2000",
       maxSeats: "15",
-      secretPassword: "1234",
       routes:
         "Mzuzu - Lilongwe: 5000\nMzuzu - Blantyre: 8000\nMzuzu - Zomba: 7000\nMzuzu - Kasungu: 3000\nMzuzu - Karonga: 6000",
     }),
@@ -831,6 +794,34 @@ const universityById = useMemo(() => {
       await refreshBookings();
     } finally {
       setStatusUpdating(null);
+    }
+  };
+
+  const deleteCancelledBooking = async (booking: EnrichedBooking) => {
+    const bookingId = booking.bookingId || "";
+    if (!bookingId) return;
+
+    try {
+      const res = await authFetch(API_BASE, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      });
+      const result = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!res.ok || !result.success) {
+        alert(result.error || "Unable to delete the cancelled booking.");
+        return;
+      }
+
+      setPendingBookingDelete(null);
+      if (selectedBooking?.bookingId === bookingId) {
+        setSelectedBooking(null);
+        setBookingHistory([]);
+      }
+      await refreshBookings();
+    } catch (error) {
+      console.error("Failed to delete cancelled booking", error);
+      alert("Network error deleting the cancelled booking.");
     }
   };
 
@@ -1678,6 +1669,18 @@ const universityById = useMemo(() => {
                                     ) : null
                                   ))}
 
+                                  {userRole === "super_admin" && b.status === "Cancelled" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPendingBookingDelete(b)}
+                                      className="inline-flex size-7 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100"
+                                      aria-label={`Permanently delete booking ${b.bookingId || ""}`}
+                                      title="Permanently delete cancelled booking"
+                                    >
+                                      <Trash2 className="size-3.5" aria-hidden="true" />
+                                    </button>
+                                  ) : null}
+
                                   {!isViewer && canRecordManualFarePayment(b.bookingFeeStatus, b.fareStatus) ? (
                                     <button
                                       onClick={async () => {
@@ -2308,6 +2311,15 @@ const universityById = useMemo(() => {
             onReschedule={(travelDate) => rescheduleBooking(selectedBooking, travelDate)}
           />
         ) : null}
+        <ConfirmDialog
+          open={pendingBookingDelete !== null}
+          title="Permanently delete booking?"
+          description={`Booking ${pendingBookingDelete?.bookingId || ""} will be removed permanently. Payment, referral, and audit records will be retained. This action cannot be undone.`}
+          confirmLabel="Delete booking"
+          danger
+          onCancel={() => setPendingBookingDelete(null)}
+          onConfirm={() => pendingBookingDelete ? deleteCancelledBooking(pendingBookingDelete) : undefined}
+        />
       </div>
     </div>
   );
