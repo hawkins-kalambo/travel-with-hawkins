@@ -1,3 +1,76 @@
+# Fresh database bootstrap order
+
+Every file below in one sequence, verified against actual dependencies (not
+just filename dates) on 2026-08-10 — this is what to run, in order, against
+a brand-new empty database (e.g. a staging Supabase project). Each numbered
+group below has its own section further down this file with caveats worth
+reading before you run it; this list just establishes the full order.
+
+`public.bookings`, `public.settings`, and `public.admins` predate this
+migrations folder entirely — they were created by hand, and nothing in this
+repo ever issues a `CREATE TABLE` for them. `0000_base_tables.sql`
+reconstructs their original shape (verified column-by-column and
+constraint-by-constraint against production) specifically so a fresh
+database has something for every other file to `ALTER TABLE` against.
+
+1. `0000_base_tables.sql`
+2. `../referral_system_migration.sql` (repo root)
+3. `customer_authentication_system.sql`
+4. `2026_08_01_fix_profiles_and_admin_role_rls.sql`
+5. `2026_08_01_declare_ambassadors_user_id.sql`
+6. `2026_08_01_enable_rls_activity_notifications.sql`
+7. `2026_08_01_reconcile_ambassador_applications.sql`
+8. `2026_08_01_commission_lifecycle_and_currency.sql`
+9. `2026_08_01_rate_limit_table.sql`
+10. `2026_08_01_reconcile_communication_center.sql`
+11. `2026_08_01_settings_route_objects_column.sql`
+12. `2026_08_01_payments_wallet_audit_foundation.sql`
+13. `2026_08_01_payment_finalization_safety.sql`
+14. `2026_08_01_finalize_payment_rpc.sql`
+15. `2026_08_02_customer_email_otp.sql`
+16. `2026_08_02_customer_otp_sms_channel.sql`
+17. `2026_08_03_pin_search_path_legacy_functions.sql`
+18. `2026_08_03_ensure_profiles_ambassadors_referrals_rls.sql`
+19. `2026_08_03_drop_stale_communication_staging_policies.sql`
+20. `2026_08_03_enable_rls_bookings_settings_admins.sql`
+21. `2026_08_03_booking_dedupe_claim.sql`
+22. `2026_08_03_release_booking_dedupe_claim.sql`
+23. `2026_08_04_universities_and_structured_routes.sql`
+24. `2026_08_04_route_commission_fields.sql`
+25. `2026_08_07_manual_fare_and_receipt_delivery.sql`
+26. `2026_08_08_directional_routes.sql`
+27. `2026_08_08_university_admin_assignments.sql`
+28. `2026_08_08_ambassador_university_scope.sql`
+29. `2026_08_09_district_pickup_points.sql`
+30. `2026_08_10_operators_fleet_foundation.sql`
+
+**Do not run these three** — each is superseded or actively conflicts with
+a file already in the list above:
+
+- `add_role_constraints_to_profiles.sql` — has no `DROP CONSTRAINT IF EXISTS`
+  guard and will error (`constraint "profiles_role_check" already exists`)
+  against the inline check `referral_system_migration.sql` already creates.
+  It's also redundant: `2026_08_08_university_admin_assignments.sql` and
+  `2026_08_10_operators_fleet_foundation.sql` both replace that same
+  constraint with a strictly wider value set.
+- `communication_center_2026_07_24.sql` — an earlier draft of the schema
+  `2026_08_01_reconcile_communication_center.sql` fully and idempotently
+  subsumes; harmless but pointless to run.
+- `communication_center_rls_staging.sql` — its policies use a different
+  naming scheme than the reconcile migration's, so its `USING (true)`
+  public-read policy on announcements never gets cleaned up by the later
+  file's `DROP POLICY IF EXISTS` and silently defeats the intended
+  audience-scoped read policy. `2026_08_03_drop_stale_communication_staging_policies.sql`
+  exists specifically to clean this up if it's ever run by accident — keep
+  that file in the sequence above even though it'll no-op if you skip this one.
+
+Also out of scope entirely (superseded originals, not part of `db/migrations/`):
+`db/ambassador_applications_migration.sql` and `db/communication_center_migration.sql`.
+
+After the full sequence, run each file's own "Verification" block (where
+present) and confirm the result matches what's described, same as any
+individual migration below.
+
 # Applying the 2026-08-01 ambassador-system-fix migrations
 
 These seven files were written together as part of the ambassador-system audit
