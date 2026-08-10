@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/auth";
 import DocumentsPanel from "./_components/DocumentsPanel";
 import FleetPanel from "./_components/FleetPanel";
 import OperatorHeader from "./_components/OperatorHeader";
+import StaffPanel from "./_components/StaffPanel";
 
 type OperatorMe = {
   operator: {
@@ -145,6 +146,7 @@ export default function OperatorDashboardPage() {
 
         {(data.permissions.includes("manageVehicles") || data.permissions.includes("manageDrivers")) && <FleetPanel />}
         {data.permissions.includes("manageDocuments") && <DocumentsPanel operatorId={data.operator.id} />}
+        {data.permissions.includes("manageStaff") && <StaffPanel ownStaffRole={data.staffRole} />}
 
         {data.operator.status === "active" && (
           <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-white p-6 text-center text-slate-500 sm:p-8">
