@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser, requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { jsonError } from "@/lib/apiResponse";
 
 // Fixes a gap found while auditing the communications system: there was no
 // way to reply to a support ticket anywhere — no UI, no route — on either
@@ -11,10 +12,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 // (which formally builds out that table with real indexes/RLS), and the
 // small UI additions in app/admin/communication/support-tickets.tsx and
 // app/ambassador/communication/page.tsx complete the feature end-to-end.
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 async function canAccessTicket(ticketId: string, userId: string, isAdmin: boolean): Promise<boolean> {
   if (isAdmin) return true;

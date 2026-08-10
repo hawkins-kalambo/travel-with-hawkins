@@ -6,7 +6,7 @@ import { createCsvFromBookings } from "@/lib/csvUtils";
 import { generatePassengerManifestPdfBlob } from "@/lib/reportPdf";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { groupByDateThenTrip, groupByTrip, summarizeReportRows } from "@/lib/reportUtils";
-import { supabase } from "@/lib/auth";
+import { authFetch } from "@/lib/auth";
 import { BOOKING_FEE_STATUS_VALUES, FARE_STATUS_VALUES } from "@/lib/paymentTypes";
 
 const REPORT_TYPES = [
@@ -33,22 +33,6 @@ function parseRouteOptions(routesValue: string | undefined) {
     .split("\n")
     .map((line) => line.split(":")[0]?.trim())
     .filter((route): route is string => Boolean(route));
-}
-
-async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    const token = session?.access_token;
-    const headers = new Headers(init?.headers as HeadersInit | undefined);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-
-    return fetch(input, { ...init, headers });
-  } catch {
-    return fetch(input, init);
-  }
 }
 
 function formatDisplayDate(value: string | undefined) {

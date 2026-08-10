@@ -3,10 +3,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function POST(req: NextRequest) {
   try {

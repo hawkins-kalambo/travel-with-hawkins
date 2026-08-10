@@ -4,10 +4,7 @@ import { requireAuthenticatedUser, requireAdminUser, resolveAdminRole } from "@/
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 import { getAnnouncementsForRole } from "@/lib/communicationServer";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function getNotificationCategory(type: string) {
   const normalized = type.toLowerCase();

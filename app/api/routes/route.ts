@@ -5,12 +5,9 @@ import { logError } from "@/lib/logger";
 import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
 import { isJourneyDirection } from "@/lib/journeyDirection";
 import { canAccessUniversity, requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
+import { jsonError } from "@/lib/apiResponse";
 
 const ROUTE_SELECT = "*, university:universities(id, name, short_code, status), pickupPoint:university_pickup_points(id, label, status), districtPickupPoint:district_pickup_points(id, district, label, status)";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 function toStringValue(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;

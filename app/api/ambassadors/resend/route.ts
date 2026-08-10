@@ -4,10 +4,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendEmail } from "@/lib/resend";
 import { buildAmbassadorWelcomeEmailHtml } from "@/lib/ambassadorEmail";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function POST(req: NextRequest) {
   const response = NextResponse.next();

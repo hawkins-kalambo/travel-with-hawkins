@@ -8,10 +8,7 @@ import { buildAmbassadorWelcomeEmailHtml } from "@/lib/ambassadorEmail";
 import { generateReferralCode } from "@/lib/ambassadorCode";
 import { resolveExistingUniversity } from "@/lib/universityResolver";
 import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function getErrorMessage(error: unknown, fallback = "Unable to create ambassador") {
   if (!error) return fallback;

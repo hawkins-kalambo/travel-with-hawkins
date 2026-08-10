@@ -4,10 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { parseReportFilters, applyReportFilters } from "@/lib/reportUtils";
 import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function GET(request: NextRequest) {
   const response = NextResponse.next();

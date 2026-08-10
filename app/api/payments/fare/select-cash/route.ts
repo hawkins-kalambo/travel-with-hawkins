@@ -3,12 +3,9 @@ import type { NextRequest } from "next/server";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { selectCashFarePayment } from "@/lib/payments/payment-service";
+import { jsonError } from "@/lib/apiResponse";
 
 export const runtime = "nodejs";
-
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 // Deliberately generic, customer-safe messages — internal reason codes are
 // logged server-side, not returned verbatim to the browser (same pattern as

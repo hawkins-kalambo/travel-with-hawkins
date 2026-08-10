@@ -4,10 +4,7 @@ import { requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminLikeRole, normalizeAppRole } from "@/lib/permissions";
 import { getErrorMessage } from "@/lib/communicationServer";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();

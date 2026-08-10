@@ -5,6 +5,7 @@ import { requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { jsonError } from "@/lib/apiResponse";
 
 // Fixes AMB-017 from docs/ambassador-system-audit.md — the ambassador
 // profile page (app/ambassador/(protected)/profile/page.tsx) called
@@ -17,10 +18,6 @@ import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
 // changed — referral_code, status, and anything commission-related are
 // intentionally not editable here; those stay admin-only via
 // PATCH /api/ambassadors/[id].
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 async function resolveOwnAmbassador(userId: string) {
   const { data, error } = await supabaseAdmin

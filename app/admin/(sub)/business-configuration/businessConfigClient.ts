@@ -1,19 +1,5 @@
-import { supabase } from "@/lib/auth";
+import { authFetch } from "@/lib/auth";
 import type { JourneyDirection } from "@/lib/journeyDirection";
-
-async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    const headers = new Headers(init?.headers as HeadersInit | undefined);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    return fetch(input, { ...init, headers, credentials: "same-origin" });
-  } catch {
-    return fetch(input, { ...init, credentials: "same-origin" });
-  }
-}
 
 export async function loadBusinessSettings() {
   const res = await fetch("/api/settings", { credentials: "same-origin" });

@@ -4,10 +4,7 @@ import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function generateTemporaryPassword() {
   // Math.random() is not a CSPRNG — not attacker-reachable here (requires an

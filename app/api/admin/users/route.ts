@@ -3,10 +3,7 @@ import type { NextRequest } from "next/server";
 import { escapeLikePattern, requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function GET(request: NextRequest) {
   const response = NextResponse.next();

@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser, requireAdminUser } from "@/lib/supabaseServer";
 import { listTickets, createTicket, updateTicket } from "@/lib/supportTickets";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();

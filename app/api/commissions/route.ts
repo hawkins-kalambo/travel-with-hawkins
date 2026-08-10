@@ -5,10 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { publishCommunicationEvent } from "@/lib/communicationEngine";
 import { attachBookingPaymentStatus } from "@/lib/bookingPaymentStatus";
 import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 // The only commission_status values the app ever produces (see
 // app/api/bookings/route.ts and lib/commissionLifecycle.ts) — previously

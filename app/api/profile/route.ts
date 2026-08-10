@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { escapeLikePattern, requireAuthenticatedUser, resolveAdminRole } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeAdminRole } from "@/lib/adminAuth";
+import { jsonError } from "@/lib/apiResponse";
 
 async function logAmbassadorActivityFallback({ profileId }: { profileId?: string | null }) {
   if (!profileId) return null;
@@ -29,10 +30,6 @@ async function logAmbassadorActivityFallback({ profileId }: { profileId?: string
   } catch {
     return null;
   }
-}
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
 }
 
 async function uploadProfileImage(base64: string) {

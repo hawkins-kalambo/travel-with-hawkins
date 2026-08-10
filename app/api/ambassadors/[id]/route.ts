@@ -5,10 +5,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
 import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function getColumnName(value: string | undefined): string | undefined {
   if (!value || !value.trim()) return undefined;

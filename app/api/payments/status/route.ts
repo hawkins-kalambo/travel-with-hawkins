@@ -3,12 +3,9 @@ import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { verifyAndFinalizePayment } from "@/lib/payments/finalize-flow";
 import { loadReceiptByTxRef } from "@/lib/payments/receipt-service";
+import { jsonError } from "@/lib/apiResponse";
 
 export const runtime = "nodejs";
-
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
@@ -16,7 +13,7 @@ export async function POST(req: NextRequest) {
 
   const payload = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const txRef = typeof payload.txRef === "string" ? payload.txRef.trim() : "";
-  if (!txRef) return jsonError("txRef is required.");
+  if (!txRef) return jsonError("txRef is required.", 400);
 
   // This performs independent provider verification; possession of txRef
   // alone can never mark a payment as paid.

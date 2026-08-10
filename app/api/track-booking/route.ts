@@ -4,6 +4,7 @@ import type { BookingRecord } from "@/lib/bookingUtils";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { contactMatchesBooking, loadBookingById } from "@/lib/bookingAccess";
+import { jsonError } from "@/lib/apiResponse";
 
 export const runtime = "nodejs";
 
@@ -13,10 +14,6 @@ export const runtime = "nodejs";
 // contact was the mismatch.
 const NOT_FOUND_MESSAGE =
   "We couldn't find a booking matching those details. Double-check your Booking ID and the email or phone number you used when booking.";
-
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
 
 // Only hand back what a guest needs to see their journey/payment status —
 // not internal referral/ambassador/commission fields.

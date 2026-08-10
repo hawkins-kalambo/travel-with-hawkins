@@ -3,10 +3,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { canAccessUniversity, requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

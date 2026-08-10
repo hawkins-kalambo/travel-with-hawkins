@@ -5,10 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasPermission, normalizeAppRole } from "@/lib/permissions";
 import { attachBookingPaymentStatus } from "@/lib/bookingPaymentStatus";
 import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 export async function GET(req: NextRequest) {
   const response = NextResponse.next();

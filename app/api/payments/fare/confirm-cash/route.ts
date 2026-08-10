@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { logError } from "@/lib/logger";
 import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
+import { jsonError } from "@/lib/apiResponse";
 
 // Staff-only counterpart to a guest choosing "pay fare in cash on boarding
 // day" (see lib/payments/payment-service.ts selectCashFarePayment). This is
@@ -12,10 +13,6 @@ import { requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
 // it's purely the booking's fare_status/fare_payment_method fields, mirroring
 // how app/api/payments/confirm/route.ts settles the legacy payment_status
 // field for manual/cash confirmations.
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
-
 function getBookingId(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value.trim();
   return undefined;

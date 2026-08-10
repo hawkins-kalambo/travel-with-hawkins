@@ -8,10 +8,7 @@ import { logAmbassadorActivity } from "@/lib/ambassadorActivity";
 import { publishCommunicationEvent } from "@/lib/communicationEngine";
 import { generateReferralCode } from "@/lib/ambassadorCode";
 import { resolveExistingUniversity } from "@/lib/universityResolver";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function normalizeEmail(email: unknown) {
   return typeof email === "string" ? email.trim().toLowerCase() : "";

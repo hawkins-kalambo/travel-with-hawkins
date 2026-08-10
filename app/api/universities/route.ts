@@ -4,10 +4,7 @@ import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { logError } from "@/lib/logger";
 import { canAccessUniversity, requireUniversityOperationsUser } from "@/lib/universityAdminAuth";
-
-function jsonError(message: string, status = 500) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { jsonError } from "@/lib/apiResponse";
 
 function toStringValue(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
