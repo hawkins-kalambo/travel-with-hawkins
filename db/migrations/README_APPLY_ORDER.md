@@ -43,6 +43,7 @@ database has something for every other file to `ALTER TABLE` against.
 28. `2026_08_08_ambassador_university_scope.sql`
 29. `2026_08_09_district_pickup_points.sql`
 30. `2026_08_10_operators_fleet_foundation.sql`
+31. `2026_08_10_operator_documents_storage_bucket.sql`
 
 **Do not run these three** — each is superseded or actively conflicts with
 a file already in the list above:
