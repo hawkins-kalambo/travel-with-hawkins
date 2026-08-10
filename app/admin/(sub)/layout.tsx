@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { authFetch, logout } from "@/lib/auth";
@@ -57,7 +58,7 @@ export default function AdminSubLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-gray-100 lg:flex">
       <aside className="border-b border-white/10 bg-linear-to-br from-primary-800 to-primary-700 text-white lg:min-h-screen lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r">
         <div className="flex items-center gap-3 px-4 py-5">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-sm font-black">TW</div>
+          <Image src="/logo.png" width={40} height={40} className="h-10 w-10 rounded-full object-cover ring-2 ring-white/20" alt="Travel with Hawkins logo" />
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/70">Admin Panel</p>
             <p className="text-sm font-semibold">Travel with Hawkins</p>

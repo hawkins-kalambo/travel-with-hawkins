@@ -131,41 +131,45 @@ export default function DocumentsPanel({ operatorId }: { operatorId: string }) {
   };
 
   return (
-    <div className="surface-card mt-6 p-6">
-      <h2 className="text-lg font-bold text-gray-800">Documents</h2>
-      <p className="mt-1 text-sm text-gray-600">Upload paperwork for your business, a vehicle, or a driver.</p>
+    <div className="mt-6 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <h2 className="text-lg font-bold text-slate-900">Documents</h2>
+      <p className="mt-1 text-sm text-slate-600">Upload paperwork for your business, a vehicle, or a driver.</p>
 
       {error && <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <select className="input-field w-auto" value={selectedSubjectIndex} onChange={(e) => setSelectedSubjectIndex(Number(e.target.value))}>
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-center">
+        <select
+          className="input-field w-full sm:w-auto"
+          value={selectedSubjectIndex}
+          onChange={(e) => setSelectedSubjectIndex(Number(e.target.value))}
+        >
           {subjectOptions.map((option, index) => (
             <option key={`${option.subjectType}-${option.subjectId}`} value={index}>
               {option.label}
             </option>
           ))}
         </select>
-        <select className="input-field w-auto" value={documentType} onChange={(e) => setDocumentType(e.target.value)}>
+        <select className="input-field w-full sm:w-auto" value={documentType} onChange={(e) => setDocumentType(e.target.value)}>
           {DOCUMENT_TYPES.map((type) => (
             <option key={type.value} value={type.value}>
               {type.label}
             </option>
           ))}
         </select>
-        <label className="btn-secondary cursor-pointer">
+        <label className="btn-secondary w-full cursor-pointer text-center sm:w-auto">
           {uploading ? "Uploading…" : "Choose file"}
           <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={handleFileChange} disabled={uploading} />
         </label>
       </div>
 
       <div className="mt-6 space-y-2">
-        {!loaded && <p className="text-sm text-gray-500">Loading documents…</p>}
-        {loaded && documentsBySubject.length === 0 && <p className="text-sm text-gray-500">No documents uploaded yet.</p>}
+        {!loaded && <p className="text-sm text-slate-500">Loading documents…</p>}
+        {loaded && documentsBySubject.length === 0 && <p className="text-sm text-slate-500">No documents uploaded yet.</p>}
         {documentsBySubject.map((doc) => (
-          <div key={doc.id} className="flex items-center justify-between rounded-xl border border-gray-100 px-4 py-3">
+          <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-100 px-4 py-3">
             <div>
-              <p className="text-sm font-semibold capitalize text-gray-800">{doc.document_type.replace(/_/g, " ")}</p>
-              <p className="text-xs text-gray-500">{doc.subjectLabel}</p>
+              <p className="text-sm font-semibold capitalize text-slate-900">{doc.document_type.replace(/_/g, " ")}</p>
+              <p className="text-xs text-slate-500">{doc.subjectLabel}</p>
               {doc.status === "rejected" && doc.rejection_reason && <p className="mt-0.5 text-xs text-red-600">{doc.rejection_reason}</p>}
             </div>
             <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${STATUS_TONE[doc.status] ?? "bg-gray-100 text-gray-700"}`}>

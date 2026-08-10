@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { authFetch, logout } from "@/lib/auth";
+import Image from "next/image";
+import { authFetch } from "@/lib/auth";
 import DocumentsPanel from "./_components/DocumentsPanel";
 import FleetPanel from "./_components/FleetPanel";
+import OperatorHeader from "./_components/OperatorHeader";
 
 type OperatorMe = {
   operator: {
@@ -45,7 +47,7 @@ const APPLICATION_STATUS_COPY: Record<string, { label: string; tone: string; mes
   approved: {
     label: "Approved",
     tone: "bg-green-50 text-green-800",
-    message: "You're approved. Vehicle, driver, and route setup is coming soon.",
+    message: "You're approved. Set up your fleet and documents below.",
   },
 };
 
@@ -57,7 +59,7 @@ export default function OperatorDashboardPage() {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
+    const timeoutId = window.setTimeout(async () => {
       try {
         const response = await authFetch("/api/operators/me");
         const result = await response.json();
@@ -73,28 +75,32 @@ export default function OperatorDashboardPage() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    }, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   }, []);
 
   if (loading) {
     return (
-      <div className="page-shell flex min-h-screen items-center justify-center px-4">
-        <p className="text-gray-500">Loading…</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#f3f7fb] px-4">
+        <div className="flex flex-col items-center gap-3">
+          <Image src="/logo.png" width={48} height={48} className="animate-pulse rounded-full object-cover" alt="Travel with Hawkins logo" />
+          <p className="text-sm font-semibold text-slate-500">Loading your dashboard…</p>
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="page-shell flex min-h-screen items-center justify-center px-4">
-        <div className="surface-card w-full max-w-lg p-8 text-center">
+      <div className="flex min-h-screen items-center justify-center bg-[#f3f7fb] px-4">
+        <div className="w-full max-w-lg rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-red-600">Error</p>
-          <h1 className="mt-3 text-2xl font-extrabold text-gray-800">Couldn&apos;t load your dashboard</h1>
-          <p className="mt-3 text-gray-600">{error || "Please try signing in again."}</p>
+          <h1 className="mt-3 text-2xl font-black text-slate-900">Couldn&apos;t load your dashboard</h1>
+          <p className="mt-3 text-slate-600">{error || "Please try signing in again."}</p>
         </div>
       </div>
     );
@@ -107,44 +113,30 @@ export default function OperatorDashboardPage() {
   };
 
   return (
-    <div className="page-shell min-h-screen px-4 py-10">
-      <div className="mx-auto max-w-3xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary-600">Operator portal</p>
-            <h1 className="mt-1 text-2xl font-extrabold text-gray-800">{data.operator.displayName}</h1>
-          </div>
-          <button
-            onClick={async () => {
-              await logout();
-              window.location.assign("/operator/login");
-            }}
-            className="btn-secondary"
-          >
-            Sign out
-          </button>
-        </div>
+    <div className="min-h-screen bg-[#f3f7fb]">
+      <OperatorHeader displayName={data.operator.displayName} staffRole={data.staffRole} />
 
-        <div className="surface-card mt-6 p-6">
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <span className={`inline-block rounded-full px-3 py-1 text-sm font-semibold ${statusCopy.tone}`}>{statusCopy.label}</span>
-          {statusCopy.message && <p className="mt-3 text-gray-600">{statusCopy.message}</p>}
+          {statusCopy.message && <p className="mt-3 text-slate-600">{statusCopy.message}</p>}
 
-          <dl className="mt-6 grid grid-cols-2 gap-4 text-sm">
+          <dl className="mt-6 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-gray-500">Your role</dt>
-              <dd className="font-semibold capitalize text-gray-800">{data.staffRole.replace("_", " ")}</dd>
+              <dt className="text-slate-500">Your role</dt>
+              <dd className="font-semibold capitalize text-slate-900">{data.staffRole.replace("_", " ")}</dd>
             </div>
             <div>
-              <dt className="text-gray-500">Operator status</dt>
-              <dd className="font-semibold capitalize text-gray-800">{data.operator.status}</dd>
+              <dt className="text-slate-500">Operator status</dt>
+              <dd className="font-semibold capitalize text-slate-900">{data.operator.status}</dd>
             </div>
             <div>
-              <dt className="text-gray-500">PayChangu Connect</dt>
-              <dd className="font-semibold capitalize text-gray-800">{data.operator.paychanguConnectStatus.replace("_", " ")}</dd>
+              <dt className="text-slate-500">PayChangu Connect</dt>
+              <dd className="font-semibold capitalize text-slate-900">{data.operator.paychanguConnectStatus.replace("_", " ")}</dd>
             </div>
             <div>
-              <dt className="text-gray-500">Services applied for</dt>
-              <dd className="font-semibold capitalize text-gray-800">
+              <dt className="text-slate-500">Services applied for</dt>
+              <dd className="font-semibold capitalize text-slate-900">
                 {data.serviceApprovals.map((s) => `${s.service_type} (${s.status})`).join(", ") || "None"}
               </dd>
             </div>
@@ -155,11 +147,11 @@ export default function OperatorDashboardPage() {
         {data.permissions.includes("manageDocuments") && <DocumentsPanel operatorId={data.operator.id} />}
 
         {data.operator.status === "active" && (
-          <div className="surface-card mt-6 p-6 text-center text-gray-500">
+          <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-white p-6 text-center text-slate-500 sm:p-8">
             Route and trip management is coming soon.
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }
