@@ -17,6 +17,7 @@ export type BookingSuccessData = {
   fare?: number;
   bookingFeeAmount?: number;
   journeyDirection?: JourneyDirection;
+  operatorDisplayName?: string;
 };
 
 function formatTravelDate(value: string) {
@@ -104,6 +105,9 @@ export default function BookingSuccessModal({ successData, onClose }: BookingSuc
                   <p className="mt-2 text-base font-black text-slate-900">{successData.route}</p>
                   {successData.journeyDirection && (
                     <p className="mt-1 text-xs font-bold text-navy-secondary">{journeyDirectionLabel(successData.journeyDirection)}</p>
+                  )}
+                  {successData.operatorDisplayName && (
+                    <p className="mt-1 text-xs font-semibold text-slate-500">Operated by {successData.operatorDisplayName}</p>
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">

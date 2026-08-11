@@ -419,6 +419,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           fare: finalFare,
           bookingFeeAmount: normalized.bookingFeeAmount,
           journeyDirection,
+          operatorDisplayName: typeof result.operatorDisplayName === "string" ? result.operatorDisplayName : undefined,
         });
         localStorage.setItem("twh_profile", JSON.stringify({ name: form.name.trim(), studentId: form.studentId.trim(), phone: form.phone.trim() }));
         closeBooking();

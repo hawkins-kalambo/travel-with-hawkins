@@ -638,6 +638,18 @@ export async function POST(req: Request) {
     const responseBooking = { ...record, fare: fare ?? record.fare };
     delete (responseBooking as Record<string, unknown>).tripId;
 
+    // Ownership transparency (Master Plan §11.2): every booking confirmation
+    // names the operator that actually runs the trip, not just Hawkins as
+    // the platform. Not stored on the booking row — the response is enough
+    // for a one-time confirmation screen, and looking it up here (rather
+    // than joining it into the insert) keeps the operator's display_name
+    // free to change later without stale copies on old bookings.
+    let operatorDisplayName: string | undefined;
+    if (resolvedOperatorId) {
+      const { data: operatorRow } = await supabase.from("operators").select("display_name").eq("id", resolvedOperatorId).maybeSingle();
+      operatorDisplayName = operatorRow?.display_name ?? undefined;
+    }
+
     let adminEmailStatus: NotificationStatus = "failed";
     let customerEmailStatus: NotificationStatus = "failed";
 
@@ -663,6 +675,7 @@ export async function POST(req: Request) {
       success: true,
       booking: responseBooking,
       bookingId,
+      operatorDisplayName,
       message: "Booking created",
       notifications: {
         adminEmail: adminEmailStatus,
