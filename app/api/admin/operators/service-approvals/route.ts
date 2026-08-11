@@ -80,6 +80,19 @@ export async function PATCH(request: NextRequest) {
 
   if (updateError || !updated) return jsonError("Unable to update service approval", 500);
 
+  // A suspended/rejected taxi approval must stop new bookings immediately —
+  // taxi_fares has no direct link back to service_approvals for the
+  // customer-facing browse query to check, so pull the rug here instead of
+  // requiring the operator to remember to deactivate every fare themselves.
+  if (updated.service_type === "taxi" && (status === "suspended" || status === "rejected")) {
+    const { error: deactivateError } = await supabaseAdmin
+      .from("taxi_fares")
+      .update({ status: "inactive" })
+      .eq("operator_id", existing.operator_id)
+      .eq("status", "active");
+    if (deactivateError) console.error("Failed to deactivate taxi fares after service approval change", deactivateError);
+  }
+
   await writeServiceApprovalAudit({
     request,
     actorUserId: auth.user.id,
