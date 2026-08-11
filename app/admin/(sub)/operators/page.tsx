@@ -46,6 +46,23 @@ type Driver = {
   status: string;
 };
 
+type ServiceApproval = {
+  id: string;
+  service_type: string;
+  status: string;
+  notes: string | null;
+};
+
+const SERVICE_APPROVAL_ADMIN_ACTIONS: Record<string, { label: string; next: string }[]> = {
+  pending: [
+    { label: "Approve", next: "approved" },
+    { label: "Reject", next: "rejected" },
+  ],
+  approved: [{ label: "Suspend", next: "suspended" }],
+  suspended: [{ label: "Reinstate", next: "approved" }],
+  rejected: [{ label: "Approve", next: "approved" }],
+};
+
 const VEHICLE_ADMIN_ACTIONS: Record<string, { label: string; next: string }[]> = {
   pending: [
     { label: "Verify", next: "active" },
@@ -78,6 +95,7 @@ export default function AdminOperatorsPage() {
   const [documents, setDocuments] = useState<OperatorDocument[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [serviceApprovals, setServiceApprovals] = useState<ServiceApproval[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -111,16 +129,18 @@ export default function AdminOperatorsPage() {
   const loadDocumentsFor = async (operatorId: string) => {
     setDocumentsLoading(true);
     try {
-      const [documentsRes, fleetRes] = await Promise.all([
+      const [documentsRes, fleetRes, serviceApprovalsRes] = await Promise.all([
         authFetch(`/api/admin/operators/documents?operatorId=${operatorId}`),
         authFetch(`/api/admin/operators/fleet?operatorId=${operatorId}`),
+        authFetch(`/api/admin/operators/service-approvals?operatorId=${operatorId}`),
       ]);
-      const [documentsResult, fleetResult] = await Promise.all([documentsRes.json(), fleetRes.json()]);
+      const [documentsResult, fleetResult, serviceApprovalsResult] = await Promise.all([documentsRes.json(), fleetRes.json(), serviceApprovalsRes.json()]);
       if (documentsResult.success) setDocuments(documentsResult.documents);
       if (fleetResult.success) {
         setVehicles(fleetResult.vehicles);
         setDrivers(fleetResult.drivers);
       }
+      if (serviceApprovalsResult.success) setServiceApprovals(serviceApprovalsResult.serviceApprovals);
     } finally {
       setDocumentsLoading(false);
     }
@@ -142,6 +162,21 @@ export default function AdminOperatorsPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ entityType, entityId, status }),
+    });
+    const result = await response.json();
+    if (!result.success) {
+      setActionError(result.error || "Action failed");
+      return;
+    }
+    if (expandedId) await loadDocumentsFor(expandedId);
+  };
+
+  const updateServiceApproval = async (serviceApprovalId: string, status: string) => {
+    setActionError("");
+    const response = await authFetch("/api/admin/operators/service-approvals", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serviceApprovalId, status }),
     });
     const result = await response.json();
     if (!result.success) {
@@ -262,6 +297,29 @@ export default function AdminOperatorsPage() {
             {expandedId === operator.id && (
               <div className="mt-4 border-t border-gray-100 pt-4">
                 {documentsLoading && <p className="text-sm text-gray-500">Loading…</p>}
+
+                {!documentsLoading && serviceApprovals.length > 0 && (
+                  <div className="mb-4 space-y-2">
+                    <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500">Services</h3>
+                    {serviceApprovals.map((service) => (
+                      <div key={service.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 px-4 py-3">
+                        <p className="text-sm font-semibold capitalize text-gray-800">{service.service_type.replace(/_/g, " ")}</p>
+                        <div className="flex items-center gap-2">
+                          <Badge tone="neutral">{service.status}</Badge>
+                          {(SERVICE_APPROVAL_ADMIN_ACTIONS[service.status] ?? []).map((action) => (
+                            <button
+                              key={action.label}
+                              onClick={() => updateServiceApproval(service.id, action.next)}
+                              className="btn-secondary px-3 py-1 text-xs"
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {!documentsLoading && (vehicles.length > 0 || drivers.length > 0) && (
                   <div className="mb-4 space-y-2">
