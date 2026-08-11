@@ -10,6 +10,7 @@ import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
 import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourneyDirection } from "@/lib/journeyDirection";
 import { resolveActiveUniversity } from "@/lib/universityResolver";
+import { resolveDefaultOperatorId } from "@/lib/defaultOperator";
 import { jsonError } from "@/lib/apiResponse";
 import {
   generateBookingId,
@@ -268,6 +269,7 @@ export async function POST(req: Request) {
     let resolvedDistrictPickupPointId: string | undefined;
     let resolvedUniversityPickupPointId: string | undefined;
     let resolvedRouteCommission: { amount: number; type: "fixed" | "percentage" } | undefined;
+    let resolvedOperatorId: string | undefined;
     const requestedRouteId = getNonEmptyString(payload.routeId ?? payload.route_id);
     const requestedUniversityId = getNonEmptyString(payload.universityId ?? payload.university_id);
 
@@ -279,7 +281,7 @@ export async function POST(req: Request) {
     if (requestedRouteId) {
       const { data: routeRow, error: routeError } = await supabase
         .from("routes")
-        .select("id, fare, status, university_id, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
+        .select("id, fare, status, operator_id, university_id, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
         .eq("id", requestedRouteId)
         .maybeSingle();
 
@@ -328,6 +330,7 @@ export async function POST(req: Request) {
       resolvedUniversityId = routeRow.university_id ?? undefined;
       resolvedDistrictPickupPointId = routeRow.district_pickup_point_id ?? undefined;
       resolvedUniversityPickupPointId = routeRow.pickup_point_id ?? undefined;
+      resolvedOperatorId = routeRow.operator_id ?? undefined;
 
       const structuredFare = Number(routeRow.fare);
       fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
@@ -355,6 +358,15 @@ export async function POST(req: Request) {
       } catch (error) {
         return jsonError(error instanceof Error ? error.message : "The selected university is not available", 400);
       }
+    }
+
+    // Every booking carries an operator (Master Plan §3.3's universal
+    // booking model), even ones made through the legacy free-text route
+    // matcher that has no operator concept of its own — those attribute to
+    // the internal operator every pre-existing route/booking was backfilled
+    // onto in Stage 1.
+    if (!resolvedOperatorId) {
+      resolvedOperatorId = (await resolveDefaultOperatorId()) ?? undefined;
     }
 
     // Guards against two concurrent submissions of the same booking (a
@@ -508,6 +520,8 @@ export async function POST(req: Request) {
       location,
       bookingType,
       fare,
+      operatorId: resolvedOperatorId,
+      serviceType: "intercity",
       // Only ever stamped once the route/university pair has been verified
       // active above — an unresolved or rejected routeId is dropped rather
       // than recorded, so a booking never references a route that wasn't
@@ -544,14 +558,23 @@ export async function POST(req: Request) {
       const missingRouteColumns =
         (reason.includes("route_id") || reason.includes("university_id")) &&
         (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+      // operator_id/service_type are new (2026_08_10_bookings_operator_service_type.sql) —
+      // same fail-open treatment as route_id/university_id above.
+      const missingOperatorColumns =
+        (reason.includes("operator_id") || reason.includes("service_type")) &&
+        (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
 
       if (missingFareColumn) delete (bookingPayload as Record<string, unknown>).fare;
       if (missingRouteColumns) {
         delete (bookingPayload as Record<string, unknown>).route_id;
         delete (bookingPayload as Record<string, unknown>).university_id;
       }
+      if (missingOperatorColumns) {
+        delete (bookingPayload as Record<string, unknown>).operator_id;
+        delete (bookingPayload as Record<string, unknown>).service_type;
+      }
 
-      if (missingFareColumn || missingRouteColumns) {
+      if (missingFareColumn || missingRouteColumns || missingOperatorColumns) {
         const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
         data = retry.data as Record<string, unknown> | null;
         error = retry.error;

@@ -31,6 +31,8 @@ export type BookingRecord = {
   location?: string;
   bookingType?: string;
   fare?: number;
+  operatorId?: string;
+  serviceType?: string;
   routeId?: string;
   universityId?: string;
   districtPickupPointId?: string;
@@ -82,6 +84,8 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   created_at: "createdAt",
   updated_at: "updatedAt",
   fare: "fare",
+  operator_id: "operatorId",
+  service_type: "serviceType",
   route_id: "routeId",
   university_id: "universityId",
   district_pickup_point_id: "districtPickupPointId",
@@ -120,6 +124,8 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   createdAt: "created_at",
   updatedAt: "updated_at",
   fare: "fare",
+  operatorId: "operator_id",
+  serviceType: "service_type",
   routeId: "route_id",
   universityId: "university_id",
   districtPickupPointId: "district_pickup_point_id",
@@ -202,6 +208,8 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
         const parsedFare = Number(value);
         if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
       }
+      else if (camelKey === "operatorId") normalized.operatorId = toSafeString(value);
+      else if (camelKey === "serviceType") normalized.serviceType = toSafeString(value);
       else if (camelKey === "routeId") normalized.routeId = toSafeString(value);
       else if (camelKey === "universityId") normalized.universityId = toSafeString(value);
       else if (camelKey === "districtPickupPointId") normalized.districtPickupPointId = toSafeString(value);
@@ -243,6 +251,8 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
         const parsedFare = Number(value);
         if (Number.isFinite(parsedFare) && parsedFare > 0) normalized.fare = parsedFare;
       }
+      else if (camelKey === "operatorId") normalized.operatorId = toSafeString(value);
+      else if (camelKey === "serviceType") normalized.serviceType = toSafeString(value);
       else if (camelKey === "routeId") normalized.routeId = toSafeString(value);
       else if (camelKey === "universityId") normalized.universityId = toSafeString(value);
       else if (camelKey === "districtPickupPointId") normalized.districtPickupPointId = toSafeString(value);
@@ -371,6 +381,8 @@ export function toSupabaseBookingPayload(
     payment_status: "Pending",
 
     fare: toSafePositiveNumber(input.fare),
+    operator_id: toSafeString(input.operatorId),
+    service_type: toSafeString(input.serviceType) ?? "intercity",
     route_id: toSafeString(input.routeId),
     university_id: toSafeString(input.universityId),
     district_pickup_point_id: toSafeString(input.districtPickupPointId),
