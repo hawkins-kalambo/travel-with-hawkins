@@ -9,7 +9,11 @@ async function getUserRole(user: { id: string; user_metadata?: Record<string, un
   return resolveAdminRole(user);
 }
 
-const CANONICAL_HOST = "travelwithhawkins.com";
+// Vercel's own domain settings redirect the apex domain to www (a 308 that
+// browsers follow but that server-to-server callers like PayChangu's
+// webhook do not) — this must point at whichever host actually serves
+// without a further redirect, or a *.vercel.app visitor gets bounced twice.
+const CANONICAL_HOST = "www.travelwithhawkins.com";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

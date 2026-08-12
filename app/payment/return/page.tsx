@@ -73,11 +73,14 @@ function ReturnContent() {
               const filename = `${receipt.receiptNumber || receipt.bookingId || "receipt"}.pdf`;
               setReceiptUrl(url);
               setReceiptName(filename);
-
-              const anchor = document.createElement("a");
-              anchor.href = url;
-              anchor.download = filename;
-              anchor.click();
+              // Deliberately not auto-triggering a download here. A
+              // programmatic click on a blob: URL isn't reliably treated as
+              // a download on mobile Safari and in-app webviews (WhatsApp,
+              // Facebook) — instead the browser navigates the tab to the
+              // blob URL, which those webviews can't render, so the "Payment
+              // confirmed" message flashes and the tab goes blank right
+              // after. The receipt is shown inline below with a manual
+              // download button instead.
             } catch (e) {
               console.error("Receipt generation failed", e);
             }
@@ -189,16 +192,18 @@ function ReturnContent() {
 
             {receiptUrl ? (
               <>
-                <p className="mt-4 text-xs text-slate-500">Your receipt has downloaded automatically.</p>
+                <p className="mt-4 text-xs text-slate-500">Your receipt is ready.</p>
                 <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
                   <iframe src={receiptUrl} title="Payment receipt" className="h-72 w-full" />
                 </div>
                 <a
                   href={receiptUrl}
                   download={receiptName}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="mt-4 inline-block w-full rounded-xl border-2 border-slate-300 px-6 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                 >
-                  Download receipt again
+                  Download Receipt
                 </a>
               </>
             ) : null}
