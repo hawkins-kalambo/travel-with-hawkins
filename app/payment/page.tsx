@@ -165,6 +165,12 @@ function PaymentContent() {
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `${result.receiptNumber || result.bookingId || "receipt"}.pdf`;
+      // target="_blank" so mobile Safari / in-app webviews that ignore the
+      // download attribute open the PDF in a new tab instead of navigating
+      // this page away to an unrenderable blob: URL (see app/payment/return
+      // for the full incident this pattern caused).
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (err) {

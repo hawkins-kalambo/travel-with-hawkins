@@ -9,7 +9,17 @@ import { PayChanguConfigError } from "./env";
 import type { PayChanguCurrency } from "./paychangu-types";
 import { logError } from "@/lib/logger";
 
-const APP_BASE_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://travelwithhawkins.com").replace(/\/+$/, "");
+// The apex domain (travelwithhawkins.com) 308-redirects to the www
+// subdomain at the Vercel/DNS level. Browsers follow that redirect
+// transparently, but PayChangu's server-to-server webhook does not — a
+// callback_url built from the apex domain never actually reaches
+// /api/payments/webhook, silently stranding every payment that relies on
+// the webhook (which is most mobile-money payments: the customer often
+// never returns to the browser tab to trigger the return_url fallback).
+// The fallback below must stay in sync with whatever domain is actually
+// canonical in production; NEXT_PUBLIC_APP_URL should always be set
+// explicitly there so this fallback is never relied on.
+const APP_BASE_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://www.travelwithhawkins.com").replace(/\/+$/, "");
 const CURRENCY: PayChanguCurrency = "MWK";
 
 export type InitiatePaymentInput = {
