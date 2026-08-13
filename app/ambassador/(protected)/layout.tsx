@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { logout } from "@/lib/auth";
@@ -34,7 +35,7 @@ export default function AmbassadorPortalLayout({ children }: { children: ReactNo
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary-700 text-sm font-black text-white">TW</div>
+            <Image src="/logo.png" width={40} height={40} className="h-10 w-10 rounded-xl object-cover" alt="Travel with Hawkins logo" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary-700">Ambassador Portal</p>
               <p className="text-sm text-gray-500">Travel with Hawkins</p>
