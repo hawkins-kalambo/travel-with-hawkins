@@ -27,7 +27,7 @@ function addPageHeader(
   const margin = 28;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
-  doc.setTextColor("#1A0F00");
+  doc.setTextColor("#0B1931");
   doc.text("Travel with Hawkins", margin, 42);
 
   if (logoPngBase64) {
@@ -59,7 +59,7 @@ function addPageHeader(
     metaY += 10;
   });
 
-  doc.setDrawColor("#E8650A");
+  doc.setDrawColor("#F56600");
   doc.setLineWidth(1);
   doc.line(margin, 94, 820, 94);
 }
@@ -132,7 +132,7 @@ export function generatePassengerManifestPdfBlob(
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
-    doc.setTextColor("#1A0F00");
+    doc.setTextColor("#0B1931");
 
     let x = margin;
     const cells = [

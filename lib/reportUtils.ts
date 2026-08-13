@@ -1,4 +1,6 @@
 import type { BookingRecord } from "@/lib/bookingTypes";
+import { calcBookingRevenue } from "@/lib/bookingRevenue";
+import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 // Supabase query builders expose a wider API than the minimal helper interface.
 // This helper accepts any query type as long as it supports the filter methods.
@@ -99,7 +101,10 @@ export function applyReportFilters<T extends FilterableQuery>(query: T, filters:
   return result;
 }
 
-export function summarizeReportRows(rows: BookingRecord[]) {
+// routesStr is optional so existing callers that only need the count-based
+// fields (never revenue) don't need to thread settings through — revenue
+// fields simply come back as 0 without it.
+export function summarizeReportRows(rows: BookingRecord[], routesStr?: string | Record<string, unknown>) {
   const totalSeats = rows.reduce((sum, row) => sum + (row.seats || 1), 0);
   const totalTrips = new Set(rows.map((row) => String(row.tripId || "").trim()).filter(Boolean)).size;
   const bookingFeePaid = rows.filter((row) => row.bookingFeeStatus === "paid").length;
@@ -107,6 +112,27 @@ export function summarizeReportRows(rows: BookingRecord[]) {
   const confirmedJourneys = rows.filter((row) => row.status === "Confirmed").length;
   const completedJourneys = rows.filter((row) => row.status === "Completed" || row.status === "Arrived").length;
   const cancelledJourneys = rows.filter((row) => row.status === "Cancelled").length;
+
+  let bookingFeeRevenue = 0;
+  let fareRevenue = 0;
+  let outstandingBookingFee = 0;
+  let outstandingFare = 0;
+
+  for (const row of rows) {
+    const revenue = calcBookingRevenue(row, routesStr);
+    bookingFeeRevenue += revenue.bookingFee;
+    fareRevenue += revenue.ticketRevenue;
+
+    if (row.bookingFeeStatus !== "paid" && typeof row.bookingFeeAmount === "number") {
+      outstandingBookingFee += row.bookingFeeAmount;
+    }
+
+    if (row.fareStatus !== "paid" && row.fareStatus !== "cash_collected") {
+      const routePrice = resolveRouteFareIfAvailable(row.destination, routesStr) ?? 0;
+      const ticketPrice = typeof row.fare === "number" && Number.isFinite(row.fare) && row.fare > 0 ? row.fare : routePrice;
+      outstandingFare += ticketPrice * (row.seats || 1);
+    }
+  }
 
   return {
     totalTrips,
@@ -117,6 +143,11 @@ export function summarizeReportRows(rows: BookingRecord[]) {
     cancelledJourneys,
     bookingFeePaid,
     fareSettled,
+    bookingFeeRevenue,
+    fareRevenue,
+    totalRevenue: bookingFeeRevenue + fareRevenue,
+    outstandingBookingFee,
+    outstandingFare,
   };
 }
 
