@@ -8,6 +8,12 @@ import type { BookingRecord } from "@/lib/bookingTypes";
 import { groupByDateThenTrip, groupByTrip, summarizeReportRows } from "@/lib/reportUtils";
 import { authFetch } from "@/lib/auth";
 import { BOOKING_FEE_STATUS_VALUES, FARE_STATUS_VALUES } from "@/lib/paymentTypes";
+import { formatMwk } from "@/lib/routePricing";
+import { calcBookingRevenue } from "@/lib/bookingRevenue";
+
+type ReportSummary = ReturnType<typeof summarizeReportRows>;
+
+const EMPTY_SUMMARY: ReportSummary = summarizeReportRows([]);
 
 const REPORT_TYPES = [
   { key: "tripManifest", label: "Trip Manifest" },
@@ -72,6 +78,30 @@ function moneyStatusBadge(status?: string) {
   return <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold border ${colors[label] ?? colors.unpaid}`}>{display}</span>;
 }
 
+function SummaryTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-primary-900">{value}</p>
+    </div>
+  );
+}
+
+function RevenueTile({ label, amount, tone = "default" }: { label: string; amount: number; tone?: "default" | "highlight" | "warning" }) {
+  const toneClasses =
+    tone === "highlight"
+      ? "border-[#0f3f78]/30 bg-[#0f3f78] text-white"
+      : tone === "warning"
+        ? "border-[color:var(--warning)]/20 bg-[color:var(--warning)]/10 text-[color:var(--warning)]"
+        : "border-[#d7ebff] bg-[#eef6ff] text-primary-900";
+  return (
+    <div className={`rounded-3xl border p-4 ${toneClasses}`}>
+      <p className={`text-xs ${tone === "highlight" ? "text-white/70" : "text-slate-500"}`}>{label}</p>
+      <p className="mt-2 text-xl font-black">{formatMwk(amount)}</p>
+    </div>
+  );
+}
+
 function buildQueryString(filters: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -90,8 +120,18 @@ export default function AdminReportsPage() {
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(100);
-  const [paginationMeta, setPaginationMeta] = useState<{ limit: number; offset: number; count: number } | null>(null);
+  const [paginationMeta, setPaginationMeta] = useState<{ limit: number; offset: number; count: number; totalCount: number } | null>(
+    null
+  );
   const [savedRoutes, setSavedRoutes] = useState<string[]>(DEFAULT_ROUTE_OPTIONS);
+  const [routesStr, setRoutesStr] = useState<string>("");
+  // Summary/revenue totals come from the server, computed over the FULL
+  // filtered set — never derived from `bookings` (which is just the current
+  // page), or these numbers would silently under-report anything beyond
+  // page 1. See app/api/reports/route.ts.
+  const [summary, setSummary] = useState<ReportSummary>(EMPTY_SUMMARY);
+  const [truncated, setTruncated] = useState(false);
+  const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
 
   const canSearch = useMemo(() => {
     if (reportType === "tripManifest") return Boolean(filters.tripId?.trim());
@@ -100,7 +140,6 @@ export default function AdminReportsPage() {
     return false;
   }, [filters, reportType]);
 
-  const summary = useMemo(() => summarizeReportRows(bookings), [bookings]);
   const groupedByTrip = useMemo(() => groupByTrip(bookings), [bookings]);
   const groupedByDateTrip = useMemo(() => groupByDateThenTrip(bookings), [bookings]);
 
@@ -118,8 +157,12 @@ export default function AdminReportsPage() {
           };
         };
 
-        const routes = parseRouteOptions(data?.settings?.routes ?? undefined);
-        if (active) setSavedRoutes(routes);
+        const rawRoutes = typeof data?.settings?.routes === "string" ? data.settings.routes : "";
+        const routes = parseRouteOptions(rawRoutes || undefined);
+        if (active) {
+          setSavedRoutes(routes);
+          setRoutesStr(rawRoutes);
+        }
       } catch {
         if (active) setSavedRoutes(DEFAULT_ROUTE_OPTIONS);
       }
@@ -150,7 +193,9 @@ export default function AdminReportsPage() {
       const data = (await res.json()) as {
         success?: boolean;
         bookings?: BookingRecord[];
-        pagination?: { limit: number; offset: number; count: number };
+        pagination?: { limit: number; offset: number; count: number; totalCount: number };
+        summary?: ReportSummary;
+        truncated?: boolean;
         error?: string;
       };
 
@@ -160,10 +205,14 @@ export default function AdminReportsPage() {
 
       setBookings(Array.isArray(data.bookings) ? data.bookings : []);
       setPaginationMeta(data.pagination ?? null);
+      setSummary(data.summary ?? EMPTY_SUMMARY);
+      setTruncated(Boolean(data.truncated));
       setLoadedOnce(true);
     } catch (err) {
       setBookings([]);
       setPaginationMeta(null);
+      setSummary(EMPTY_SUMMARY);
+      setTruncated(false);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -178,86 +227,122 @@ export default function AdminReportsPage() {
     setLoadedOnce(false);
     setPageNumber(1);
     setPaginationMeta(null);
+    setSummary(EMPTY_SUMMARY);
+    setTruncated(false);
   };
 
-  const handleDownloadCsv = () => {
+  // Shared by both exports — the visible `bookings` list is deliberately a
+  // small page; an export must reflect every row the current filter
+  // matches, not just what's on screen.
+  const fetchFullFilteredSet = async (): Promise<BookingRecord[]> => {
+    const query = buildQueryString({ ...filters, full: "1" });
+    const url = `/api/reports?${query}`;
+    const res = await authFetch(url, { cache: "no-store" });
+    const data = (await res.json()) as { success?: boolean; bookings?: BookingRecord[]; error?: string };
+    if (!res.ok || data.success !== true) {
+      throw new Error(data.error || `Unable to load full report data (${res.status})`);
+    }
+    return Array.isArray(data.bookings) ? data.bookings : [];
+  };
+
+  const handleDownloadCsv = async () => {
     if (bookings.length === 0) return;
-    const csv = createCsvFromBookings(bookings);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `twh-${reportType}-report.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    setError(null);
+    setExporting("csv");
+    try {
+      const fullRows = await fetchFullFilteredSet();
+      const csv = createCsvFromBookings(fullRows, routesStr);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `twh-${reportType}-report.csv`;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export failed", err);
+      setError(err instanceof Error ? err.message : "Unable to export CSV. Please try again.");
+    } finally {
+      setExporting(null);
+    }
   };
 
   const handleDownloadPdf = async () => {
     if (bookings.length === 0) return;
-    const metadata = {
-      "Report Type": REPORT_TYPES.find((item) => item.key === reportType)?.label,
-      "Trip ID": filters.tripId || undefined,
-      "Travel Date": filters.travelDate || undefined,
-      Destination: filters.destination || undefined,
-      Pickup: filters.pickup || undefined,
-      Status: filters.status || undefined,
-      "Booking Fee Status": filters.bookingFeeStatus || undefined,
-      "Fare Status": filters.fareStatus || undefined,
-    };
+    setError(null);
+    setExporting("pdf");
 
     try {
+      const fullRows = await fetchFullFilteredSet();
+      const fullSummary = summarizeReportRows(fullRows, routesStr);
+      const metadata = {
+        "Report Type": REPORT_TYPES.find((item) => item.key === reportType)?.label,
+        "Trip ID": filters.tripId || undefined,
+        "Travel Date": filters.travelDate || undefined,
+        Destination: filters.destination || undefined,
+        Pickup: filters.pickup || undefined,
+        Status: filters.status || undefined,
+        "Booking Fee Status": filters.bookingFeeStatus || undefined,
+        "Fare Status": filters.fareStatus || undefined,
+        "Booking Fees Collected": formatMwk(fullSummary.bookingFeeRevenue),
+        "Fares Collected": formatMwk(fullSummary.fareRevenue),
+        "Total Collected": formatMwk(fullSummary.totalRevenue),
+      };
+
       const blob = generatePassengerManifestPdfBlob(
         `${REPORT_TYPES.find((item) => item.key === reportType)?.label ?? "Manifest Report"}`,
         metadata,
-        bookings
+        fullRows
       );
 
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `twh-${reportType}-manifest.pdf`;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PDF export failed", err);
-      setError("Unable to generate PDF. Please try again.");
+      setError(err instanceof Error ? err.message : "Unable to generate PDF. Please try again.");
+    } finally {
+      setExporting(null);
     }
   };
 
   const renderReportSummary = () => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8 gap-3">
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Total Trips</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.totalTrips}</p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8 gap-3">
+        <SummaryTile label="Total Trips" value={summary.totalTrips} />
+        <SummaryTile label="Total Passengers" value={summary.totalPassengers} />
+        <SummaryTile label="Total Seats" value={summary.totalSeats} />
+        <SummaryTile label="Confirmed Journeys" value={summary.confirmedJourneys} />
+        <SummaryTile label="Completed Journeys" value={summary.completedJourneys} />
+        <SummaryTile label="Cancelled Journeys" value={summary.cancelledJourneys} />
+        <SummaryTile label="Booking Fees Paid" value={summary.bookingFeePaid} />
+        <SummaryTile label="Fares Settled" value={summary.fareSettled} />
       </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Total Passengers</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.totalPassengers}</p>
+
+      <div className="rounded-3xl border border-[#d7ebff] bg-white p-5 shadow-sm">
+        <p className="mb-4 text-xs uppercase tracking-[0.3em] text-slate-500">Revenue — full filtered result{truncated ? " (capped)" : ""}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+          <RevenueTile label="Total Collected" amount={summary.totalRevenue} tone="highlight" />
+          <RevenueTile label="Booking Fees Collected" amount={summary.bookingFeeRevenue} />
+          <RevenueTile label="Fares Collected" amount={summary.fareRevenue} />
+          <RevenueTile label="Outstanding Booking Fees" amount={summary.outstandingBookingFee} tone="warning" />
+          <RevenueTile label="Outstanding Fares" amount={summary.outstandingFare} tone="warning" />
+        </div>
       </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Total Seats</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.totalSeats}</p>
-      </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Confirmed Journeys</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.confirmedJourneys}</p>
-      </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Completed Journeys</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.completedJourneys}</p>
-      </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Cancelled Journeys</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.cancelledJourneys}</p>
-      </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Booking Fees Paid</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.bookingFeePaid}</p>
-      </div>
-      <div className="bg-white rounded-3xl border border-[#d7ebff] p-4">
-        <p className="text-xs text-slate-500">Fares Settled</p>
-        <p className="mt-2 text-2xl font-bold text-primary-900">{summary.fareSettled}</p>
-      </div>
+
+      {truncated && paginationMeta && (
+        <div className="rounded-2xl border border-[color:var(--warning)]/20 bg-[color:var(--warning)]/10 p-3 text-xs text-[color:var(--warning)]">
+          This filter matches {paginationMeta.totalCount.toLocaleString()} records — totals and exports above reflect the first{" "}
+          {summary.totalPassengers.toLocaleString()} only. Narrow your filters (e.g. a shorter date range) for complete totals.
+        </div>
+      )}
     </div>
   );
 
@@ -673,29 +758,32 @@ export default function AdminReportsPage() {
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                   <button
                     type="button"
-                    onClick={handleDownloadPdf}
-                    disabled={bookings.length === 0}
+                    onClick={() => void handleDownloadPdf()}
+                    disabled={bookings.length === 0 || exporting !== null}
                     className="w-full rounded-3xl bg-[#0f3f78] px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50 hover:bg-[#0a2d56] sm:w-auto"
                   >
-                    Download PDF
+                    {exporting === "pdf" ? "Preparing PDF…" : "Download PDF"}
                   </button>
                   <button
                     type="button"
-                    onClick={handleDownloadCsv}
-                    disabled={bookings.length === 0}
+                    onClick={() => void handleDownloadCsv()}
+                    disabled={bookings.length === 0 || exporting !== null}
                     className="w-full rounded-3xl border border-[#d7ebff] bg-[#eef6ff] px-4 py-3 text-sm font-semibold text-[#101815] transition hover:bg-[#dbeafe] disabled:opacity-50 sm:w-auto"
                   >
-                    Export CSV
+                    {exporting === "csv" ? "Preparing CSV…" : "Export CSV"}
                   </button>
                 </div>
               </div>
 
               <p className="mt-4 text-sm text-slate-500">
-                Use the advanced filter panel to narrow results. Reports are grouped for each selected report type.
+                Use the advanced filter panel to narrow results. Reports are grouped for each selected report type. PDF/CSV exports and
+                the totals above always cover every matching record, not just the page shown below.
               </p>
               <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="text-sm text-slate-600">
-                  {loadedOnce ? `Showing ${bookings.length} record${bookings.length === 1 ? "" : "s"}${paginationMeta ? ` • page ${pageNumber}` : ""}` : "No results loaded yet"}
+                  {loadedOnce
+                    ? `Showing ${bookings.length} of ${(paginationMeta?.totalCount ?? bookings.length).toLocaleString()} record${(paginationMeta?.totalCount ?? bookings.length) === 1 ? "" : "s"} • page ${pageNumber} of ${Math.max(1, Math.ceil((paginationMeta?.totalCount ?? bookings.length) / pageSize))}`
+                    : "No results loaded yet"}
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                   <label className="text-sm text-slate-600">
@@ -725,7 +813,7 @@ export default function AdminReportsPage() {
                   <button
                     type="button"
                     onClick={() => handleSearch(pageNumber + 1)}
-                    disabled={bookings.length < pageSize || loading}
+                    disabled={pageNumber * pageSize >= (paginationMeta?.totalCount ?? 0) || loading}
                     className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                   >
                     Next
@@ -772,7 +860,14 @@ export default function AdminReportsPage() {
                     <p className="text-sm text-slate-500">Student ID</p>
                     <p className="font-semibold text-slate-900">{selectedRow.studentId || "—"}</p>
                     <p className="text-sm text-slate-500">Booking Fee</p>
-                    <div>{moneyStatusBadge(selectedRow.bookingFeeStatus)}</div>
+                    <div className="flex items-center gap-2">
+                      {moneyStatusBadge(selectedRow.bookingFeeStatus)}
+                      {selectedRow.bookingFeeStatus === "paid" && (
+                        <span className="text-sm font-semibold text-slate-900">
+                          {formatMwk(calcBookingRevenue(selectedRow, routesStr).bookingFee)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-3">
                     <p className="text-sm text-slate-500">Phone</p>
@@ -782,7 +877,14 @@ export default function AdminReportsPage() {
                     <p className="text-sm text-slate-500">Travel Date</p>
                     <p className="font-semibold text-slate-900">{formatDisplayDate(selectedRow.travelDate)}</p>
                     <p className="text-sm text-slate-500">Transport Fare</p>
-                    <div>{moneyStatusBadge(selectedRow.fareStatus)}</div>
+                    <div className="flex items-center gap-2">
+                      {moneyStatusBadge(selectedRow.fareStatus)}
+                      {(selectedRow.fareStatus === "paid" || selectedRow.fareStatus === "cash_collected") && (
+                        <span className="text-sm font-semibold text-slate-900">
+                          {formatMwk(calcBookingRevenue(selectedRow, routesStr).ticketRevenue)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
