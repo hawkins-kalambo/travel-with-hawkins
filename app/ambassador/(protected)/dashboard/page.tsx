@@ -124,7 +124,7 @@ export default function AmbassadorDashboardPage() {
               {profile?.profile_image_url ? (
                 <Image src={String(profile.profile_image_url)} alt={ambassadorName} width={64} height={64} className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">TW</div>
+                <Image src="/logo.png" alt="Travel with Hawkins logo" width={64} height={64} className="h-full w-full object-cover" />
               )}
             </div>
             <div>
