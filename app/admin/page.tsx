@@ -838,6 +838,8 @@ const universityById = useMemo(() => {
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `${bookingId}-${paymentType}.pdf`;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
