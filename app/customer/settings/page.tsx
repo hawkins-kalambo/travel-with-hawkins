@@ -19,6 +19,7 @@ export default function CustomerSettingsPage() {
     notifyTripReminder: true,
     notifyAnnouncements: true,
     profileVisibility: "private",
+    showBookingHistory: true,
     newsletterSubscription: true,
     promotionalEmails: true,
     twoFactorEnabled: false,
@@ -32,8 +33,14 @@ export default function CustomerSettingsPage() {
           router.push("/customer/login");
           return;
         }
-        // In a real app, fetch settings from API
-        // For now, use defaults
+
+        const res = await fetch("/api/customers/settings");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.settings) {
+            setSettings((prev) => ({ ...prev, ...data.settings }));
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
@@ -65,8 +72,18 @@ export default function CustomerSettingsPage() {
     setSuccess("");
 
     try {
-      // In a real app, call /api/customers/settings
-      // For now, just show success
+      const res = await fetch("/api/customers/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        setError(data.error || "Failed to save settings");
+        return;
+      }
+
       setSuccess("Settings saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
@@ -287,7 +304,12 @@ export default function CustomerSettingsPage() {
                       <p className="text-sm text-slate-600">Allow others to see your bookings</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" defaultChecked className="sr-only peer" />
+                      <input
+                        type="checkbox"
+                        checked={settings.showBookingHistory}
+                        onChange={() => handleToggle("showBookingHistory")}
+                        className="sr-only peer"
+                      />
                       <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#0A4D8C]/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0A4D8C]"></div>
                     </label>
                   </div>
