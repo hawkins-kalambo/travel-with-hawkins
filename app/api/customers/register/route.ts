@@ -51,8 +51,10 @@ export async function POST(req: NextRequest) {
       success: true,
       userId: result.userId,
       otpChannel: resolvedOtpChannel,
-      message:
-        resolvedOtpChannel === "sms"
+      otpSent: result.otpSent !== false,
+      message: result.otpSent === false
+        ? "Your account was created, but we couldn't send your verification code just now. On the next screen, tap \"Resend\" to try again."
+        : resolvedOtpChannel === "sms"
           ? "Registration successful! Please check your phone for a verification code."
           : "Registration successful! Please check your email for a verification code.",
     });
