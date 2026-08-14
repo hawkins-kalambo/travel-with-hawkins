@@ -5,7 +5,7 @@ import type { CustomerProfile, CustomerRegistrationData, CustomerLoginData } fro
 
 // ================= CUSTOMER REGISTRATION =================
 
-export async function registerCustomer(data: CustomerRegistrationData): Promise<{ success: boolean; userId?: string; error?: string }> {
+export async function registerCustomer(data: CustomerRegistrationData): Promise<{ success: boolean; userId?: string; error?: string; otpSent?: boolean; otpError?: string }> {
   try {
     // Validate passwords match
     if (data.password !== data.confirmPassword) {
@@ -122,7 +122,13 @@ export async function registerCustomer(data: CustomerRegistrationData): Promise<
       console.warn("Failed to send registration OTP", otpResult.error);
     }
 
-    return { success: true, userId };
+    // The account is created either way — the customer can always retry
+    // delivery from the verify-email screen's "Resend" button — but the API
+    // response needs to say honestly whether a code actually went out so the
+    // frontend doesn't tell someone to "check your email" when nothing was
+    // sent (e.g. Resend/Africa's Talking credentials missing or the provider
+    // request failed).
+    return { success: true, userId, otpSent: otpResult.success, otpError: otpResult.error };
   } catch (error) {
     console.error("Registration error", error);
     return { success: false, error: error instanceof Error ? error.message : "Registration failed" };
