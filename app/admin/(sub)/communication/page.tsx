@@ -6,6 +6,7 @@ import AnnouncementsSection from "./announcements";
 import BroadcastCenterSection from "./broadcasts";
 import InboxSection from "./inbox";
 import SupportTicketsSection from "./support-tickets";
+import WebsiteChatInboxSection from "./website-chat-inbox";
 import PageHeader from "@/app/components/ui/PageHeader";
 import Badge from "@/app/components/ui/Badge";
 import { LoadingState } from "@/app/components/ui/Spinner";
@@ -72,7 +73,7 @@ export default function AdminCommunicationPage() {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website">("overview");
   const [notificationSearch, setNotificationSearch] = useState("");
   const [notificationFilter, setNotificationFilter] = useState("all");
   const [metrics, setMetrics] = useState<Metrics>({
@@ -211,6 +212,7 @@ export default function AdminCommunicationPage() {
             { key: "announcements", label: "Announcements" },
             { key: "tickets", label: "Support Desk" },
             { key: "conversations", label: "Inbox" },
+            { key: "website", label: "Website Chat" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -373,6 +375,7 @@ export default function AdminCommunicationPage() {
           {activeTab === "tickets" && <SupportTicketsSection />}
 
           {activeTab === "conversations" && <InboxSection conversations={conversations} onRefresh={loadCommunicationCenter} />}
+          {activeTab === "website" && <WebsiteChatInboxSection />}
         </div>
       </div>
     </div>

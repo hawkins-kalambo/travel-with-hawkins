@@ -76,6 +76,40 @@ export function ticketPriorityTone(priority: string | null | undefined): BadgeTo
   }
 }
 
+export function operatorApplicationStatusTone(status: string | null | undefined): BadgeTone {
+  switch ((status || "").toLowerCase()) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "danger";
+    case "changes_required":
+      return "warning";
+    case "under_review":
+      return "info";
+    case "submitted":
+    case "draft":
+    default:
+      return "neutral";
+  }
+}
+
+export function operatorDocumentStatusTone(status: string | null | undefined): BadgeTone {
+  switch ((status || "").toLowerCase()) {
+    case "verified":
+      return "success";
+    case "rejected":
+    case "expired":
+      return "danger";
+    case "expiring":
+      return "warning";
+    case "replaced":
+      return "neutral";
+    case "pending":
+    default:
+      return "info";
+  }
+}
+
 export type BookingPaymentSummary = {
   bookingStatus?: string | null;
   bookingFeeStatus?: string | null;

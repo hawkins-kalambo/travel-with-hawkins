@@ -18,6 +18,8 @@ import { getCurrentUser, authFetch } from "@/lib/auth";
 import type { CustomerProfile } from "@/lib/customerAuth";
 import CustomerShell from "@/app/customer/_components/CustomerShell";
 
+const POLL_INTERVAL_MS = 15000;
+
 type ConversationItem = {
   conversation_id: string;
   last_read_at?: string | null;
@@ -143,6 +145,26 @@ export default function CustomerMessagesPage() {
 
     void init();
   }, [router]);
+
+  // Live-updates the open thread so an admin reply shows up without a
+  // manual refresh — same polling pattern used in
+  // app/admin/(sub)/communication/whatsapp-inbox.tsx and the shared
+  // app/communication/conversations/[id]/page.tsx thread view.
+  useEffect(() => {
+    if (!selectedId) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await authFetch(`/api/communication/conversations/${selectedId}`);
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setThreadMessages(Array.isArray(data.messages) ? data.messages : []);
+        }
+      } catch {
+        // silent — next poll will retry
+      }
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [selectedId]);
 
   const openConversation = async (conversationId: string) => {
     setComposing(false);

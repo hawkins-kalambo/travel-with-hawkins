@@ -5,7 +5,7 @@ import type { CustomerProfile, CustomerRegistrationData, CustomerLoginData } fro
 
 // ================= CUSTOMER REGISTRATION =================
 
-export async function registerCustomer(data: CustomerRegistrationData): Promise<{ success: boolean; userId?: string; error?: string }> {
+export async function registerCustomer(data: CustomerRegistrationData): Promise<{ success: boolean; userId?: string; error?: string; otpSent?: boolean; otpError?: string }> {
   try {
     // Validate passwords match
     if (data.password !== data.confirmPassword) {
@@ -122,7 +122,13 @@ export async function registerCustomer(data: CustomerRegistrationData): Promise<
       console.warn("Failed to send registration OTP", otpResult.error);
     }
 
-    return { success: true, userId };
+    // The account is created either way — the customer can always retry
+    // delivery from the verify-email screen's "Resend" button — but the API
+    // response needs to say honestly whether a code actually went out so the
+    // frontend doesn't tell someone to "check your email" when nothing was
+    // sent (e.g. Resend/Africa's Talking credentials missing or the provider
+    // request failed).
+    return { success: true, userId, otpSent: otpResult.success, otpError: otpResult.error };
   } catch (error) {
     console.error("Registration error", error);
     return { success: false, error: error instanceof Error ? error.message : "Registration failed" };
@@ -367,15 +373,28 @@ export async function getCustomerPreferences(customerId: string) {
 
 export async function updateCustomerPreferences(customerId: string, preferences: Record<string, unknown>) {
   try {
-    const { data, error } = await supabaseAdmin
+    // UPDATE is a no-op if the customer has no preferences row yet (older
+    // accounts predating the default-row insert in registerCustomer(), or
+    // one whose insert failed) — fall back to creating the row instead of
+    // silently discarding the change.
+    const { data: existing, error: selectError } = await supabaseAdmin
       .from("customer_preferences")
-      .update({
-        ...preferences,
-        updated_at: new Date().toISOString(),
-      })
+      .select("id")
       .eq("customer_id", customerId)
-      .select()
       .maybeSingle();
+
+    if (selectError) {
+      return { success: false, error: selectError.message };
+    }
+
+    const query = existing
+      ? supabaseAdmin
+          .from("customer_preferences")
+          .update({ ...preferences, updated_at: new Date().toISOString() })
+          .eq("customer_id", customerId)
+      : supabaseAdmin.from("customer_preferences").insert([{ customer_id: customerId, ...preferences }]);
+
+    const { data, error } = await query.select().maybeSingle();
 
     if (error) {
       return { success: false, error: error.message };
@@ -408,15 +427,26 @@ export async function getCustomerSettings(customerId: string) {
 
 export async function updateCustomerSettings(customerId: string, settings: Record<string, unknown>) {
   try {
-    const { data, error } = await supabaseAdmin
+    // Same upsert fallback as updateCustomerPreferences() above — a plain
+    // UPDATE would silently no-op for a customer with no settings row yet.
+    const { data: existing, error: selectError } = await supabaseAdmin
       .from("customer_settings")
-      .update({
-        ...settings,
-        updated_at: new Date().toISOString(),
-      })
+      .select("id")
       .eq("customer_id", customerId)
-      .select()
       .maybeSingle();
+
+    if (selectError) {
+      return { success: false, error: selectError.message };
+    }
+
+    const query = existing
+      ? supabaseAdmin
+          .from("customer_settings")
+          .update({ ...settings, updated_at: new Date().toISOString() })
+          .eq("customer_id", customerId)
+      : supabaseAdmin.from("customer_settings").insert([{ customer_id: customerId, ...settings }]);
+
+    const { data, error } = await query.select().maybeSingle();
 
     if (error) {
       return { success: false, error: error.message };

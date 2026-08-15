@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Bell, Eye, Lock } from "lucide-react";
 import { getCurrentUser, logout } from "@/lib/auth";
+import type { CustomerProfile } from "@/lib/customerAuth";
+import CustomerShell from "@/app/customer/_components/CustomerShell";
 
 export default function CustomerSettingsPage() {
   const router = useRouter();
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -19,6 +21,7 @@ export default function CustomerSettingsPage() {
     notifyTripReminder: true,
     notifyAnnouncements: true,
     profileVisibility: "private",
+    showBookingHistory: true,
     newsletterSubscription: true,
     promotionalEmails: true,
     twoFactorEnabled: false,
@@ -32,8 +35,25 @@ export default function CustomerSettingsPage() {
           router.push("/customer/login");
           return;
         }
-        // In a real app, fetch settings from API
-        // For now, use defaults
+
+        const [settingsRes, profileRes] = await Promise.all([
+          fetch("/api/customers/settings"),
+          fetch("/api/customers/profile"),
+        ]);
+
+        if (settingsRes.ok) {
+          const data = await settingsRes.json();
+          if (data.success && data.settings) {
+            setSettings((prev) => ({ ...prev, ...data.settings }));
+          }
+        }
+
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          if (profileData.success && profileData.profile) {
+            setProfile(profileData.profile);
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
@@ -65,8 +85,18 @@ export default function CustomerSettingsPage() {
     setSuccess("");
 
     try {
-      // In a real app, call /api/customers/settings
-      // For now, just show success
+      const res = await fetch("/api/customers/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        setError(data.error || "Failed to save settings");
+        return;
+      }
+
       setSuccess("Settings saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
@@ -87,7 +117,7 @@ export default function CustomerSettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-[#f3f7fb]">
         <div className="text-center">
           <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-[#0A4D8C] mx-auto"></div>
           <p className="text-slate-600">Loading settings...</p>
@@ -97,30 +127,8 @@ export default function CustomerSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Header */}
-      <header className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <Link href="/customer/dashboard" className="flex items-center gap-3">
-              <Image src="/logo.png" width={40} height={40} className="rounded-full object-cover" alt="Travel with Hawkins" />
-              <span className="text-lg font-black text-[#0A4D8C]">Travel with Hawkins</span>
-            </Link>
-
-            <Link href="/customer/dashboard" className="text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]">
-              ← Back to Dashboard
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-black text-slate-900">Settings</h1>
-          <p className="mt-2 text-slate-600">Manage your account preferences and security</p>
-        </div>
-
+    <CustomerShell active="settings" profile={profile} title="Settings" subtitle="Manage your account preferences and security">
+      <div className="mx-auto max-w-4xl">
         {error && (
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
@@ -138,35 +146,35 @@ export default function CustomerSettingsPage() {
           <div className="space-y-2 lg:col-span-1">
             <button
               onClick={() => setActiveTab("notifications")}
-              className={`w-full text-left rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-2.5 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                 activeTab === "notifications"
                   ? "bg-[#0A4D8C] text-white"
                   : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
               }`}
             >
-              🔔 Notifications
+              <Bell size={17} strokeWidth={2.25} /> Notifications
             </button>
 
             <button
               onClick={() => setActiveTab("privacy")}
-              className={`w-full text-left rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-2.5 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                 activeTab === "privacy"
                   ? "bg-[#0A4D8C] text-white"
                   : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
               }`}
             >
-              👁️ Privacy
+              <Eye size={17} strokeWidth={2.25} /> Privacy
             </button>
 
             <button
               onClick={() => setActiveTab("security")}
-              className={`w-full text-left rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-2.5 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                 activeTab === "security"
                   ? "bg-[#0A4D8C] text-white"
                   : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
               }`}
             >
-              🔐 Security
+              <Lock size={17} strokeWidth={2.25} /> Security
             </button>
           </div>
 
@@ -287,7 +295,12 @@ export default function CustomerSettingsPage() {
                       <p className="text-sm text-slate-600">Allow others to see your bookings</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" defaultChecked className="sr-only peer" />
+                      <input
+                        type="checkbox"
+                        checked={settings.showBookingHistory}
+                        onChange={() => handleToggle("showBookingHistory")}
+                        className="sr-only peer"
+                      />
                       <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#0A4D8C]/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0A4D8C]"></div>
                     </label>
                   </div>
@@ -388,7 +401,7 @@ export default function CustomerSettingsPage() {
             )}
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </CustomerShell>
   );
 }

@@ -7,6 +7,7 @@ import Image from "next/image";
 import { Trash2 } from "lucide-react";
 import { authFetch, supabase } from "@/lib/auth";
 import { isViewerAllowedTab, normalizeAdminRole } from "@/lib/adminAuth";
+import type { AppRole } from "@/lib/permissions";
 import { type BookingRecord } from "@/lib/bookingTypes";
 import { getAllowedJourneyTransitions } from "@/lib/bookingLifecycle";
 import { canConfirmCashFare, canRecordManualFarePayment } from "@/lib/adminBookingFareActions";
@@ -316,7 +317,7 @@ function AdminPageContent() {
   const searchParams = useSearchParams();
 
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<"super_admin" | "admin" | "university_admin" | "viewer" | "ambassador" | "customer" | "unknown">("unknown");
+  const [userRole, setUserRole] = useState<AppRole>("unknown");
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [search, setSearch] = useState("");

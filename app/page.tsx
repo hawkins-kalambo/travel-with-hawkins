@@ -7,6 +7,8 @@ import HeroSection from "./components/home/HeroSection";
 import TripSearchCard from "./components/home/TripSearchCard";
 import StatsStrip from "./components/home/StatsStrip";
 import PopularRoutesSection from "./components/home/PopularRoutesSection";
+import TaxiSection, { type TaxiFare } from "./components/home/TaxiSection";
+import TaxiBookingModal from "./components/home/TaxiBookingModal";
 import AccountBenefitsSection from "./components/home/AccountBenefitsSection";
 import WhyChooseUsSection from "./components/home/WhyChooseUsSection";
 import TeamSection from "./components/home/TeamSection";
@@ -17,6 +19,7 @@ import BookingModal, { type BookingFormState, type ReferralValidationState } fro
 import TrackModal from "./components/home/TrackModal";
 import BookingSuccessModal, { type BookingSuccessData } from "./components/home/BookingSuccessModal";
 import WhatsAppButton from "./components/WhatsAppButton";
+import WebsiteChatWidget from "./components/WebsiteChatWidget";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { REFERRAL_STORAGE_KEY, resolveInitialReferral, type ReferralSource } from "@/lib/referralStorage";
@@ -81,6 +84,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   const [routeOptions, setRouteOptions] = useState<RouteOption[]>(initialTrip?.routeOptions ?? []);
   const [selectedRouteId, setSelectedRouteId] = useState(initialTrip?.routeId ?? "");
   const [successData, setSuccessData] = useState<BookingSuccessData | null>(null);
+  const [selectedTaxiFare, setSelectedTaxiFare] = useState<TaxiFare | null>(null);
   const [referralValidation, setReferralValidation] = useState<ReferralValidationState>({ state: "idle" });
   const [referralSource, setReferralSource] = useState<ReferralSource | null>(null);
   const [today, setToday] = useState("");
@@ -419,6 +423,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           fare: finalFare,
           bookingFeeAmount: normalized.bookingFeeAmount,
           journeyDirection,
+          operatorDisplayName: typeof result.operatorDisplayName === "string" ? result.operatorDisplayName : undefined,
         });
         localStorage.setItem("twh_profile", JSON.stringify({ name: form.name.trim(), studentId: form.studentId.trim(), phone: form.phone.trim() }));
         closeBooking();
@@ -487,6 +492,8 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
 
       <PopularRoutesSection routePrices={routePrices} onBookRoute={openPopularRoute} onCustomize={focusTripSearch} />
 
+      <TaxiSection onBookFare={setSelectedTaxiFare} />
+
       <AccountBenefitsSection />
 
       <WhyChooseUsSection />
@@ -500,6 +507,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       <SiteFooter />
 
       <WhatsAppButton />
+      <WebsiteChatWidget />
 
       {showBooking && (
         <BookingModal
@@ -568,6 +576,17 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       )}
 
       {successData && <BookingSuccessModal successData={successData} onClose={() => setSuccessData(null)} />}
+
+      {selectedTaxiFare && (
+        <TaxiBookingModal
+          fare={selectedTaxiFare}
+          onClose={() => setSelectedTaxiFare(null)}
+          onSuccess={(data) => {
+            setSelectedTaxiFare(null);
+            setSuccessData(data);
+          }}
+        />
+      )}
     </main>
   );
 }

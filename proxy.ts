@@ -35,7 +35,8 @@ export async function proxy(request: NextRequest) {
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const isAmbassadorRoute = pathname === "/ambassador" || pathname.startsWith("/ambassador/");
   const isCustomerRoute = pathname === "/customer" || pathname.startsWith("/customer/");
-  const isUiRoute = isAdminRoute || isAmbassadorRoute || isCustomerRoute;
+  const isOperatorRoute = pathname === "/operator" || pathname.startsWith("/operator/");
+  const isUiRoute = isAdminRoute || isAmbassadorRoute || isCustomerRoute || isOperatorRoute;
   const isAdminLoginRoute = pathname === "/admin/login";
   const isResetRoute = pathname === "/reset-password" || pathname === "/update-password";
   const isAuthCallbackRoute = pathname.startsWith("/auth/");
@@ -48,7 +49,9 @@ export async function proxy(request: NextRequest) {
     pathname === "/customer/login" ||
     pathname === "/customer/register" ||
     pathname === "/customer/forgot-password";
-  const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isCustomerPublicRoute || isResetRoute || isAuthCallbackRoute;
+  const isOperatorPublicRoute = pathname === "/operator/login" || pathname === "/operator/register";
+  const isPublicEntryRoute =
+    isAdminLoginRoute || isAmbassadorPublicRoute || isCustomerPublicRoute || isOperatorPublicRoute || isResetRoute || isAuthCallbackRoute;
 
   // Reading settings (routes/fares/booking fee) is public — the homepage
   // needs it for anonymous visitors. Editing (PATCH/PUT) stays admin-only,
@@ -131,13 +134,20 @@ export async function proxy(request: NextRequest) {
       pathname === "/api/customers/forgot-password" ||
       pathname === "/api/customers/verify-otp" ||
       pathname === "/api/customers/resend-otp");
+  // /api/admin/operators (approval queue) is intentionally NOT included
+  // here — it already falls under the isAdminApiRoute bucket below via
+  // pathname.startsWith("/api/admin/"), same as every other admin sub-route.
+  const isOperatorApiRoute = pathname.startsWith("/api/operators");
+  const isPublicOperatorRoute =
+    isOperatorApiRoute && (pathname === "/api/operators/register" || pathname === "/api/operators/login");
   const isAdminBookingRoute = isBookingsRoute && !isPublicBookingCreate && !isPublicUrgencySignal;
 
   const isProtectedApiRoute =
     isSettingsRoute ||
     isAdminApiRoute ||
     isAdminBookingRoute ||
-    (isCustomerApiRoute && !isPublicCustomerRoute);
+    (isCustomerApiRoute && !isPublicCustomerRoute) ||
+    (isOperatorApiRoute && !isPublicOperatorRoute);
 
   if (pathname.startsWith("/api/bookings") && method === "POST") {
     if (await isRateLimited(rateLimitKey)) {
@@ -180,6 +190,8 @@ export async function proxy(request: NextRequest) {
       redirectTarget = "/customer/login";
     } else if (isAmbassadorRoute) {
       redirectTarget = "/ambassador/login";
+    } else if (isOperatorRoute) {
+      redirectTarget = "/operator/login";
     }
 
     const redirectUrl = new URL(redirectTarget, request.url);
@@ -276,6 +288,16 @@ export async function proxy(request: NextRequest) {
       // Redirect admin/ambassador to their respective dashboards
       const redirectTarget = role === "ambassador" ? "/ambassador" : "/admin";
       return NextResponse.redirect(new URL(redirectTarget, request.url));
+    }
+  }
+
+  if (isOperatorRoute) {
+    const isOperator = role === "operator_staff";
+    if (!isOperator && role !== "super_admin" && role !== "admin") {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ success: false, error: "Operator access required" }, { status: 403 });
+      }
+      return authResponse;
     }
   }
 

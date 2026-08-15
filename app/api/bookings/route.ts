@@ -10,6 +10,7 @@ import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
 import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourneyDirection } from "@/lib/journeyDirection";
 import { resolveActiveUniversity } from "@/lib/universityResolver";
+import { resolveDefaultOperatorId } from "@/lib/defaultOperator";
 import { jsonError } from "@/lib/apiResponse";
 import {
   generateBookingId,
@@ -260,7 +261,7 @@ export async function POST(req: Request) {
     let destination = submittedDestination;
     let pickup = submittedPickup;
     let location = submittedLocation;
-    let journeyDirection = submittedJourneyDirection;
+    let journeyDirection: typeof submittedJourneyDirection | undefined = submittedJourneyDirection;
     let homeDistrict = submittedHomeDistrict;
     let journeyOrigin: string | undefined;
     let journeyDestination: string | undefined;
@@ -268,18 +269,53 @@ export async function POST(req: Request) {
     let resolvedDistrictPickupPointId: string | undefined;
     let resolvedUniversityPickupPointId: string | undefined;
     let resolvedRouteCommission: { amount: number; type: "fixed" | "percentage" } | undefined;
+    let resolvedOperatorId: string | undefined;
+    let resolvedServiceType: "intercity" | "taxi" | "car_hire" = "intercity";
     const requestedRouteId = getNonEmptyString(payload.routeId ?? payload.route_id);
     const requestedUniversityId = getNonEmptyString(payload.universityId ?? payload.university_id);
+    const requestedTaxiFareId = getNonEmptyString(payload.taxiFareId ?? payload.taxi_fare_id);
 
     const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = extractRouteSettingsData(settingsData ?? null);
     const routeFare = resolveRouteFareIfAvailable(destination, routesText);
     let fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : undefined;
 
-    if (requestedRouteId) {
+    if (requestedTaxiFareId) {
+      const { data: taxiFareRow, error: taxiFareError } = await supabase
+        .from("taxi_fares")
+        .select("id, origin_label, destination_label, fare, status, operator_id, operator:operators(status)")
+        .eq("id", requestedTaxiFareId)
+        .maybeSingle();
+
+      if (taxiFareError) {
+        logError("Failed to resolve selected taxi fare", { error: taxiFareError.message, taxiFareId: requestedTaxiFareId });
+        return jsonError("Unable to verify the selected taxi fare. Please try again.", 503);
+      }
+      if (!taxiFareRow) return jsonError("The selected taxi fare no longer exists.", 400);
+
+      const taxiOperator = taxiFareRow.operator as unknown as { status?: string } | null;
+      if (taxiFareRow.status !== "active" || taxiOperator?.status !== "active") {
+        return jsonError("The selected taxi fare is not currently available.", 400);
+      }
+
+      resolvedServiceType = "taxi";
+      resolvedOperatorId = taxiFareRow.operator_id;
+      destination = `${taxiFareRow.origin_label} - ${taxiFareRow.destination_label}`;
+      pickup = taxiFareRow.origin_label;
+      location = "Taxi";
+      // Taxi has no university/district journey concept — leave these unset
+      // rather than keep the intercity default (validateBookingInput
+      // defaults journeyDirection to "to_university" for a field this
+      // booking type doesn't use at all).
+      journeyDirection = undefined;
+      homeDistrict = undefined;
+
+      const structuredFare = Number(taxiFareRow.fare);
+      fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
+    } else if (requestedRouteId) {
       const { data: routeRow, error: routeError } = await supabase
         .from("routes")
-        .select("id, fare, status, university_id, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
+        .select("id, fare, status, operator_id, university_id, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
         .eq("id", requestedRouteId)
         .maybeSingle();
 
@@ -328,6 +364,7 @@ export async function POST(req: Request) {
       resolvedUniversityId = routeRow.university_id ?? undefined;
       resolvedDistrictPickupPointId = routeRow.district_pickup_point_id ?? undefined;
       resolvedUniversityPickupPointId = routeRow.pickup_point_id ?? undefined;
+      resolvedOperatorId = routeRow.operator_id ?? undefined;
 
       const structuredFare = Number(routeRow.fare);
       fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
@@ -357,6 +394,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // Every booking carries an operator (Master Plan §3.3's universal
+    // booking model), even ones made through the legacy free-text route
+    // matcher that has no operator concept of its own — those attribute to
+    // the internal operator every pre-existing route/booking was backfilled
+    // onto in Stage 1.
+    if (!resolvedOperatorId) {
+      resolvedOperatorId = (await resolveDefaultOperatorId()) ?? undefined;
+    }
+
     // Guards against two concurrent submissions of the same booking (a
     // double-click, a retried request) both landing as separate rows. A
     // plain "check, then insert" here would race — two requests could both
@@ -365,7 +411,7 @@ export async function POST(req: Request) {
     // transaction, so only one caller at a time can ever observe an unclaimed
     // key (see db/migrations/2026_08_03_booking_dedupe_claim.sql).
     const dedupeWindowSeconds = 120;
-    const dedupeKey = `booking:${phone}|${studentId}|${requestedRouteId || destination}|${journeyDirection}|${travelDate}|${seats}`;
+    const dedupeKey = `booking:${phone}|${studentId}|${requestedRouteId || requestedTaxiFareId || destination}|${journeyDirection}|${travelDate}|${seats}`;
     const { data: dedupeRows, error: dedupeError } = await supabase.rpc("claim_booking_dedupe", {
       p_key: dedupeKey,
       p_window_seconds: dedupeWindowSeconds,
@@ -508,6 +554,8 @@ export async function POST(req: Request) {
       location,
       bookingType,
       fare,
+      operatorId: resolvedOperatorId,
+      serviceType: resolvedServiceType,
       // Only ever stamped once the route/university pair has been verified
       // active above — an unresolved or rejected routeId is dropped rather
       // than recorded, so a booking never references a route that wasn't
@@ -544,14 +592,23 @@ export async function POST(req: Request) {
       const missingRouteColumns =
         (reason.includes("route_id") || reason.includes("university_id")) &&
         (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+      // operator_id/service_type are new (2026_08_10_bookings_operator_service_type.sql) —
+      // same fail-open treatment as route_id/university_id above.
+      const missingOperatorColumns =
+        (reason.includes("operator_id") || reason.includes("service_type")) &&
+        (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
 
       if (missingFareColumn) delete (bookingPayload as Record<string, unknown>).fare;
       if (missingRouteColumns) {
         delete (bookingPayload as Record<string, unknown>).route_id;
         delete (bookingPayload as Record<string, unknown>).university_id;
       }
+      if (missingOperatorColumns) {
+        delete (bookingPayload as Record<string, unknown>).operator_id;
+        delete (bookingPayload as Record<string, unknown>).service_type;
+      }
 
-      if (missingFareColumn || missingRouteColumns) {
+      if (missingFareColumn || missingRouteColumns || missingOperatorColumns) {
         const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
         data = retry.data as Record<string, unknown> | null;
         error = retry.error;
@@ -615,6 +672,18 @@ export async function POST(req: Request) {
     const responseBooking = { ...record, fare: fare ?? record.fare };
     delete (responseBooking as Record<string, unknown>).tripId;
 
+    // Ownership transparency (Master Plan §11.2): every booking confirmation
+    // names the operator that actually runs the trip, not just Hawkins as
+    // the platform. Not stored on the booking row — the response is enough
+    // for a one-time confirmation screen, and looking it up here (rather
+    // than joining it into the insert) keeps the operator's display_name
+    // free to change later without stale copies on old bookings.
+    let operatorDisplayName: string | undefined;
+    if (resolvedOperatorId) {
+      const { data: operatorRow } = await supabase.from("operators").select("display_name").eq("id", resolvedOperatorId).maybeSingle();
+      operatorDisplayName = operatorRow?.display_name ?? undefined;
+    }
+
     let adminEmailStatus: NotificationStatus = "failed";
     let customerEmailStatus: NotificationStatus = "failed";
 
@@ -640,6 +709,7 @@ export async function POST(req: Request) {
       success: true,
       booking: responseBooking,
       bookingId,
+      operatorDisplayName,
       message: "Booking created",
       notifications: {
         adminEmail: adminEmailStatus,
