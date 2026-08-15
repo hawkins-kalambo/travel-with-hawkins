@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bell, Eye, Lock } from "lucide-react";
 import { getCurrentUser, logout } from "@/lib/auth";
 import type { CustomerProfile } from "@/lib/customerAuth";
 import CustomerShell from "@/app/customer/_components/CustomerShell";
@@ -145,35 +146,35 @@ export default function CustomerSettingsPage() {
           <div className="space-y-2 lg:col-span-1">
             <button
               onClick={() => setActiveTab("notifications")}
-              className={`w-full text-left rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-2.5 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                 activeTab === "notifications"
                   ? "bg-[#0A4D8C] text-white"
                   : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
               }`}
             >
-              🔔 Notifications
+              <Bell size={17} strokeWidth={2.25} /> Notifications
             </button>
 
             <button
               onClick={() => setActiveTab("privacy")}
-              className={`w-full text-left rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-2.5 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                 activeTab === "privacy"
                   ? "bg-[#0A4D8C] text-white"
                   : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
               }`}
             >
-              👁️ Privacy
+              <Eye size={17} strokeWidth={2.25} /> Privacy
             </button>
 
             <button
               onClick={() => setActiveTab("security")}
-              className={`w-full text-left rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-2.5 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                 activeTab === "security"
                   ? "bg-[#0A4D8C] text-white"
                   : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
               }`}
             >
-              🔐 Security
+              <Lock size={17} strokeWidth={2.25} /> Security
             </button>
           </div>
 
