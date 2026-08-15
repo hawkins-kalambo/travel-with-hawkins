@@ -18,14 +18,7 @@ import type { CustomerProfile } from "@/lib/customerAuth";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { journeyDirectionLabel, isJourneyDirection } from "@/lib/journeyDirection";
 import CustomerShell from "@/app/customer/_components/CustomerShell";
-
-function statusBadgeClasses(status?: string) {
-  const normalized = (status || "").toLowerCase();
-  if (normalized === "completed") return "bg-emerald-50 text-emerald-700 border border-emerald-200";
-  if (normalized === "cancelled") return "bg-red-50 text-red-700 border border-red-200";
-  if (normalized === "boarding" || normalized === "departed" || normalized === "arrived") return "bg-amber-50 text-amber-700 border border-amber-200";
-  return "bg-blue-50 text-blue-700 border border-blue-200";
-}
+import StatusBadge from "@/app/customer/_components/StatusBadge";
 
 function valueOrDash(value: unknown) {
   return typeof value === "string" && value.trim() ? value : "—";
@@ -146,20 +139,22 @@ export default function CustomerBookingDetailPage() {
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
               <IdCard size={14} /> {valueOrDash(booking.bookingId)}
             </p>
-            <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900">
-              <MapPin size={20} className="text-[#0A4D8C]" strokeWidth={2.25} />
+            <h1 className="mt-2 flex items-center gap-2.5 text-2xl font-black text-slate-900">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-[#0A4D8C]">
+                <MapPin size={18} strokeWidth={2.25} />
+              </span>
               {valueOrDash(booking.destination)}
             </h1>
-            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-600">
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-slate-600">
               <CalendarDays size={15} className="text-slate-400" />
               {booking.travelDate
                 ? new Date(booking.travelDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
                 : "—"}
             </p>
           </div>
-          <span className={`inline-block h-fit rounded-full px-4 py-2 text-sm font-bold ${statusBadgeClasses(booking.status)}`}>
-            {valueOrDash(booking.status)}
-          </span>
+          <div className="h-fit">
+            <StatusBadge status={valueOrDash(booking.status)} />
+          </div>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
