@@ -52,7 +52,8 @@ export default function ConversationDetailPage() {
   );
 
   useEffect(() => {
-    void loadMessages();
+    const timer = window.setTimeout(() => void loadMessages(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadMessages]);
 
   // Live-updates the thread while it's open, so an admin/customer reply
