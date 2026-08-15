@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconMenu, IconX } from "../Icon";
+import { IconMenu, IconX, IconUser } from "../Icon";
+import { getCurrentUser } from "@/lib/auth";
 
 const NAV_LINKS: Array<[string, string]> = [
   ["Home", "/"],
@@ -30,6 +31,27 @@ function isActiveLink(pathname: string, href: string) {
 export default function SiteHeader({ onOpenBooking, onOpenTrack }: SiteHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname() ?? "/";
+
+  // This header is also what a logged-in customer sees when "Book a Trip"
+  // sends them to /book (which just renders this same homepage) — without
+  // this check it always showed "Sign In", making an active session look
+  // like it had been logged out.
+  const [customerFirstName, setCustomerFirstName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      getCurrentUser().then((user) => {
+        if (cancelled || !user || user.user_metadata?.role !== "customer") return;
+        const fullName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
+        setCustomerFirstName(fullName.split(" ")[0] || "Account");
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border-light bg-white/95 backdrop-blur">
@@ -68,10 +90,17 @@ export default function SiteHeader({ onOpenBooking, onOpenTrack }: SiteHeaderPro
             Track Booking
           </button>
           <Link
-            href="/customer/login"
-            className="hidden min-h-11 items-center rounded-full border border-navy/25 px-4 py-2 text-sm font-bold text-navy transition hover:bg-orange-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30 lg:inline-flex"
+            href={customerFirstName ? "/customer/dashboard" : "/customer/login"}
+            className="hidden min-h-11 items-center gap-1.5 rounded-full border border-navy/25 px-4 py-2 text-sm font-bold text-navy transition hover:bg-orange-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30 lg:inline-flex"
           >
-            Sign In
+            {customerFirstName ? (
+              <>
+                <IconUser className="h-4 w-4" />
+                {customerFirstName}
+              </>
+            ) : (
+              "Sign In"
+            )}
           </Link>
           <button
             onClick={onOpenBooking}
@@ -110,11 +139,18 @@ export default function SiteHeader({ onOpenBooking, onOpenTrack }: SiteHeaderPro
           })}
           <div className="mt-2 flex flex-col gap-2 border-t border-border-light pt-3">
             <Link
-              href="/customer/login"
+              href={customerFirstName ? "/customer/dashboard" : "/customer/login"}
               onClick={() => setMenuOpen(false)}
-              className="rounded-md border border-navy/25 px-3 py-2 text-center text-sm font-bold text-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30"
+              className="flex items-center justify-center gap-1.5 rounded-md border border-navy/25 px-3 py-2 text-center text-sm font-bold text-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/30"
             >
-              Sign In
+              {customerFirstName ? (
+                <>
+                  <IconUser className="h-4 w-4" />
+                  {customerFirstName}
+                </>
+              ) : (
+                "Sign In"
+              )}
             </Link>
             <button
               onClick={() => {
