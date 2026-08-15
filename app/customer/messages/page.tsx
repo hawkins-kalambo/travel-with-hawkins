@@ -147,8 +147,7 @@ export default function CustomerMessagesPage() {
   }, [router]);
 
   // Live-updates the open thread so an admin reply shows up without a
-  // manual refresh — same polling pattern used in
-  // app/admin/(sub)/communication/whatsapp-inbox.tsx and the shared
+  // manual refresh — same polling pattern used in the shared
   // app/communication/conversations/[id]/page.tsx thread view.
   useEffect(() => {
     if (!selectedId) return;

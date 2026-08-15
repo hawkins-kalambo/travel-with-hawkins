@@ -17,6 +17,7 @@ import BookingModal, { type BookingFormState, type ReferralValidationState } fro
 import TrackModal from "./components/home/TrackModal";
 import BookingSuccessModal, { type BookingSuccessData } from "./components/home/BookingSuccessModal";
 import WhatsAppButton from "./components/WhatsAppButton";
+import WebsiteChatWidget from "./components/WebsiteChatWidget";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { REFERRAL_STORAGE_KEY, resolveInitialReferral, type ReferralSource } from "@/lib/referralStorage";
@@ -500,6 +501,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       <SiteFooter />
 
       <WhatsAppButton />
+      <WebsiteChatWidget />
 
       {showBooking && (
         <BookingModal
