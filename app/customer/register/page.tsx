@@ -259,7 +259,7 @@ export default function CustomerRegisterPage() {
               <label className="mb-2 block text-sm font-semibold text-slate-700">
                 How should we send your verification code? *
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label
                   className={`flex cursor-pointer items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
                     formData.otpChannel === "email"
@@ -332,7 +332,7 @@ export default function CustomerRegisterPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="university" className="mb-2 block text-sm font-semibold text-slate-700">
                       University
@@ -364,7 +364,7 @@ export default function CustomerRegisterPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="faculty" className="mb-2 block text-sm font-semibold text-slate-700">
                       Faculty
@@ -396,6 +396,8 @@ export default function CustomerRegisterPage() {
                       <option value="2">Year 2</option>
                       <option value="3">Year 3</option>
                       <option value="4">Year 4</option>
+                      <option value="5">Year 5</option>
+                      <option value="6">Year 6</option>
                     </select>
                   </div>
                 </div>

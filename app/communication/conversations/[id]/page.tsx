@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { authFetch } from "@/lib/auth";
 
+const POLL_INTERVAL_MS = 15000;
+
 type Message = {
   id: string;
   sender_id: string;
+  sender_name?: string;
+  sender_role?: string | null;
   body: string;
   html?: string | null;
   attachments?: Array<unknown>;
@@ -23,11 +27,11 @@ export default function ConversationDetailPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
 
-  useEffect(() => {
-    const loadMessages = async () => {
+  const loadMessages = useCallback(
+    async (silent = false) => {
       if (!conversationId) return;
-      setLoading(true);
-      setError(null);
+      if (!silent) setLoading(true);
+      if (!silent) setError(null);
 
       try {
         const response = await authFetch(`/api/communication/conversations/${conversationId}`);
@@ -39,14 +43,27 @@ export default function ConversationDetailPage() {
 
         setMessages(Array.isArray(body.messages) ? body.messages : []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load conversation messages");
+        if (!silent) setError(err instanceof Error ? err.message : "Unable to load conversation messages");
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    };
+    },
+    [conversationId]
+  );
 
-    void loadMessages();
-  }, [conversationId]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadMessages(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadMessages]);
+
+  // Live-updates the thread while it's open, so an admin/customer reply
+  // shows up without a manual refresh — mirrors the polling pattern already
+  // proven in app/admin/(sub)/communication/whatsapp-inbox.tsx.
+  useEffect(() => {
+    if (!conversationId) return;
+    const timer = window.setInterval(() => void loadMessages(true), POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [conversationId, loadMessages]);
 
   const handleSend = async () => {
     if (!conversationId || !draft.trim()) return;
@@ -66,7 +83,7 @@ export default function ConversationDetailPage() {
       }
 
       setDraft("");
-      setMessages((current) => [...current, body.message]);
+      setMessages((current) => [...current, { ...body.message, sender_name: "You" }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to send message");
     } finally {
@@ -103,7 +120,9 @@ export default function ConversationDetailPage() {
               {messages.map((message) => (
                 <li key={message.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between gap-4">
-                    <p className="text-sm font-semibold text-slate-900">{message.sender_id === "system" ? "System" : message.sender_id}</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {message.sender_id === "system" ? "System" : message.sender_name || "Travel with Hawkins"}
+                    </p>
                     <p className="text-xs text-slate-500">{message.created_at ? new Date(message.created_at).toLocaleString() : "—"}</p>
                   </div>
                   <p className="mt-2 text-sm leading-relaxed text-slate-700">{message.body}</p>

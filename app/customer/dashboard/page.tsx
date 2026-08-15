@@ -276,50 +276,83 @@ export default function CustomerDashboardPage() {
                 </Link>
               </div>
             ) : (
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b border-slate-200 bg-slate-50">
-                      <tr>
-                        <th className="px-6 py-4 text-left font-semibold text-slate-700">Booking ID</th>
-                        <th className="px-6 py-4 text-left font-semibold text-slate-700">Route</th>
-                        <th className="px-6 py-4 text-left font-semibold text-slate-700">Date</th>
-                        <th className="px-6 py-4 text-left font-semibold text-slate-700">Seats</th>
-                        <th className="px-6 py-4 text-left font-semibold text-slate-700">Status</th>
-                        <th className="px-6 py-4 text-left font-semibold text-slate-700">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bookings.map((booking) => (
-                        <tr key={booking.bookingId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
-                          <td className="px-6 py-4 font-semibold text-slate-900">{booking.bookingId}</td>
-                          <td className="px-6 py-4 text-slate-600">{booking.destination}</td>
-                          <td className="px-6 py-4 text-slate-600">{new Date(booking.travelDate || "").toLocaleDateString()}</td>
-                          <td className="px-6 py-4 text-slate-600">
-                            <span className="inline-flex items-center gap-1">
-                              <Users size={14} className="text-slate-400" />
-                              {booking.seats || 1}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(booking.status)}`}>
-                              {booking.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Link
-                              href={`/customer/bookings/${booking.bookingId}`}
-                              className="inline-flex items-center gap-1 text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]"
-                            >
-                              View <ArrowUpRight size={14} />
-                            </Link>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <>
+                {/* Card list on narrow screens — a 6-column table can't fit a phone width */}
+                <div className="space-y-3 sm:hidden">
+                  {bookings.map((booking) => (
+                    <div key={booking.bookingId} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-900">{booking.destination}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">{booking.bookingId}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(booking.status)}`}>
+                          {booking.status}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                        <span>{new Date(booking.travelDate || "").toLocaleDateString()}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Users size={14} className="text-slate-400" />
+                          {booking.seats || 1}
+                        </span>
+                      </div>
+                      <Link
+                        href={`/customer/bookings/${booking.bookingId}`}
+                        className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]"
+                      >
+                        View details <ArrowUpRight size={14} />
+                      </Link>
+                    </div>
+                  ))}
                 </div>
-              </div>
+
+                {/* Table on sm+ screens */}
+                <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white sm:block">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b border-slate-200 bg-slate-50">
+                        <tr>
+                          <th className="px-6 py-4 text-left font-semibold text-slate-700">Booking ID</th>
+                          <th className="px-6 py-4 text-left font-semibold text-slate-700">Route</th>
+                          <th className="px-6 py-4 text-left font-semibold text-slate-700">Date</th>
+                          <th className="px-6 py-4 text-left font-semibold text-slate-700">Seats</th>
+                          <th className="px-6 py-4 text-left font-semibold text-slate-700">Status</th>
+                          <th className="px-6 py-4 text-left font-semibold text-slate-700">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bookings.map((booking) => (
+                          <tr key={booking.bookingId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+                            <td className="px-6 py-4 font-semibold text-slate-900">{booking.bookingId}</td>
+                            <td className="px-6 py-4 text-slate-600">{booking.destination}</td>
+                            <td className="px-6 py-4 text-slate-600">{new Date(booking.travelDate || "").toLocaleDateString()}</td>
+                            <td className="px-6 py-4 text-slate-600">
+                              <span className="inline-flex items-center gap-1">
+                                <Users size={14} className="text-slate-400" />
+                                {booking.seats || 1}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(booking.status)}`}>
+                                {booking.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <Link
+                                href={`/customer/bookings/${booking.bookingId}`}
+                                className="inline-flex items-center gap-1 text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]"
+                              >
+                                View <ArrowUpRight size={14} />
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
           </section>
         </div>

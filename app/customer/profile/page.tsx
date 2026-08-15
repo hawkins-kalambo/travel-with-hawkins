@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import type { CustomerProfile } from "@/lib/customerAuth";
+import CustomerShell from "@/app/customer/_components/CustomerShell";
 
 export default function CustomerProfilePage() {
   const router = useRouter();
@@ -171,7 +172,7 @@ export default function CustomerProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-[#f3f7fb]">
         <div className="text-center">
           <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-[#0A4D8C] mx-auto"></div>
           <p className="text-slate-600">Loading profile...</p>
@@ -181,30 +182,8 @@ export default function CustomerProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Header */}
-      <header className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <Link href="/customer/dashboard" className="flex items-center gap-3">
-              <Image src="/logo.png" width={40} height={40} className="rounded-full object-cover" alt="Travel with Hawkins" />
-              <span className="text-lg font-black text-[#0A4D8C]">Travel with Hawkins</span>
-            </Link>
-
-            <Link href="/customer/dashboard" className="text-sm font-semibold text-[#0A4D8C] hover:text-[#083a6b]">
-              ← Back to Dashboard
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-black text-slate-900">My Profile</h1>
-          <p className="mt-2 text-slate-600">Manage your personal and travel information</p>
-        </div>
-
+    <CustomerShell active="profile" profile={profile} title="My Profile" subtitle="Manage your personal and travel information">
+      <div className="mx-auto max-w-4xl">
         {error && (
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
@@ -423,6 +402,8 @@ export default function CustomerProfilePage() {
                     <option value="2">Year 2</option>
                     <option value="3">Year 3</option>
                     <option value="4">Year 4</option>
+                    <option value="5">Year 5</option>
+                    <option value="6">Year 6</option>
                   </select>
                 </div>
               </div>
@@ -519,7 +500,7 @@ export default function CustomerProfilePage() {
             </Link>
           </div>
         </form>
-      </main>
-    </div>
+      </div>
+    </CustomerShell>
   );
 }
