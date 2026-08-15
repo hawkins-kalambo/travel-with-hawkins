@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { logout } from "@/lib/auth";
 import type { CustomerProfile } from "@/lib/customerAuth";
+import WebsiteChatWidget from "@/app/components/WebsiteChatWidget";
 
 type NavKey = "dashboard" | "bookings" | "messages" | "profile" | "settings";
 
@@ -215,6 +216,10 @@ export default function CustomerShell({
           <main className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
         </div>
       </div>
+
+      {profile ? (
+        <WebsiteChatWidget knownContact={{ name: profile.fullName, phone: profile.phone, email: profile.email }} />
+      ) : null}
     </div>
   );
 }
