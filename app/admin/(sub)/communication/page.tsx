@@ -6,7 +6,6 @@ import AnnouncementsSection from "./announcements";
 import BroadcastCenterSection from "./broadcasts";
 import InboxSection from "./inbox";
 import SupportTicketsSection from "./support-tickets";
-import WhatsAppInboxSection from "./whatsapp-inbox";
 import WebsiteChatInboxSection from "./website-chat-inbox";
 import PageHeader from "@/app/components/ui/PageHeader";
 import Badge from "@/app/components/ui/Badge";
@@ -74,7 +73,7 @@ export default function AdminCommunicationPage() {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "whatsapp" | "website">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website">("overview");
   const [notificationSearch, setNotificationSearch] = useState("");
   const [notificationFilter, setNotificationFilter] = useState("all");
   const [metrics, setMetrics] = useState<Metrics>({
@@ -213,7 +212,6 @@ export default function AdminCommunicationPage() {
             { key: "announcements", label: "Announcements" },
             { key: "tickets", label: "Support Desk" },
             { key: "conversations", label: "Inbox" },
-            { key: "whatsapp", label: "WhatsApp" },
             { key: "website", label: "Website Chat" },
           ].map((tab) => (
             <button
@@ -377,7 +375,6 @@ export default function AdminCommunicationPage() {
           {activeTab === "tickets" && <SupportTicketsSection />}
 
           {activeTab === "conversations" && <InboxSection conversations={conversations} onRefresh={loadCommunicationCenter} />}
-          {activeTab === "whatsapp" && <WhatsAppInboxSection />}
           {activeTab === "website" && <WebsiteChatInboxSection />}
         </div>
       </div>
