@@ -44,6 +44,10 @@ database has something for every other file to `ALTER TABLE` against.
 29. `2026_08_09_district_pickup_points.sql`
 30. `2026_08_10_operators_fleet_foundation.sql`
 31. `2026_08_10_operator_documents_storage_bucket.sql`
+32. `2026_08_10_whatsapp_customer_service.sql`
+33. `2026_08_15_website_chat.sql` — depends on the `channel`/`direction`/etc
+    columns `2026_08_10_whatsapp_customer_service.sql` adds to
+    `communication_messages`; must run after it.
 
 **Do not run these three** — each is superseded or actively conflicts with
 a file already in the list above:

@@ -9,6 +9,8 @@ import StatsStrip from "./components/home/StatsStrip";
 import PopularRoutesSection from "./components/home/PopularRoutesSection";
 import TaxiSection, { type TaxiFare } from "./components/home/TaxiSection";
 import TaxiBookingModal from "./components/home/TaxiBookingModal";
+import CarHireSection, { type CarHireListing } from "./components/home/CarHireSection";
+import CarHireBookingModal from "./components/home/CarHireBookingModal";
 import AccountBenefitsSection from "./components/home/AccountBenefitsSection";
 import WhyChooseUsSection from "./components/home/WhyChooseUsSection";
 import TeamSection from "./components/home/TeamSection";
@@ -19,6 +21,7 @@ import BookingModal, { type BookingFormState, type ReferralValidationState } fro
 import TrackModal from "./components/home/TrackModal";
 import BookingSuccessModal, { type BookingSuccessData } from "./components/home/BookingSuccessModal";
 import WhatsAppButton from "./components/WhatsAppButton";
+import WebsiteChatWidget from "./components/WebsiteChatWidget";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { REFERRAL_STORAGE_KEY, resolveInitialReferral, type ReferralSource } from "@/lib/referralStorage";
@@ -84,6 +87,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   const [selectedRouteId, setSelectedRouteId] = useState(initialTrip?.routeId ?? "");
   const [successData, setSuccessData] = useState<BookingSuccessData | null>(null);
   const [selectedTaxiFare, setSelectedTaxiFare] = useState<TaxiFare | null>(null);
+  const [selectedCarHireListing, setSelectedCarHireListing] = useState<CarHireListing | null>(null);
   const [referralValidation, setReferralValidation] = useState<ReferralValidationState>({ state: "idle" });
   const [referralSource, setReferralSource] = useState<ReferralSource | null>(null);
   const [today, setToday] = useState("");
@@ -493,6 +497,8 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
 
       <TaxiSection onBookFare={setSelectedTaxiFare} />
 
+      <CarHireSection onBookListing={setSelectedCarHireListing} />
+
       <AccountBenefitsSection />
 
       <WhyChooseUsSection />
@@ -506,6 +512,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       <SiteFooter />
 
       <WhatsAppButton />
+      <WebsiteChatWidget />
 
       {showBooking && (
         <BookingModal
@@ -581,6 +588,17 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           onClose={() => setSelectedTaxiFare(null)}
           onSuccess={(data) => {
             setSelectedTaxiFare(null);
+            setSuccessData(data);
+          }}
+        />
+      )}
+
+      {selectedCarHireListing && (
+        <CarHireBookingModal
+          listing={selectedCarHireListing}
+          onClose={() => setSelectedCarHireListing(null)}
+          onSuccess={(data) => {
+            setSelectedCarHireListing(null);
             setSuccessData(data);
           }}
         />
