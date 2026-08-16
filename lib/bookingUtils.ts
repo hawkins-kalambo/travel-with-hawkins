@@ -41,6 +41,7 @@ export type BookingRecord = {
   homeDistrict?: string;
   journeyOrigin?: string;
   journeyDestination?: string;
+  rentalEndDate?: string;
   referralCode?: string;
   ambassadorId?: string;
   referralSource?: string;
@@ -94,6 +95,7 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   home_district: "homeDistrict",
   journey_origin: "journeyOrigin",
   journey_destination: "journeyDestination",
+  rental_end_date: "rentalEndDate",
   referral_code: "referralCode",
   ambassador_id: "ambassadorId",
   referral_source: "referralSource",
@@ -134,6 +136,7 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   homeDistrict: "home_district",
   journeyOrigin: "journey_origin",
   journeyDestination: "journey_destination",
+  rentalEndDate: "rental_end_date",
   referralCode: "referral_code",
   ambassadorId: "ambassador_id",
   referralSource: "referral_source",
@@ -218,6 +221,7 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       else if (camelKey === "homeDistrict") normalized.homeDistrict = toSafeString(value);
       else if (camelKey === "journeyOrigin") normalized.journeyOrigin = toSafeString(value);
       else if (camelKey === "journeyDestination") normalized.journeyDestination = toSafeString(value);
+      else if (camelKey === "rentalEndDate") normalized.rentalEndDate = toSafeString(value);
       else if (camelKey === "paymentStatus") normalized.paymentStatus = (toSafeString(value) as PaymentStatus | undefined) || "Pending";
       else if (camelKey === "paymentConfirmedAt") normalized.paymentConfirmedAt = toSafeString(value);
       else if (camelKey === "receiptNumber") normalized.receiptNumber = toSafeString(value);
@@ -261,6 +265,7 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       else if (camelKey === "homeDistrict") normalized.homeDistrict = toSafeString(value);
       else if (camelKey === "journeyOrigin") normalized.journeyOrigin = toSafeString(value);
       else if (camelKey === "journeyDestination") normalized.journeyDestination = toSafeString(value);
+      else if (camelKey === "rentalEndDate") normalized.rentalEndDate = toSafeString(value);
       else if (camelKey === "paymentStatus") normalized.paymentStatus = (toSafeString(value) as PaymentStatus | undefined) || "Pending";
       else if (camelKey === "paymentConfirmedAt") normalized.paymentConfirmedAt = toSafeString(value);
       else if (camelKey === "receiptNumber") normalized.receiptNumber = toSafeString(value);
@@ -391,6 +396,7 @@ export function toSupabaseBookingPayload(
     home_district: toSafeString(input.homeDistrict),
     journey_origin: toSafeString(input.journeyOrigin),
     journey_destination: toSafeString(input.journeyDestination),
+    rental_end_date: toSafeString(input.rentalEndDate),
     booking_type: toSafeString(input.bookingType) ?? "Online",
     referral_code: toSafeString(input.referralCode),
     ambassador_id: toSafeString(input.ambassadorId),

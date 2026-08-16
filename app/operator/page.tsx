@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { authFetch } from "@/lib/auth";
+import CarHirePanel from "./_components/CarHirePanel";
 import DocumentsPanel from "./_components/DocumentsPanel";
 import FleetPanel from "./_components/FleetPanel";
 import OperatorHeader from "./_components/OperatorHeader";
@@ -147,6 +148,7 @@ export default function OperatorDashboardPage() {
 
         {(data.permissions.includes("manageVehicles") || data.permissions.includes("manageDrivers")) && <FleetPanel />}
         {data.permissions.includes("manageRoutes") && <TaxiPanel />}
+        {data.permissions.includes("manageRoutes") && <CarHirePanel />}
         {data.permissions.includes("manageDocuments") && <DocumentsPanel operatorId={data.operator.id} />}
         {data.permissions.includes("manageStaff") && <StaffPanel ownStaffRole={data.staffRole} />}
 

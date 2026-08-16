@@ -271,16 +271,60 @@ export async function POST(req: Request) {
     let resolvedRouteCommission: { amount: number; type: "fixed" | "percentage" } | undefined;
     let resolvedOperatorId: string | undefined;
     let resolvedServiceType: "intercity" | "taxi" | "car_hire" = "intercity";
+    let resolvedRentalEndDate: string | undefined;
     const requestedRouteId = getNonEmptyString(payload.routeId ?? payload.route_id);
     const requestedUniversityId = getNonEmptyString(payload.universityId ?? payload.university_id);
     const requestedTaxiFareId = getNonEmptyString(payload.taxiFareId ?? payload.taxi_fare_id);
+    const requestedCarHireListingId = getNonEmptyString(payload.carHireListingId ?? payload.car_hire_listing_id);
 
     const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     const routesText = extractRouteSettingsData(settingsData ?? null);
     const routeFare = resolveRouteFareIfAvailable(destination, routesText);
     let fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : undefined;
 
-    if (requestedTaxiFareId) {
+    if (requestedCarHireListingId) {
+      const rentalEndDateInput = getNonEmptyString(payload.rentalEndDate ?? payload.rental_end_date);
+      if (!rentalEndDateInput || !/^\d{4}-\d{2}-\d{2}$/.test(rentalEndDateInput) || Number.isNaN(Date.parse(`${rentalEndDateInput}T00:00:00Z`))) {
+        return jsonError("Please enter a valid return date.", 400);
+      }
+
+      const { data: listingRow, error: listingError } = await supabase
+        .from("car_hire_listings")
+        .select("id, daily_rate, status, operator_id, operator:operators(status), vehicle:vehicles(registration_number, make, model)")
+        .eq("id", requestedCarHireListingId)
+        .maybeSingle();
+
+      if (listingError) {
+        logError("Failed to resolve selected car hire listing", { error: listingError.message, carHireListingId: requestedCarHireListingId });
+        return jsonError("Unable to verify the selected car hire listing. Please try again.", 503);
+      }
+      if (!listingRow) return jsonError("The selected car hire listing no longer exists.", 400);
+
+      const listingOperator = listingRow.operator as unknown as { status?: string } | null;
+      if (listingRow.status !== "active" || listingOperator?.status !== "active") {
+        return jsonError("The selected car hire listing is not currently available.", 400);
+      }
+
+      const pickupDate = new Date(`${travelDate}T00:00:00Z`);
+      const returnDate = new Date(`${rentalEndDateInput}T00:00:00Z`);
+      const days = Math.round((returnDate.getTime() - pickupDate.getTime()) / 86_400_000) + 1;
+      if (days < 1) return jsonError("The return date must be on or after the pickup date.", 400);
+
+      const vehicle = listingRow.vehicle as unknown as { registration_number: string; make: string | null; model: string | null };
+      const vehicleLabel = [vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.registration_number;
+
+      resolvedServiceType = "car_hire";
+      resolvedOperatorId = listingRow.operator_id;
+      resolvedRentalEndDate = rentalEndDateInput;
+      destination = `${vehicleLabel} - Car Hire`;
+      pickup = vehicleLabel;
+      location = "Car Hire";
+      journeyDirection = undefined;
+      homeDistrict = undefined;
+
+      const dailyRate = Number(listingRow.daily_rate);
+      fare = Number.isFinite(dailyRate) && dailyRate > 0 ? dailyRate * days : undefined;
+    } else if (requestedTaxiFareId) {
       const { data: taxiFareRow, error: taxiFareError } = await supabase
         .from("taxi_fares")
         .select("id, origin_label, destination_label, fare, status, operator_id, operator:operators(status)")
@@ -411,7 +455,7 @@ export async function POST(req: Request) {
     // transaction, so only one caller at a time can ever observe an unclaimed
     // key (see db/migrations/2026_08_03_booking_dedupe_claim.sql).
     const dedupeWindowSeconds = 120;
-    const dedupeKey = `booking:${phone}|${studentId}|${requestedRouteId || requestedTaxiFareId || destination}|${journeyDirection}|${travelDate}|${seats}`;
+    const dedupeKey = `booking:${phone}|${studentId}|${requestedRouteId || requestedTaxiFareId || requestedCarHireListingId || destination}|${journeyDirection}|${travelDate}|${seats}`;
     const { data: dedupeRows, error: dedupeError } = await supabase.rpc("claim_booking_dedupe", {
       p_key: dedupeKey,
       p_window_seconds: dedupeWindowSeconds,
@@ -568,6 +612,7 @@ export async function POST(req: Request) {
       homeDistrict,
       journeyOrigin,
       journeyDestination,
+      rentalEndDate: resolvedRentalEndDate,
       referralCode,
       ambassadorId,
       referralSource,
@@ -597,6 +642,12 @@ export async function POST(req: Request) {
       const missingOperatorColumns =
         (reason.includes("operator_id") || reason.includes("service_type")) &&
         (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+      // rental_end_date is new (2026_08_11_car_hire_listings.sql) — same
+      // fail-open treatment; a missing column here would otherwise block
+      // every booking, not just car-hire ones, since it's always present
+      // (if undefined) on the insert payload.
+      const missingRentalEndDateColumn =
+        reason.includes("rental_end_date") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
 
       if (missingFareColumn) delete (bookingPayload as Record<string, unknown>).fare;
       if (missingRouteColumns) {
@@ -607,8 +658,9 @@ export async function POST(req: Request) {
         delete (bookingPayload as Record<string, unknown>).operator_id;
         delete (bookingPayload as Record<string, unknown>).service_type;
       }
+      if (missingRentalEndDateColumn) delete (bookingPayload as Record<string, unknown>).rental_end_date;
 
-      if (missingFareColumn || missingRouteColumns || missingOperatorColumns) {
+      if (missingFareColumn || missingRouteColumns || missingOperatorColumns || missingRentalEndDateColumn) {
         const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
         data = retry.data as Record<string, unknown> | null;
         error = retry.error;
