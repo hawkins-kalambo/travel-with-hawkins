@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { authFetch } from "@/lib/auth";
 import AnnouncementsSection from "./announcements";
 import BroadcastCenterSection from "./broadcasts";
@@ -68,12 +69,23 @@ function getNotificationCategory(type: string) {
   return "System";
 }
 
-export default function AdminCommunicationPage() {
+type TabKey = "overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website";
+const TAB_KEYS: readonly TabKey[] = ["overview", "notifications", "broadcasts", "announcements", "tickets", "conversations", "website"];
+
+function AdminCommunicationPageContent() {
+  const searchParams = useSearchParams();
+  // Lets the chat-handoff alert email deep-link straight into the Website
+  // Chat tab with the right conversation pre-selected (?tab=website&conversation=<id>)
+  // instead of dropping the admin on Overview with no idea where to look.
+  const requestedTab = searchParams.get("tab");
+  const initialConversationId = searchParams.get("conversation") || undefined;
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website">("overview");
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    requestedTab && (TAB_KEYS as readonly string[]).includes(requestedTab) ? (requestedTab as TabKey) : "overview"
+  );
   const [notificationSearch, setNotificationSearch] = useState("");
   const [notificationFilter, setNotificationFilter] = useState("all");
   const [metrics, setMetrics] = useState<Metrics>({
@@ -375,9 +387,17 @@ export default function AdminCommunicationPage() {
           {activeTab === "tickets" && <SupportTicketsSection />}
 
           {activeTab === "conversations" && <InboxSection conversations={conversations} onRefresh={loadCommunicationCenter} />}
-          {activeTab === "website" && <WebsiteChatInboxSection />}
+          {activeTab === "website" && <WebsiteChatInboxSection initialConversationId={initialConversationId} />}
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AdminCommunicationPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminCommunicationPageContent />
+    </Suspense>
   );
 }
