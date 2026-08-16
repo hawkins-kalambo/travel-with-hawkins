@@ -31,6 +31,19 @@ function AuthCallbackContent() {
           const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
           if (exchangeError) {
+            // A code is single-use and its PKCE verifier is deleted from
+            // storage once exchanged — so this callback firing a second
+            // time on the same URL (React effects re-running, a browser
+            // back/forward navigation restoring this page, a duplicate
+            // request) throws exactly this error even though the first
+            // exchange already succeeded and the session is fine. Before
+            // showing a scary "Authentication Error," check whether a
+            // valid session already exists and just continue if so.
+            const { data: existingUser } = await supabase.auth.getUser();
+            if (existingUser?.user) {
+              router.push(next);
+              return;
+            }
             throw exchangeError;
           }
 
