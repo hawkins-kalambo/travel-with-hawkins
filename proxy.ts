@@ -47,7 +47,14 @@ export async function proxy(request: NextRequest) {
   const isCustomerPublicRoute =
     pathname === "/customer/login" ||
     pathname === "/customer/register" ||
-    pathname === "/customer/forgot-password";
+    pathname === "/customer/forgot-password" ||
+    // A freshly-registered customer has no session yet (registerCustomer
+    // uses supabaseAdmin.auth.admin.createUser(), which never creates a
+    // browser session) — the public API carve-out below already accounts
+    // for this for verify-otp/resend-otp, but the *page* itself was missing
+    // from this list, so the proxy bounced them to /customer/login before
+    // they ever saw the code-entry screen.
+    pathname === "/customer/verify-email";
   const isPublicEntryRoute = isAdminLoginRoute || isAmbassadorPublicRoute || isCustomerPublicRoute || isResetRoute || isAuthCallbackRoute;
 
   // Reading settings (routes/fares/booking fee) is public — the homepage

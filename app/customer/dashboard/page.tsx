@@ -16,11 +16,13 @@ import {
   MessageCircle,
   Sparkles,
   Inbox,
+  type LucideIcon,
 } from "lucide-react";
 import { getCurrentUser, authFetch } from "@/lib/auth";
 import type { CustomerProfile } from "@/lib/customerAuth";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import CustomerShell from "@/app/customer/_components/CustomerShell";
+import StatusBadge from "@/app/customer/_components/StatusBadge";
 
 type InboxPreviewItem = {
   id: string;
@@ -30,12 +32,15 @@ type InboxPreviewItem = {
   read_at?: string | null;
 };
 
-function statusBadgeClasses(status?: string) {
-  const normalized = (status || "").toLowerCase();
-  if (normalized === "completed") return "bg-emerald-50 text-emerald-700 border border-emerald-200";
-  if (normalized === "cancelled") return "bg-red-50 text-red-700 border border-red-200";
-  if (normalized === "boarding" || normalized === "departed" || normalized === "arrived") return "bg-amber-50 text-amber-700 border border-amber-200";
-  return "bg-blue-50 text-blue-700 border border-blue-200";
+// Small colored icon badge used beside a line of booking metadata (route,
+// date, booking ID) — replaces a bare muted icon with the same rounded-badge
+// treatment the stat tiles already use, so icons read consistently everywhere.
+function MetaIcon({ icon: Icon, tint }: { icon: LucideIcon; tint: string }) {
+  return (
+    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${tint}`}>
+      <Icon size={13} strokeWidth={2.5} />
+    </span>
+  );
 }
 
 export default function CustomerDashboardPage() {
@@ -179,18 +184,18 @@ export default function CustomerDashboardPage() {
       {/* Stats */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Upcoming Trips", value: upcomingBookings.length, icon: CalendarCheck2, tint: "from-blue-50 to-blue-100 text-blue-700" },
-          { label: "Completed Trips", value: completedBookings.length, icon: CheckCircle2, tint: "from-emerald-50 to-emerald-100 text-emerald-700" },
-          { label: "Cancelled Trips", value: cancelledBookings.length, icon: XCircle, tint: "from-red-50 to-red-100 text-red-700" },
-          { label: "Customer ID", value: profile?.customerNumber || "—", icon: IdCard, tint: "from-amber-50 to-amber-100 text-amber-700" },
+          { label: "Upcoming trips", value: upcomingBookings.length, icon: CalendarCheck2, tint: "bg-blue-50 text-blue-600 ring-blue-100" },
+          { label: "Completed trips", value: completedBookings.length, icon: CheckCircle2, tint: "bg-emerald-50 text-emerald-600 ring-emerald-100" },
+          { label: "Cancelled trips", value: cancelledBookings.length, icon: XCircle, tint: "bg-red-50 text-red-600 ring-red-100" },
+          { label: "Customer ID", value: profile?.customerNumber || "—", icon: IdCard, tint: "bg-amber-50 text-amber-600 ring-amber-100" },
         ].map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md">
-              <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${stat.tint}`}>
-                <Icon size={20} strokeWidth={2.25} />
+            <div key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ring-4 ${stat.tint}`}>
+                <Icon size={21} strokeWidth={2.25} />
               </div>
-              <div className={`font-black text-slate-900 ${typeof stat.value === "string" ? "truncate text-lg" : "text-3xl"}`} title={typeof stat.value === "string" ? stat.value : undefined}>
+              <div className={`font-black tracking-tight text-slate-900 ${typeof stat.value === "string" ? "truncate text-lg" : "text-3xl"}`} title={typeof stat.value === "string" ? stat.value : undefined}>
                 {stat.value}
               </div>
               <p className="mt-1 text-sm font-semibold text-slate-500">{stat.label}</p>
@@ -229,24 +234,22 @@ export default function CustomerDashboardPage() {
                     className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
                   >
                     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                      <div>
-                        <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900">
-                          <MapPin size={17} className="text-[#0A4D8C]" strokeWidth={2.25} />
+                      <div className="space-y-2">
+                        <h3 className="flex items-center gap-2.5 text-lg font-bold text-slate-900">
+                          <MetaIcon icon={MapPin} tint="bg-blue-50 text-[#0A4D8C]" />
                           {booking.destination}
                         </h3>
-                        <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-600">
-                          <CalendarDays size={15} className="text-slate-400" />
+                        <p className="flex items-center gap-2.5 text-sm text-slate-600">
+                          <MetaIcon icon={CalendarDays} tint="bg-slate-100 text-slate-500" />
                           {new Date(booking.travelDate || "").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         </p>
-                        <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
-                          <IdCard size={15} className="text-slate-400" />
+                        <p className="flex items-center gap-2.5 text-sm text-slate-500">
+                          <MetaIcon icon={IdCard} tint="bg-slate-100 text-slate-500" />
                           Booking ID: {booking.bookingId}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`inline-block rounded-full px-3.5 py-1.5 text-xs font-bold ${statusBadgeClasses(booking.status)}`}>
-                          {booking.status}
-                        </span>
+                        <StatusBadge status={booking.status} />
                         <Link
                           href={`/customer/bookings/${booking.bookingId}`}
                           className="inline-flex items-center gap-1 rounded-2xl bg-[#0A4D8C] px-4 py-2 text-xs font-bold text-white hover:bg-[#083a6b]"
@@ -286,9 +289,7 @@ export default function CustomerDashboardPage() {
                           <p className="truncate font-semibold text-slate-900">{booking.destination}</p>
                           <p className="mt-0.5 text-xs text-slate-500">{booking.bookingId}</p>
                         </div>
-                        <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(booking.status)}`}>
-                          {booking.status}
-                        </span>
+                        <StatusBadge status={booking.status} size="sm" />
                       </div>
                       <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
                         <span>{new Date(booking.travelDate || "").toLocaleDateString()}</span>
@@ -334,9 +335,7 @@ export default function CustomerDashboardPage() {
                               </span>
                             </td>
                             <td className="px-6 py-4">
-                              <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(booking.status)}`}>
-                                {booking.status}
-                              </span>
+                              <StatusBadge status={booking.status} size="sm" />
                             </td>
                             <td className="px-6 py-4">
                               <Link

@@ -237,6 +237,79 @@ export async function getCustomerProfile(userId: string): Promise<CustomerProfil
   }
 }
 
+// ================= ENSURE CUSTOMER PROFILE EXISTS (OAuth self-heal) =================
+
+// Google sign-in (app/auth/callback) used to create this row client-side
+// with the anon-key browser client — RLS has no INSERT policy for
+// customer_profiles, so that insert silently failed (the result was never
+// even checked) and every Google-signed-in customer was left permanently
+// "Profile not found," unable to load or edit their profile or upload a
+// photo. This runs server-side with the service role (bypasses RLS) and is
+// called from GET/PUT /api/customers/profile so a customer missing their
+// row gets backfilled on the very next request instead of staying broken.
+export async function ensureCustomerProfileExists(userId: string): Promise<void> {
+  const existing = await supabaseAdmin.from("customer_profiles").select("id").eq("id", userId).maybeSingle();
+  if (existing.data) return;
+
+  const { data: authUserData } = await supabaseAdmin.auth.admin.getUserById(userId);
+  const user = authUserData?.user;
+  if (!user) return;
+
+  const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "User";
+  const phone = user.user_metadata?.phone || null;
+  const profilePictureUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+  const customerNumber = `CUST-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+  // customer_profiles.id is a foreign key into profiles(id) — that base row
+  // must exist first, or the insert below fails its FK constraint outright.
+  const { data: baseProfile } = await supabaseAdmin.from("profiles").select("id").eq("id", userId).maybeSingle();
+  if (!baseProfile) {
+    const { error: baseInsertError } = await supabaseAdmin.from("profiles").insert({
+      id: userId,
+      full_name: fullName,
+      email: user.email,
+      phone,
+      role: "customer",
+    });
+    if (baseInsertError && !baseInsertError.message.includes("duplicate")) {
+      console.error("Failed to backfill base profiles row for OAuth user", baseInsertError.message);
+      return;
+    }
+  }
+
+  const { error: insertError } = await supabaseAdmin.from("customer_profiles").insert({
+    id: userId,
+    full_name: fullName,
+    email: user.email,
+    phone,
+    profile_picture_url: profilePictureUrl,
+    customer_type: "public_traveler",
+    customer_number: customerNumber,
+    // Email/password accounts always create their customer_profiles row at
+    // registration time (see registerCustomer above) — the only way this
+    // backfill path runs at all is a Google session, and Google has already
+    // verified the address, so this account never needs our own OTP flow.
+    email_verified: true,
+    email_verified_at: new Date().toISOString(),
+    account_status: "active",
+  });
+
+  if (insertError) {
+    console.error("Failed to backfill customer_profiles for OAuth user", insertError.message);
+    return;
+  }
+
+  const { error: preferencesError } = await supabaseAdmin.from("customer_preferences").insert({ customer_id: userId });
+  if (preferencesError) console.warn("Failed to backfill customer_preferences for OAuth user", preferencesError.message);
+
+  const { error: settingsError } = await supabaseAdmin.from("customer_settings").insert({ customer_id: userId });
+  if (settingsError) console.warn("Failed to backfill customer_settings for OAuth user", settingsError.message);
+
+  if (user.email) {
+    await linkGuestBookings(userId, user.email);
+  }
+}
+
 // ================= UPDATE CUSTOMER PROFILE =================
 
 export async function updateCustomerProfile(

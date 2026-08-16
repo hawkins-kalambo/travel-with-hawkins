@@ -10,7 +10,11 @@ export const WELCOME_MESSAGE =
 
 const HANDOFF_MESSAGE = "Connecting you with a team member now — they'll reply here as soon as they're available.";
 const UNSAFE_MESSAGE = "I can't help with that. Type \"agent\" if you'd like to talk to a team member.";
-const UNKNOWN_MESSAGE = "I don't have an answer for that yet. Type \"agent\" to talk to a team member, or try asking a different question.";
+// "unknown" = clearly travel-related, but past what I can answer on my own.
+// "unrelated" = not about Travel with Hawkins at all — redirect rather than
+// pretend to look something up.
+const UNKNOWN_MESSAGE = "I don't have specifics on that yet. Type \"agent\" to talk to a team member, or ask me about booking, payments, or routes.";
+const UNRELATED_MESSAGE = "I can only help with Travel with Hawkins bookings and travel questions. Type \"agent\" if you'd like to talk to a team member about something else.";
 
 // Given a guest's message, decide the bot's reaction: answer from the FAQ
 // layer, hand off to a human, or go silent (once a human already has
@@ -30,7 +34,11 @@ export async function respondToGuestMessage(
   }
 
   const answer = answerFromApprovedKnowledge(text);
-  const reply = answer.outcome === "answered" ? answer.text : answer.outcome === "unsafe" ? UNSAFE_MESSAGE : UNKNOWN_MESSAGE;
+  const reply =
+    answer.outcome === "answered" ? answer.text :
+    answer.outcome === "unsafe" ? UNSAFE_MESSAGE :
+    answer.outcome === "unrelated" ? UNRELATED_MESSAGE :
+    UNKNOWN_MESSAGE;
   const botMessage = await recordBotMessage(conversation.conversationId, reply);
   return { conversation, botMessage };
 }

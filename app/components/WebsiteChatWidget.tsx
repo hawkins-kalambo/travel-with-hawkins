@@ -19,7 +19,14 @@ type ChatConversation = {
   status: "bot_controlled" | "waiting" | "human_controlled" | "resolved";
 };
 
-export default function WebsiteChatWidget() {
+type KnownContact = { name: string; phone?: string; email?: string };
+
+// Mounted both anonymously on the public homepage and, with `knownContact`
+// supplied, inside CustomerShell for logged-in customers — in that case it
+// skips the "tell us about you" form entirely and starts the chat with
+// their real profile info (the backend also links it to their
+// customer_profiles row, see app/api/website-chat/start/route.ts).
+export default function WebsiteChatWidget({ knownContact }: { knownContact?: KnownContact } = {}) {
   const [open, setOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
@@ -75,21 +82,14 @@ export default function WebsiteChatWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const handleStart = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !contact.trim()) return;
+  const startChat = async (payload: { name: string; phone?: string; email?: string }) => {
     setStarting(true);
     setStartError("");
     try {
-      const isEmail = contact.includes("@");
       const res = await fetch("/api/website-chat/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: isEmail ? undefined : contact.trim(),
-          email: isEmail ? contact.trim() : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!data.success) {
@@ -103,6 +103,29 @@ export default function WebsiteChatWidget() {
     } finally {
       setStarting(false);
     }
+  };
+
+  // A logged-in customer skips the manual form entirely — we already know
+  // who they are, so start the chat as soon as we've confirmed there's no
+  // existing session to resume.
+  useEffect(() => {
+    if (!open || !checked || conversation || starting || !knownContact) return;
+    const timer = window.setTimeout(() => {
+      void startChat({ name: knownContact.name, phone: knownContact.phone, email: knownContact.email });
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, checked, conversation, knownContact]);
+
+  const handleStart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !contact.trim()) return;
+    const isEmail = contact.includes("@");
+    await startChat({
+      name: name.trim(),
+      phone: isEmail ? undefined : contact.trim(),
+      email: isEmail ? contact.trim() : undefined,
+    });
   };
 
   const handleSend = async () => {
@@ -156,9 +179,19 @@ export default function WebsiteChatWidget() {
 
           {!conversation ? (
             <div className="flex flex-1 flex-col justify-center p-5">
-              {!checked ? (
+              {!checked || (knownContact && starting) ? (
                 <div className="flex justify-center">
                   <Loader2 className="h-6 w-6 animate-spin text-[#0A4D8C]" />
+                </div>
+              ) : knownContact ? (
+                <div className="space-y-3 text-center">
+                  <p className="text-sm text-red-600">{startError || "Unable to start chat."}</p>
+                  <button
+                    onClick={() => void startChat(knownContact)}
+                    className="rounded-2xl bg-[#0A4D8C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#083a6b]"
+                  >
+                    Try again
+                  </button>
                 </div>
               ) : (
                 <form onSubmit={handleStart} className="space-y-3">

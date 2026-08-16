@@ -38,61 +38,14 @@ function AuthCallbackContent() {
             throw new Error("No user returned from authentication");
           }
 
-          // Check if customer profile needs to be created
-          const { data: profileData } = await supabase
-            .from("customer_profiles")
-            .select("id")
-            .eq("id", data.user.id)
-            .maybeSingle();
-
-          if (!profileData) {
-            // Create customer profile for OAuth user, pulling in whatever
-            // Google already gave us so the profile shows up pre-filled.
-            const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split("@")[0] || "User";
-            const phone = data.user.user_metadata?.phone || "";
-            const profilePictureUrl = data.user.user_metadata?.avatar_url || data.user.user_metadata?.picture || null;
-
-            await supabase.from("customer_profiles").insert([
-              {
-                id: data.user.id,
-                full_name: fullName,
-                email: data.user.email,
-                phone: phone,
-                profile_picture_url: profilePictureUrl,
-                customer_type: "public_traveler",
-                customer_number: `CUST-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-                // Google has already verified this address, so this account
-                // never needs to go through our own OTP flow.
-                email_verified: true,
-                email_verified_at: new Date().toISOString(),
-                account_status: "active",
-              },
-            ]);
-
-            // Create default preferences
-            await supabase.from("customer_preferences").insert([
-              {
-                customer_id: data.user.id,
-              },
-            ]);
-
-            // Create default settings
-            await supabase.from("customer_settings").insert([
-              {
-                customer_id: data.user.id,
-              },
-            ]);
-
-            // Try to link guest bookings
-            const email = data.user.email;
-            if (email) {
-              await supabase.rpc("link_guest_bookings_to_customer", {
-                p_customer_id: data.user.id,
-                p_email: email.toLowerCase(),
-              });
-            }
-          }
-
+          // customer_profiles/preferences/settings used to be created right
+          // here, client-side, with the anon-key session — but RLS has no
+          // INSERT policy for customer_profiles, so that insert silently
+          // failed and every Google sign-in was left with no profile row at
+          // all. GET /api/customers/profile now self-heals this server-side
+          // (service role, bypasses RLS) on the very next request, which
+          // happens automatically once the dashboard below loads — see
+          // ensureCustomerProfileExists in lib/customerAuthAdmin.ts.
           router.push(next);
         } else {
           const error_description = searchParams.get("error_description");

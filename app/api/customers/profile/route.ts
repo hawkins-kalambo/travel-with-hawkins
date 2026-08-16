@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { getCustomerProfile, updateCustomerProfile } from "@/lib/customerAuthAdmin";
+import { getCustomerProfile, updateCustomerProfile, ensureCustomerProfileExists } from "@/lib/customerAuthAdmin";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 async function uploadCustomerProfileImage(base64: string, customerId: string) {
@@ -45,6 +45,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Backfills customer_profiles (+ preferences/settings) for a session
+    // that reached this route with none — the only way that happens today
+    // is a Google sign-in, since the client-side insert the OAuth callback
+    // used to attempt is blocked by RLS. No-ops instantly if the row
+    // already exists.
+    await ensureCustomerProfileExists(authResult.user.id);
+
     const profile = await getCustomerProfile(authResult.user.id);
 
     if (!profile) {
@@ -52,24 +59,6 @@ export async function GET(req: NextRequest) {
         { success: false, error: "Profile not found" },
         { status: 404 }
       );
-    }
-
-    // Google OAuth signups (app/auth/callback) only ever wrote customer_profiles,
-    // never the shared `profiles` table — which several features (messaging,
-    // role resolution) treat as a required foreign key / source of truth. Self-heal
-    // it here since this endpoint runs on every dashboard load right after login.
-    const { data: baseProfile } = await supabaseAdmin.from("profiles").select("id").eq("id", authResult.user.id).maybeSingle();
-    if (!baseProfile) {
-      const { error: backfillError } = await supabaseAdmin.from("profiles").insert({
-        id: authResult.user.id,
-        full_name: profile.fullName,
-        email: profile.email,
-        phone: profile.phone || null,
-        role: "customer",
-      });
-      if (backfillError && !backfillError.message.includes("duplicate")) {
-        console.warn("Failed to backfill profiles row for customer", backfillError.message);
-      }
     }
 
     return NextResponse.json({
@@ -96,6 +85,12 @@ export async function PUT(req: NextRequest) {
         { status: 401 }
       );
     }
+
+    // Same self-heal as GET — a customer editing their profile or uploading
+    // a photo before ever loading GET /api/customers/profile (unlikely in
+    // this app's flow, but cheap insurance) would otherwise hit the same
+    // "row doesn't exist" failure this whole fix addresses.
+    await ensureCustomerProfileExists(authResult.user.id);
 
     const body = await req.json();
 

@@ -3,13 +3,13 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { WebsiteChatConversationState, WebsiteChatMessage } from "@/lib/websiteChat/types";
 
-export async function startConversation(input: { name: string; phone?: string; email?: string }): Promise<{
+export async function startConversation(input: { name: string; phone?: string; email?: string; customerId?: string }): Promise<{
   sessionToken: string;
   conversation: WebsiteChatConversationState;
 }> {
   const contactResult = await supabaseAdmin
     .from("website_chat_contacts")
-    .insert({ name: input.name, phone: input.phone ?? null, email: input.email ?? null })
+    .insert({ name: input.name, phone: input.phone ?? null, email: input.email ?? null, customer_id: input.customerId ?? null })
     .select("*")
     .single();
   if (contactResult.error || !contactResult.data) throw contactResult.error || new Error("contact_not_created");
