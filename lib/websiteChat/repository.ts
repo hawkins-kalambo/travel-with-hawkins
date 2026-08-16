@@ -41,6 +41,46 @@ export async function startConversation(input: { name: string; phone?: string; e
   };
 }
 
+// A logged-in customer's conversation must be found by their account, not
+// by the device cookie — see getConversationByToken's caveat below. Picks
+// the most recently created contact row if a customer somehow has more than
+// one (shouldn't normally happen, but is not enforced by a DB constraint).
+export async function getConversationByCustomerId(
+  customerId: string
+): Promise<{ sessionToken: string; conversation: WebsiteChatConversationState } | null> {
+  const contactResult = await supabaseAdmin
+    .from("website_chat_contacts")
+    .select("id, name, session_token")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (contactResult.error || !contactResult.data) return null;
+
+  const linkResult = await supabaseAdmin
+    .from("website_chat_conversations")
+    .select("conversation_id, mode, status")
+    .eq("contact_id", contactResult.data.id)
+    .maybeSingle();
+  if (linkResult.error || !linkResult.data) return null;
+
+  return {
+    sessionToken: contactResult.data.session_token,
+    conversation: {
+      conversationId: linkResult.data.conversation_id,
+      contactId: contactResult.data.id,
+      name: contactResult.data.name,
+      mode: linkResult.data.mode,
+      status: linkResult.data.status,
+    },
+  };
+}
+
+// Guest-only lookup: identifies the caller purely by an httpOnly device
+// cookie. Two different people (or a guest, then a logged-in customer)
+// sharing one browser would otherwise resume each other's conversation just
+// because the cookie was already set on that device — callers must check
+// getConversationByCustomerId first whenever the caller is authenticated.
 export async function getConversationByToken(sessionToken: string): Promise<WebsiteChatConversationState | null> {
   const contactResult = await supabaseAdmin
     .from("website_chat_contacts")
