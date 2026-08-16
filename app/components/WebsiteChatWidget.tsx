@@ -193,25 +193,28 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
     }
   };
 
+  const presence = conversation?.mode === "human" ? agentPresence : null;
+
   const statusLabel =
     conversation?.status === "waiting"
       ? "Connecting you with a team member…"
       : conversation?.status === "human_controlled"
-        ? "Chatting with a Travel with Hawkins team member"
+        ? presence?.name
+          ? `Chatting with ${presence.name}`
+          : "Chatting with a Travel with Hawkins team member"
         : conversation?.status === "resolved"
           ? "This conversation has been resolved"
           : "Travel with Hawkins assistant";
 
-  const presence = conversation?.mode === "human" ? agentPresence : null;
   const presenceNode = presence?.typing ? (
     <>
       <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-white/70" />
-      Agent is typing…
+      {presence.name ? `${presence.name} is typing…` : "Agent is typing…"}
     </>
   ) : presence?.online ? (
     <>
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
-      Agent is live
+      Active
     </>
   ) : presence?.lastSeenAt ? (
     <>
