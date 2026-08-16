@@ -4,7 +4,7 @@ import { jsonError } from "@/lib/apiResponse";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { startConversation, getConversationByToken, getMessages, recordBotMessage } from "@/lib/websiteChat/repository";
+import { startConversation, getConversationByToken, getConversationByCustomerId, getMessages, recordBotMessage } from "@/lib/websiteChat/repository";
 import { WELCOME_MESSAGE } from "@/lib/websiteChat/respond";
 
 const COOKIE_NAME = "wch_token";
@@ -32,22 +32,43 @@ export async function POST(req: NextRequest) {
     if (!name) return jsonError("Please tell us your name", 400);
     if (!phone && !email) return jsonError("Please share a phone number or email so we can reach you", 400);
 
-    // A returning visitor with a live cookie resumes their existing
-    // conversation instead of opening a new one every time they reload.
-    const existingToken = req.cookies.get(COOKIE_NAME)?.value;
-    if (existingToken) {
-      const existing = await getConversationByToken(existingToken);
-      if (existing) {
-        const messages = await getMessages(existing);
-        return NextResponse.json({ success: true, resumed: true, conversation: existing, messages });
-      }
-    }
-
     // customer_id has a foreign key into customer_profiles — only ever set
     // it for an actual customer session (never admin/operator/ambassador),
     // otherwise the insert would fail its FK constraint outright.
     const sessionCheck = await requireAuthenticatedUser(req, NextResponse.next()).catch(() => ({ user: null }));
     const customerId = sessionCheck.user?.user_metadata?.role === "customer" ? sessionCheck.user.id : undefined;
+
+    if (customerId) {
+      // A logged-in customer's conversation is identified by their account,
+      // never by the device cookie — otherwise two different customers (or
+      // a guest, then a customer) sharing one browser would resume each
+      // other's chat just because a cookie was already set on that device.
+      const existingByCustomer = await getConversationByCustomerId(customerId);
+      if (existingByCustomer) {
+        const messages = await getMessages(existingByCustomer.conversation);
+        const response = NextResponse.json({ success: true, resumed: true, conversation: existingByCustomer.conversation, messages });
+        response.cookies.set(COOKIE_NAME, existingByCustomer.sessionToken, {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/",
+          maxAge: COOKIE_MAX_AGE_SECONDS,
+        });
+        return response;
+      }
+    } else {
+      // Anonymous guest: a returning visitor with a live cookie resumes
+      // their existing conversation instead of opening a new one every
+      // time they reload.
+      const existingToken = req.cookies.get(COOKIE_NAME)?.value;
+      if (existingToken) {
+        const existing = await getConversationByToken(existingToken);
+        if (existing) {
+          const messages = await getMessages(existing);
+          return NextResponse.json({ success: true, resumed: true, conversation: existing, messages });
+        }
+      }
+    }
 
     const { sessionToken, conversation } = await startConversation({
       name,
