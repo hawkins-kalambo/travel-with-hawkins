@@ -228,9 +228,9 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Close chat" : "Chat with Travel with Hawkins"}
-        className="fixed bottom-5 left-4 z-40 grid h-14 w-14 place-items-center rounded-full border-2 border-white bg-[#0A4D8C] shadow-lg shadow-slate-950/25 transition duration-200 hover:-translate-y-1 hover:bg-[#083a6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange focus-visible:ring-offset-2 sm:bottom-6 sm:left-6 sm:h-16 sm:w-16"
+        className="fixed bottom-5 left-4 z-40 grid h-14 w-14 place-items-center rounded-full border-2 border-white bg-[#0A4D8C] shadow-lg shadow-slate-950/25 transition duration-200 hover:-translate-y-1 hover:bg-[#083a6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange focus-visible:ring-offset-2 sm:bottom-6 sm:left-6 sm:h-12 sm:w-12"
       >
-        {open ? <X className="h-7 w-7 text-white sm:h-8 sm:w-8" /> : <MessageCircle className="h-7 w-7 text-white sm:h-8 sm:w-8" />}
+        {open ? <X className="h-7 w-7 text-white sm:h-6 sm:w-6" /> : <MessageCircle className="h-7 w-7 text-white sm:h-6 sm:w-6" />}
       </button>
 
       {open && (
