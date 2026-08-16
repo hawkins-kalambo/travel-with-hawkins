@@ -2,7 +2,7 @@ import "server-only";
 
 import AfricasTalking from "africastalking";
 import { logError, logInfo, logWarn } from "@/lib/logger";
-import { maskPhoneNumber } from "@/lib/phoneNumbers";
+import { maskPhoneNumber, normalizeMalawiPhone } from "@/lib/phoneNumbers";
 
 type SmsRecipient = {
   messageId?: string;
@@ -188,6 +188,41 @@ export async function sendBookingJourneyUpdateSms({
     message,
     logLabel: "Booking journey update SMS",
     logContext: { bookingId, change },
+  });
+}
+
+// Fires once per live-chat handoff (see lib/websiteChat/adminAlerts.ts) --
+// reads the destination from ADMIN_NOTIFICATION_PHONE rather than taking a
+// phone param, since there's exactly one fixed recipient for this alert.
+export async function sendAdminHandoffAlertSms({
+  customerName,
+  conversationUrl,
+}: {
+  customerName: string;
+  conversationUrl: string;
+}): Promise<SmsNotificationResult> {
+  const adminPhone = process.env.ADMIN_NOTIFICATION_PHONE;
+  if (!adminPhone) {
+    logWarn("Admin handoff alert SMS skipped because ADMIN_NOTIFICATION_PHONE is not configured", {});
+    return { attempted: false, success: false, outcome: "skipped", status: "not_configured" };
+  }
+
+  const normalized = normalizeMalawiPhone(adminPhone);
+  if (!normalized) {
+    logWarn("Admin handoff alert SMS skipped because ADMIN_NOTIFICATION_PHONE is not a valid Malawi number", {
+      destination: maskPhoneNumber(adminPhone),
+    });
+    return { attempted: false, success: false, outcome: "skipped", status: "invalid_number" };
+  }
+
+  const firstName = sanitizeCustomerName(customerName);
+  const message = `Travel with Hawkins: ${firstName} needs a human agent on live chat. ${conversationUrl}`;
+
+  return deliverSms({
+    phone: normalized,
+    message,
+    logLabel: "Admin handoff alert SMS",
+    logContext: {},
   });
 }
 

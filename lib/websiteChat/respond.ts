@@ -3,6 +3,8 @@ import "server-only";
 import { answerFromApprovedKnowledge } from "@/lib/websiteChat/knowledge";
 import { wantsHuman } from "@/lib/websiteChat/intent";
 import { recordBotMessage, requestHuman } from "@/lib/websiteChat/repository";
+import { notifyAdminOfHandoff } from "@/lib/websiteChat/adminAlerts";
+import { logError } from "@/lib/logger";
 import type { WebsiteChatConversationState, WebsiteChatMessage } from "@/lib/websiteChat/types";
 
 export const WELCOME_MESSAGE =
@@ -30,6 +32,13 @@ export async function respondToGuestMessage(
   if (wantsHuman(text)) {
     const next = await requestHuman(conversation);
     const botMessage = await recordBotMessage(conversation.conversationId, HANDOFF_MESSAGE);
+    // Awaited (not fire-and-forget) so it actually completes before this
+    // serverless function's response ends -- same convention as the booking
+    // route's admin notifications. A failure here must never block the
+    // handoff the customer already saw confirmed above.
+    await notifyAdminOfHandoff(conversation.conversationId, conversation.contactId, conversation.name).catch((error) => {
+      logError("notifyAdminOfHandoff failed", { error: error instanceof Error ? error.message : String(error) });
+    });
     return { conversation: next, botMessage };
   }
 

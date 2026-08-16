@@ -105,6 +105,21 @@ export async function getConversationByToken(sessionToken: string): Promise<Webs
   };
 }
 
+// Used for the admin handoff alert (lib/websiteChat/adminAlerts.ts), which
+// needs the contact's phone/email/customer_id -- none of that lives on
+// WebsiteChatConversationState itself.
+export async function getContactDetails(
+  contactId: string
+): Promise<{ name: string; phone: string | null; email: string | null; customerId: string | null } | null> {
+  const { data, error } = await supabaseAdmin
+    .from("website_chat_contacts")
+    .select("name, phone, email, customer_id")
+    .eq("id", contactId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return { name: data.name, phone: data.phone, email: data.email, customerId: data.customer_id };
+}
+
 export async function getMessages(conversation: WebsiteChatConversationState): Promise<WebsiteChatMessage[]> {
   const { data, error } = await supabaseAdmin
     .from("communication_messages")
