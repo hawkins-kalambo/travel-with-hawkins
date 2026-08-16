@@ -5,7 +5,7 @@ import { DELETE as deleteAdminBooking, GET as getAdminBookings, PATCH as patchAd
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
-import { sendBookingConfirmationSms } from "@/lib/africasTalking";
+import { sendBookingConfirmationSms, sendAdminBookingAlertSms } from "@/lib/africasTalking";
 import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
 import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourneyDirection } from "@/lib/journeyDirection";
@@ -636,6 +636,21 @@ export async function POST(req: Request) {
 
     const smsResult = await sendBookingConfirmationSms({ bookingId, name, phone });
 
+    let adminSmsResult: Awaited<ReturnType<typeof sendAdminBookingAlertSms>> | undefined;
+    try {
+      adminSmsResult = await sendAdminBookingAlertSms({
+        bookingId,
+        name,
+        destination: record.destination || "an unspecified destination",
+        travelDate: record.travelDate || "an unspecified date",
+        seats: record.seats || 1,
+      });
+    } catch (error) {
+      logError("Admin booking alert SMS execution failed", {
+        error: error instanceof Error ? error.message : "Unknown SMS error",
+      });
+    }
+
     return NextResponse.json({
       success: true,
       booking: responseBooking,
@@ -646,6 +661,7 @@ export async function POST(req: Request) {
         customerEmail: customerEmailStatus,
         sms: smsResult.outcome,
         smsProviderStatus: smsResult.status,
+        adminSms: adminSmsResult?.outcome ?? "failed",
       },
     });
   } catch (error) {

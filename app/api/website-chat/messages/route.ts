@@ -4,7 +4,7 @@ import { jsonError } from "@/lib/apiResponse";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { getConversationByToken, getConversationByCustomerId, resolveCustomerId, getMessages, recordGuestMessage } from "@/lib/websiteChat/repository";
+import { getConversationByToken, getConversationByCustomerId, resolveCustomerId, getMessages, getAgentPresence, recordGuestMessage } from "@/lib/websiteChat/repository";
 import { respondToGuestMessage } from "@/lib/websiteChat/respond";
 import type { WebsiteChatConversationState } from "@/lib/websiteChat/types";
 
@@ -35,8 +35,12 @@ export async function GET(req: NextRequest) {
   const conversation = await resolveConversation(req);
   if (!conversation) return jsonError("No active chat session", 401);
 
-  const messages = await getMessages(conversation);
-  return NextResponse.json({ success: true, conversation, messages });
+  const [messages, agentPresence] = await Promise.all([
+    getMessages(conversation),
+    // Only relevant once a human has taken over -- skip the query otherwise.
+    conversation.mode === "human" ? getAgentPresence(conversation.conversationId) : Promise.resolve(null),
+  ]);
+  return NextResponse.json({ success: true, conversation, messages, agentPresence });
 }
 
 export async function POST(req: NextRequest) {

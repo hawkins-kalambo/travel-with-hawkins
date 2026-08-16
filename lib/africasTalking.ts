@@ -191,9 +191,30 @@ export async function sendBookingJourneyUpdateSms({
   });
 }
 
-// Fires once per live-chat handoff (see lib/websiteChat/adminAlerts.ts) --
-// reads the destination from ADMIN_NOTIFICATION_PHONE rather than taking a
-// phone param, since there's exactly one fixed recipient for this alert.
+// Shared by every admin-phone alert (live chat handoff, new bookings) --
+// there's exactly one fixed recipient (ADMIN_NOTIFICATION_PHONE), so each
+// alert function takes no phone param of its own. Returns undefined (never
+// throws) when unconfigured/invalid so callers can skip with a consistent
+// SmsNotificationResult the same way deliverSms itself skips.
+function resolveAdminPhone(logLabel: string): string | undefined {
+  const adminPhone = process.env.ADMIN_NOTIFICATION_PHONE;
+  if (!adminPhone) {
+    logWarn(`${logLabel} skipped because ADMIN_NOTIFICATION_PHONE is not configured`, {});
+    return undefined;
+  }
+
+  const normalized = normalizeMalawiPhone(adminPhone);
+  if (!normalized) {
+    logWarn(`${logLabel} skipped because ADMIN_NOTIFICATION_PHONE is not a valid Malawi number`, {
+      destination: maskPhoneNumber(adminPhone),
+    });
+    return undefined;
+  }
+
+  return normalized;
+}
+
+// Fires once per live-chat handoff (see lib/websiteChat/adminAlerts.ts).
 export async function sendAdminHandoffAlertSms({
   customerName,
   conversationUrl,
@@ -201,28 +222,46 @@ export async function sendAdminHandoffAlertSms({
   customerName: string;
   conversationUrl: string;
 }): Promise<SmsNotificationResult> {
-  const adminPhone = process.env.ADMIN_NOTIFICATION_PHONE;
-  if (!adminPhone) {
-    logWarn("Admin handoff alert SMS skipped because ADMIN_NOTIFICATION_PHONE is not configured", {});
-    return { attempted: false, success: false, outcome: "skipped", status: "not_configured" };
-  }
-
-  const normalized = normalizeMalawiPhone(adminPhone);
-  if (!normalized) {
-    logWarn("Admin handoff alert SMS skipped because ADMIN_NOTIFICATION_PHONE is not a valid Malawi number", {
-      destination: maskPhoneNumber(adminPhone),
-    });
-    return { attempted: false, success: false, outcome: "skipped", status: "invalid_number" };
-  }
+  const phone = resolveAdminPhone("Admin handoff alert SMS");
+  if (!phone) return { attempted: false, success: false, outcome: "skipped", status: "not_configured" };
 
   const firstName = sanitizeCustomerName(customerName);
   const message = `Travel with Hawkins: ${firstName} needs a human agent on live chat. ${conversationUrl}`;
 
   return deliverSms({
-    phone: normalized,
+    phone,
     message,
     logLabel: "Admin handoff alert SMS",
     logContext: {},
+  });
+}
+
+// Fires once per new booking, alongside the existing admin email and the
+// customer's own confirmation SMS (see app/api/bookings/route.ts).
+export async function sendAdminBookingAlertSms({
+  bookingId,
+  name,
+  destination,
+  travelDate,
+  seats,
+}: {
+  bookingId: string;
+  name: string;
+  destination: string;
+  travelDate: string;
+  seats: number;
+}): Promise<SmsNotificationResult> {
+  const phone = resolveAdminPhone("Admin booking alert SMS");
+  if (!phone) return { attempted: false, success: false, outcome: "skipped", status: "not_configured" };
+
+  const firstName = sanitizeCustomerName(name);
+  const message = `New booking: ${firstName} to ${destination} on ${travelDate} (${seats} seat${seats === 1 ? "" : "s"}). ID: ${bookingId}.`;
+
+  return deliverSms({
+    phone,
+    message,
+    logLabel: "Admin booking alert SMS",
+    logContext: { bookingId },
   });
 }
 

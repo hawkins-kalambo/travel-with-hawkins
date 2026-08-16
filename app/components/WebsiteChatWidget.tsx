@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X, Send, Loader2, RotateCcw } from "lucide-react";
+import type { AgentPresence } from "@/lib/websiteChat/types";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -21,6 +22,15 @@ type ChatConversation = {
 
 type KnownContact = { name: string; phone?: string; email?: string };
 
+function formatLastSeen(iso: string): string {
+  const diffMinutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diffMinutes < 1) return "moments ago";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 // Mounted both anonymously on the public homepage and, with `knownContact`
 // supplied, inside CustomerShell for logged-in customers — in that case it
 // skips the "tell us about you" form entirely and starts the chat with
@@ -31,6 +41,7 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
   const [checked, setChecked] = useState(false);
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [agentPresence, setAgentPresence] = useState<AgentPresence | null>(null);
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
   const [starting, setStarting] = useState(false);
@@ -54,6 +65,7 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
           if (data.success) {
             setConversation(data.conversation);
             setMessages(data.messages);
+            setAgentPresence(data.agentPresence ?? null);
           }
         }
       } catch {
@@ -74,6 +86,7 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
           if (data.success) {
             setConversation(data.conversation);
             setMessages(data.messages);
+            setAgentPresence(data.agentPresence ?? null);
           }
         }
       } catch {
@@ -103,6 +116,7 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
       }
       setConversation(data.conversation);
       setMessages(data.messages);
+      setAgentPresence(null);
       setPendingNewConversation(false);
     } catch {
       setStartError("Unable to start chat. Please try again.");
@@ -188,6 +202,24 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
           ? "This conversation has been resolved"
           : "Travel with Hawkins assistant";
 
+  const presence = conversation?.mode === "human" ? agentPresence : null;
+  const presenceNode = presence?.typing ? (
+    <>
+      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-white/70" />
+      Agent is typing…
+    </>
+  ) : presence?.online ? (
+    <>
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
+      Agent is live
+    </>
+  ) : presence?.lastSeenAt ? (
+    <>
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/40" />
+      Last seen {formatLastSeen(presence.lastSeenAt)}
+    </>
+  ) : null;
+
   return (
     <>
       <button
@@ -204,6 +236,7 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
             <div>
               <p className="font-black">Travel with Hawkins</p>
               <p className="text-xs text-white/75">{statusLabel}</p>
+              {presenceNode && <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/70">{presenceNode}</p>}
             </div>
             {conversation && (
               <button

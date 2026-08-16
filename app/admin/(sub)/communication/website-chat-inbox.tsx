@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { authFetch } from "@/lib/auth";
+
+const PRESENCE_HEARTBEAT_MS = 10000;
+const TYPING_IDLE_MS = 3000;
+const TYPING_PING_THROTTLE_MS = 2000;
 
 type Contact = { name?: string; phone?: string | null; email?: string | null };
 type Conversation = { conversation_id: string; mode: string; status: string; last_message_at: string; contact?: Contact | Contact[] | null };
@@ -21,6 +25,8 @@ export default function WebsiteChatInboxSection() {
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const lastTypingPingRef = useRef(0);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -63,6 +69,44 @@ export default function WebsiteChatInboxSection() {
     return () => window.clearInterval(timer);
   }, [selected, loadDetail]);
 
+  const sendPresence = useCallback(
+    async (typing: boolean) => {
+      if (!selected) return;
+      try {
+        await authFetch(`/api/admin/website-chat/conversations/${selected}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "presence", typing }),
+        });
+      } catch {
+        // Best-effort -- a missed heartbeat just shows "last seen" briefly
+        // on the customer's side instead of "live", nothing to recover.
+      }
+    },
+    [selected]
+  );
+
+  // Heartbeat while this conversation is open so "agent is live" reflects
+  // actively viewing it right now, not just having replied at some point.
+  useEffect(() => {
+    if (!selected) return;
+    void sendPresence(false);
+    const timer = window.setInterval(() => void sendPresence(false), PRESENCE_HEARTBEAT_MS);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+
+  const handleReplyChange = (value: string) => {
+    setReply(value);
+    const now = Date.now();
+    if (now - lastTypingPingRef.current > TYPING_PING_THROTTLE_MS) {
+      lastTypingPingRef.current = now;
+      void sendPresence(true);
+    }
+    if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = window.setTimeout(() => void sendPresence(false), TYPING_IDLE_MS);
+  };
+
   async function action(actionName: "takeover" | "resolve" | "bot") {
     if (!selected) return;
     const response = await authFetch(`/api/admin/website-chat/conversations/${selected}`, {
@@ -95,6 +139,8 @@ export default function WebsiteChatInboxSection() {
 
   async function submitReply() {
     if (!selected || !reply.trim()) return;
+    if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+    void sendPresence(false);
     const response = await authFetch(`/api/admin/website-chat/conversations/${selected}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -191,7 +237,7 @@ export default function WebsiteChatInboxSection() {
               </div>
               <div className="space-y-3 border-t border-gray-200 p-4">
                 <div className="flex gap-2">
-                  <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply to visitor (take over first)" className="input-field min-h-20 flex-1" />
+                  <textarea value={reply} onChange={(event) => handleReplyChange(event.target.value)} placeholder="Reply to visitor (take over first)" className="input-field min-h-20 flex-1" />
                   <button onClick={() => void submitReply()} className="rounded-xl bg-primary-700 px-4 font-semibold text-white">
                     Send
                   </button>

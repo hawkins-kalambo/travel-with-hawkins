@@ -9,6 +9,12 @@ export type WebsiteChatConversationState = {
   status: WebsiteChatStatus;
 };
 
+export type AgentPresence = {
+  online: boolean;
+  typing: boolean;
+  lastSeenAt: string | null;
+};
+
 export type WebsiteChatMessage = {
   id: string;
   senderKind: "guest" | "bot" | "admin";

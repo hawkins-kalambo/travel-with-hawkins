@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { jsonError } from "@/lib/apiResponse";
 import { requireWebsiteChatAdmin } from "@/lib/websiteChat/admin";
-import { getMessages } from "@/lib/websiteChat/repository";
+import { getMessages, touchAdminPresence } from "@/lib/websiteChat/repository";
 import type { WebsiteChatConversationState } from "@/lib/websiteChat/types";
 
 async function loadConversation(id: string): Promise<(WebsiteChatConversationState & { assignedTo?: string | null }) | null> {
@@ -65,6 +65,15 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   const { id } = await context.params;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = typeof body.action === "string" ? body.action : "";
+
+  // High-frequency (a 10s heartbeat plus a burst per keystroke) and only
+  // ever touches admin_last_seen_at/admin_typing_at -- kept out of the
+  // shared payload/select-back below so it's a single lightweight write.
+  if (action === "presence") {
+    await touchAdminPresence(id, body.typing === true);
+    return NextResponse.json({ success: true });
+  }
+
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
   if (action === "takeover") Object.assign(payload, { mode: "human", status: "human_controlled", assigned_to: access.user.id, resolved_at: null });
