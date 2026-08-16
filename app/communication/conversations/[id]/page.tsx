@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { authFetch } from "@/lib/auth";
 
@@ -20,6 +20,7 @@ type Message = {
 
 export default function ConversationDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const conversationId = params?.id as string | undefined;
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +36,18 @@ export default function ConversationDetailPage() {
 
       try {
         const response = await authFetch(`/api/communication/conversations/${conversationId}`);
+
+        // A handoff-alert email link (or any bookmarked link) can land here
+        // with no session at all -- e.g. straight from a phone's mail app.
+        // Send the admin to log in and bounce them right back instead of
+        // just showing an error they can't act on. Only 401 (no session)
+        // triggers this -- a 404/"access denied" for a real session stays
+        // an inline error, since logging in again wouldn't fix that.
+        if (response.status === 401) {
+          router.replace(`/admin/login?next=${encodeURIComponent(`/communication/conversations/${conversationId}`)}`);
+          return;
+        }
+
         const body = await response.json();
 
         if (!response.ok || !body?.success) {
@@ -48,7 +61,7 @@ export default function ConversationDetailPage() {
         if (!silent) setLoading(false);
       }
     },
-    [conversationId]
+    [conversationId, router]
   );
 
   useEffect(() => {

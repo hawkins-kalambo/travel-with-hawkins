@@ -4,7 +4,7 @@ import { jsonError } from "@/lib/apiResponse";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { getConversationByToken, getConversationByCustomerId, getMessages, recordGuestMessage } from "@/lib/websiteChat/repository";
+import { getConversationByToken, getConversationByCustomerId, resolveCustomerId, getMessages, recordGuestMessage } from "@/lib/websiteChat/repository";
 import { respondToGuestMessage } from "@/lib/websiteChat/respond";
 import type { WebsiteChatConversationState } from "@/lib/websiteChat/types";
 
@@ -19,7 +19,7 @@ const COOKIE_NAME = "wch_token";
 // another customer) who used this browser earlier.
 async function resolveConversation(req: NextRequest): Promise<WebsiteChatConversationState | null> {
   const sessionCheck = await requireAuthenticatedUser(req, NextResponse.next()).catch(() => ({ user: null }));
-  const customerId = sessionCheck.user?.user_metadata?.role === "customer" ? sessionCheck.user.id : undefined;
+  const customerId = await resolveCustomerId(sessionCheck.user?.id);
 
   if (customerId) {
     const byCustomer = await getConversationByCustomerId(customerId);
