@@ -5,9 +5,15 @@ import { sendAdminHandoffAlertSms } from "@/lib/africasTalking";
 import { logError } from "@/lib/logger";
 import { getContactDetails } from "@/lib/websiteChat/repository";
 
+// Points at the dedicated Website Chat admin tab (app/admin/(sub)/communication/website-chat-inbox.tsx),
+// not the generic /communication/conversations/[id] page -- that page
+// requires a communication_conversation_participants row, which website
+// chat conversations never get, so it always 404s ("Conversation not found
+// or access denied") no matter who's signed in. ?tab=website&conversation=
+// deep-links straight to the right tab with the conversation pre-selected.
 function conversationUrl(conversationId: string): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
-  return `${appUrl.replace(/\/$/, "")}/communication/conversations/${conversationId}`;
+  return `${appUrl.replace(/\/$/, "")}/admin/communication?tab=website&conversation=${conversationId}`;
 }
 
 // Fired exactly once, the moment a website-chat conversation is handed off

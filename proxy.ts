@@ -202,7 +202,11 @@ export async function proxy(request: NextRequest) {
     }
 
     const redirectUrl = new URL(redirectTarget, request.url);
-    redirectUrl.searchParams.set("redirectedFrom", pathname);
+    // Preserve the query string, not just the path -- a deep link like
+    // /admin/communication?tab=website&conversation=<id> (the chat-handoff
+    // alert email's link) would otherwise lose exactly the part that makes
+    // it a deep link once bounced through login.
+    redirectUrl.searchParams.set("redirectedFrom", pathname + request.nextUrl.search);
     return NextResponse.redirect(redirectUrl);
   }
 
