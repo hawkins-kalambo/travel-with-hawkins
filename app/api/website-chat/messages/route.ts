@@ -3,20 +3,36 @@ import type { NextRequest } from "next/server";
 import { jsonError } from "@/lib/apiResponse";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
-import { getConversationByToken, getMessages, recordGuestMessage } from "@/lib/websiteChat/repository";
+import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { getConversationByToken, getConversationByCustomerId, getMessages, recordGuestMessage } from "@/lib/websiteChat/repository";
 import { respondToGuestMessage } from "@/lib/websiteChat/respond";
+import type { WebsiteChatConversationState } from "@/lib/websiteChat/types";
 
 const COOKIE_NAME = "wch_token";
 
-// Both routes are unauthenticated by design and identify the caller purely
-// by the httpOnly session cookie /api/website-chat/start set — there is no
-// conversationId in the URL, so there's nothing for a guest to guess or
-// enumerate their way into someone else's conversation.
-export async function GET(req: NextRequest) {
-  const token = req.cookies.get(COOKIE_NAME)?.value;
-  if (!token) return jsonError("No active chat session", 401);
+// Guests are identified purely by the httpOnly session cookie
+// /api/website-chat/start set — there is no conversationId in the URL, so
+// there's nothing for a guest to guess or enumerate their way into someone
+// else's conversation. A logged-in customer must instead be resolved by
+// their account (see getConversationByCustomerId) — never by that same
+// device cookie, which could belong to a different visitor (a guest, or
+// another customer) who used this browser earlier.
+async function resolveConversation(req: NextRequest): Promise<WebsiteChatConversationState | null> {
+  const sessionCheck = await requireAuthenticatedUser(req, NextResponse.next()).catch(() => ({ user: null }));
+  const customerId = sessionCheck.user?.user_metadata?.role === "customer" ? sessionCheck.user.id : undefined;
 
-  const conversation = await getConversationByToken(token);
+  if (customerId) {
+    const byCustomer = await getConversationByCustomerId(customerId);
+    return byCustomer?.conversation ?? null;
+  }
+
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  return getConversationByToken(token);
+}
+
+export async function GET(req: NextRequest) {
+  const conversation = await resolveConversation(req);
   if (!conversation) return jsonError("No active chat session", 401);
 
   const messages = await getMessages(conversation);
@@ -25,14 +41,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const token = req.cookies.get(COOKIE_NAME)?.value;
-    if (!token) return jsonError("No active chat session", 401);
-
     if (await isRateLimited(`website-chat:message:ip:${getClientIp(req)}`, 60, 20)) {
       return jsonError("Too many messages. Please slow down.", 429);
     }
 
-    const conversation = await getConversationByToken(token);
+    const conversation = await resolveConversation(req);
     if (!conversation) return jsonError("No active chat session", 401);
 
     const body = await req.json().catch(() => ({}));
