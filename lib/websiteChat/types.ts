@@ -13,6 +13,7 @@ export type AgentPresence = {
   online: boolean;
   typing: boolean;
   lastSeenAt: string | null;
+  name: string | null;
 };
 
 export type WebsiteChatMessage = {

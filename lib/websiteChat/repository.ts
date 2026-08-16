@@ -228,11 +228,12 @@ export async function touchAdminPresence(conversationId: string, typing: boolean
 }
 
 // Read by the customer-facing widget's poll loop (GET /api/website-chat/messages)
-// to show a live/typing/last-seen indicator once an agent has taken over.
+// to show the assigned agent's name plus a live/typing/last-seen indicator
+// once an agent has taken over.
 export async function getAgentPresence(conversationId: string): Promise<AgentPresence> {
   const { data } = await supabaseAdmin
     .from("website_chat_conversations")
-    .select("admin_last_seen_at, admin_typing_at")
+    .select("admin_last_seen_at, admin_typing_at, assigned_to")
     .eq("conversation_id", conversationId)
     .maybeSingle();
 
@@ -240,10 +241,17 @@ export async function getAgentPresence(conversationId: string): Promise<AgentPre
   const typingAt = data?.admin_typing_at ?? null;
   const now = Date.now();
 
+  let name: string | null = null;
+  if (data?.assigned_to) {
+    const { data: profile } = await supabaseAdmin.from("profiles").select("full_name").eq("id", data.assigned_to).maybeSingle();
+    name = profile?.full_name ?? null;
+  }
+
   return {
     online: lastSeenAt ? now - new Date(lastSeenAt).getTime() < AGENT_ONLINE_THRESHOLD_MS : false,
     typing: typingAt ? now - new Date(typingAt).getTime() < AGENT_TYPING_THRESHOLD_MS : false,
     lastSeenAt,
+    name,
   };
 }
 
