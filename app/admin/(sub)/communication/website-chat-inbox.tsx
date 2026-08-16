@@ -16,7 +16,7 @@ function contactOf(conversation: Conversation): Contact {
   return (Array.isArray(conversation.contact) ? conversation.contact[0] : conversation.contact) || {};
 }
 
-export default function WebsiteChatInboxSection() {
+export default function WebsiteChatInboxSection({ initialConversationId }: { initialConversationId?: string } = {}) {
   const [items, setItems] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -62,6 +62,16 @@ export default function WebsiteChatInboxSection() {
     const timer = window.setTimeout(() => void loadList(), 200);
     return () => window.clearTimeout(timer);
   }, [loadList]);
+
+  // Deep-linked from the chat-handoff alert email's ?conversation=<id> --
+  // opens straight into that conversation instead of leaving the admin to
+  // hunt for it in the list.
+  useEffect(() => {
+    if (!initialConversationId) return;
+    const timer = window.setTimeout(() => void loadDetail(initialConversationId), 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialConversationId]);
 
   useEffect(() => {
     if (!selected) return;

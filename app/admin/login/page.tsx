@@ -7,9 +7,11 @@ import { supabase } from "@/lib/auth";
 
 // Only accept an internal, relative path -- "//evil.com" (protocol-relative)
 // and "https://evil.com" are both rejected. Mirrors sanitizeNextPath in
-// app/auth/callback/page.tsx, since this "next" value comes from a URL (the
-// chat-handoff alert email's link) and must never be able to send a
-// just-authenticated admin off-site.
+// app/auth/callback/page.tsx, since this value comes from a URL (either the
+// chat-handoff alert email's own "next" link, or proxy.ts's own
+// "redirectedFrom" param when it bounces an unauthenticated visit to any
+// /admin/* route here) and must never be able to send a just-authenticated
+// admin off-site.
 function sanitizeNextPath(next: string | null): string {
   if (!next) return "/admin/dashboard";
   if (!next.startsWith("/") || next.startsWith("//")) return "/admin/dashboard";
@@ -73,7 +75,7 @@ function AdminLoginContent() {
         return;
       }
 
-      window.location.assign(sanitizeNextPath(searchParams.get("next")));
+      window.location.assign(sanitizeNextPath(searchParams.get("next") || searchParams.get("redirectedFrom")));
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Login failed. Please try again.");
     } finally {
