@@ -4,7 +4,16 @@ import { jsonError } from "@/lib/apiResponse";
 import { isRateLimited } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/clientIp";
 import { requireAuthenticatedUser } from "@/lib/supabaseServer";
-import { startConversation, getConversationByToken, getConversationByCustomerId, getMessages, recordBotMessage } from "@/lib/websiteChat/repository";
+import {
+  startConversation,
+  getConversationByToken,
+  getConversationByCustomerId,
+  getContactDetails,
+  markConversationResolved,
+  resolveCustomerId,
+  getMessages,
+  recordBotMessage,
+} from "@/lib/websiteChat/repository";
 import { WELCOME_MESSAGE } from "@/lib/websiteChat/respond";
 
 const COOKIE_NAME = "wch_token";
@@ -25,50 +34,61 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
-    const phone = typeof body.phone === "string" ? body.phone.trim().slice(0, 32) : "";
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 254) : "";
-
-    if (!name) return jsonError("Please tell us your name", 400);
-    if (!phone && !email) return jsonError("Please share a phone number or email so we can reach you", 400);
+    let name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
+    let phone = typeof body.phone === "string" ? body.phone.trim().slice(0, 32) : "";
+    let email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 254) : "";
+    const forceNew = body.forceNew === true;
 
     // customer_id has a foreign key into customer_profiles — only ever set
     // it for an actual customer session (never admin/operator/ambassador),
     // otherwise the insert would fail its FK constraint outright.
     const sessionCheck = await requireAuthenticatedUser(req, NextResponse.next()).catch(() => ({ user: null }));
-    const customerId = sessionCheck.user?.user_metadata?.role === "customer" ? sessionCheck.user.id : undefined;
+    const customerId = await resolveCustomerId(sessionCheck.user?.id);
 
-    if (customerId) {
-      // A logged-in customer's conversation is identified by their account,
-      // never by the device cookie — otherwise two different customers (or
-      // a guest, then a customer) sharing one browser would resume each
-      // other's chat just because a cookie was already set on that device.
-      const existingByCustomer = await getConversationByCustomerId(customerId);
-      if (existingByCustomer) {
-        const messages = await getMessages(existingByCustomer.conversation);
-        const response = NextResponse.json({ success: true, resumed: true, conversation: existingByCustomer.conversation, messages });
-        response.cookies.set(COOKIE_NAME, existingByCustomer.sessionToken, {
-          httpOnly: true,
-          sameSite: "lax",
-          secure: process.env.NODE_ENV === "production",
-          path: "/",
-          maxAge: COOKIE_MAX_AGE_SECONDS,
-        });
-        return response;
-      }
-    } else {
-      // Anonymous guest: a returning visitor with a live cookie resumes
-      // their existing conversation instead of opening a new one every
-      // time they reload.
-      const existingToken = req.cookies.get(COOKIE_NAME)?.value;
-      if (existingToken) {
-        const existing = await getConversationByToken(existingToken);
-        if (existing) {
-          const messages = await getMessages(existing);
-          return NextResponse.json({ success: true, resumed: true, conversation: existing, messages });
+    // A logged-in customer's conversation is identified by their account,
+    // never by the device cookie — otherwise two different customers (or a
+    // guest, then a customer) sharing one browser would resume each other's
+    // chat just because a cookie was already set on that device.
+    const existing = customerId
+      ? await getConversationByCustomerId(customerId)
+      : await (async () => {
+          const token = req.cookies.get(COOKIE_NAME)?.value;
+          if (!token) return null;
+          const conversation = await getConversationByToken(token);
+          return conversation ? { sessionToken: token, conversation } : null;
+        })();
+
+    if (existing && !forceNew) {
+      const messages = await getMessages(existing.conversation);
+      const response = NextResponse.json({ success: true, resumed: true, conversation: existing.conversation, messages });
+      response.cookies.set(COOKIE_NAME, existing.sessionToken, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: COOKIE_MAX_AGE_SECONDS,
+      });
+      return response;
+    }
+
+    if (existing && forceNew) {
+      // A returning guest's phone/email never round-trips back to the
+      // browser (getConversationByToken only returns name), so fall back to
+      // the conversation they're leaving behind rather than forcing them to
+      // re-type details we already have on file.
+      if (!name || (!phone && !email)) {
+        const currentContact = await getContactDetails(existing.conversation.contactId);
+        if (currentContact) {
+          name = name || currentContact.name;
+          phone = phone || currentContact.phone || "";
+          email = email || currentContact.email || "";
         }
       }
+      await markConversationResolved(existing.conversation.conversationId);
     }
+
+    if (!name) return jsonError("Please tell us your name", 400);
+    if (!phone && !email) return jsonError("Please share a phone number or email so we can reach you", 400);
 
     const { sessionToken, conversation } = await startConversation({
       name,
