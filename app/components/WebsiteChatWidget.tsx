@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, X, Send, Loader2 } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, RotateCcw } from "lucide-react";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -37,6 +37,11 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
   const [startError, setStartError] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  // Set only while a guest's "tell us about you" form is showing because
+  // they chose "New conversation" -- makes the next handleStart submission
+  // send forceNew so the backend resolves the old conversation instead of
+  // just resuming it again.
+  const [pendingNewConversation, setPendingNewConversation] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -82,14 +87,14 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const startChat = async (payload: { name: string; phone?: string; email?: string }) => {
+  const startChat = async (payload: { name?: string; phone?: string; email?: string }, forceNew = false) => {
     setStarting(true);
     setStartError("");
     try {
       const res = await fetch("/api/website-chat/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, forceNew }),
       });
       const data = await res.json();
       if (!data.success) {
@@ -98,11 +103,31 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
       }
       setConversation(data.conversation);
       setMessages(data.messages);
+      setPendingNewConversation(false);
     } catch {
       setStartError("Unable to start chat. Please try again.");
     } finally {
       setStarting(false);
     }
+  };
+
+  // A known (logged-in) customer starts fresh immediately, since we already
+  // have their contact info. A guest doesn't have anywhere near-instant to
+  // resend -- getConversationByToken only ever returns their name, not
+  // phone/email -- so they see the "tell us about you" form again; the
+  // backend falls back to their previous contact details for anything left
+  // blank (see app/api/website-chat/start/route.ts).
+  const handleStartNewConversation = () => {
+    if (starting) return;
+    if (knownContact) {
+      void startChat(knownContact, true);
+      return;
+    }
+    setConversation(null);
+    setMessages([]);
+    setName("");
+    setContact("");
+    setPendingNewConversation(true);
   };
 
   // A logged-in customer skips the manual form entirely — we already know
@@ -121,11 +146,14 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
     e.preventDefault();
     if (!name.trim() || !contact.trim()) return;
     const isEmail = contact.includes("@");
-    await startChat({
-      name: name.trim(),
-      phone: isEmail ? undefined : contact.trim(),
-      email: isEmail ? contact.trim() : undefined,
-    });
+    await startChat(
+      {
+        name: name.trim(),
+        phone: isEmail ? undefined : contact.trim(),
+        email: isEmail ? contact.trim() : undefined,
+      },
+      pendingNewConversation
+    );
   };
 
   const handleSend = async () => {
@@ -172,9 +200,22 @@ export default function WebsiteChatWidget({ knownContact }: { knownContact?: Kno
 
       {open && (
         <div className="fixed bottom-24 left-4 z-40 flex h-[70vh] max-h-[560px] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-2xl sm:bottom-28 sm:left-6">
-          <div className="bg-[#0A4D8C] px-5 py-4 text-white">
-            <p className="font-black">Travel with Hawkins</p>
-            <p className="text-xs text-white/75">{statusLabel}</p>
+          <div className="flex items-center justify-between gap-3 bg-[#0A4D8C] px-5 py-4 text-white">
+            <div>
+              <p className="font-black">Travel with Hawkins</p>
+              <p className="text-xs text-white/75">{statusLabel}</p>
+            </div>
+            {conversation && (
+              <button
+                onClick={handleStartNewConversation}
+                disabled={starting}
+                title="Start a new conversation"
+                className="flex shrink-0 items-center gap-1 rounded-full border border-white/30 px-2.5 py-1.5 text-[11px] font-semibold text-white/90 transition hover:bg-white/10 disabled:opacity-50"
+              >
+                <RotateCcw className="h-3 w-3" />
+                New chat
+              </button>
+            )}
           </div>
 
           {!conversation ? (

@@ -41,6 +41,32 @@ export async function startConversation(input: { name: string; phone?: string; e
   };
 }
 
+// user_metadata.role === "customer" is only ever set for password signups
+// (see registerCustomer in lib/customerAuthAdmin.ts) -- Google OAuth never
+// sets it, which silently broke customer_id-based conversation resolution
+// for every Google-signed-in customer (same root cause as the SiteHeader
+// "always shows Sign In" bug). Checking for a real customer_profiles row is
+// reliable for both signup paths. By the time this endpoint is reachable
+// from CustomerShell's widget, GET /api/customers/profile has already
+// self-healed that row for a fresh Google account, so this is never a false
+// negative for an actual customer.
+export async function resolveCustomerId(userId: string | undefined): Promise<string | undefined> {
+  if (!userId) return undefined;
+  const { data } = await supabaseAdmin.from("customer_profiles").select("id").eq("id", userId).maybeSingle();
+  return data ? userId : undefined;
+}
+
+// Marks a conversation resolved when a customer/guest explicitly starts a
+// new one, so it doesn't linger open (possibly still "waiting" for a human)
+// in the admin queue after being abandoned in favor of a fresh chat.
+export async function markConversationResolved(conversationId: string): Promise<void> {
+  const now = new Date().toISOString();
+  await supabaseAdmin
+    .from("website_chat_conversations")
+    .update({ status: "resolved", resolved_at: now, updated_at: now })
+    .eq("conversation_id", conversationId);
+}
+
 // A logged-in customer's conversation must be found by their account, not
 // by the device cookie — see getConversationByToken's caveat below. Picks
 // the most recently created contact row if a customer somehow has more than

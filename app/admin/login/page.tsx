@@ -1,8 +1,20 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/auth";
+
+// Only accept an internal, relative path -- "//evil.com" (protocol-relative)
+// and "https://evil.com" are both rejected. Mirrors sanitizeNextPath in
+// app/auth/callback/page.tsx, since this "next" value comes from a URL (the
+// chat-handoff alert email's link) and must never be able to send a
+// just-authenticated admin off-site.
+function sanitizeNextPath(next: string | null): string {
+  if (!next) return "/admin/dashboard";
+  if (!next.startsWith("/") || next.startsWith("//")) return "/admin/dashboard";
+  return next;
+}
 
 async function handleForgotPassword(email: string) {
   if (!email) {
@@ -26,7 +38,8 @@ async function handleForgotPassword(email: string) {
   return { success: true, message: "Password reset link sent. Please check your inbox." };
 }
 
-export default function AdminLoginPage() {
+function AdminLoginContent() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -60,7 +73,7 @@ export default function AdminLoginPage() {
         return;
       }
 
-      window.location.assign("/admin/dashboard");
+      window.location.assign(sanitizeNextPath(searchParams.get("next")));
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Login failed. Please try again.");
     } finally {
@@ -160,5 +173,13 @@ export default function AdminLoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+      <AdminLoginContent />
+    </Suspense>
   );
 }
