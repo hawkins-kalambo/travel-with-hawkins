@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { logError } from "@/lib/logger";
 import type { AgentPresence, WebsiteChatConversationState, WebsiteChatMessage } from "@/lib/websiteChat/types";
 
 // "Online" tolerates one missed 10s admin heartbeat (see the admin inbox's
@@ -221,21 +222,28 @@ export async function recordBotMessage(conversationId: string, body: string): Pr
 // typing:true burst while the reply textarea has recent keystrokes and an
 // explicit typing:false the moment it pauses or the reply is sent.
 export async function touchAdminPresence(conversationId: string, typing: boolean): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("website_chat_conversations")
     .update({ admin_last_seen_at: new Date().toISOString(), admin_typing_at: typing ? new Date().toISOString() : null })
     .eq("conversation_id", conversationId);
+  // Was previously silent -- a missing admin_last_seen_at/admin_typing_at
+  // column (e.g. the presence migration applied to staging but not yet to
+  // production) failed here with no visible symptom except "Active" and
+  // "Last seen" never showing on the customer's side, with no error
+  // anywhere to point at why.
+  if (error) logError("touchAdminPresence failed", { conversationId, error: error.message });
 }
 
 // Read by the customer-facing widget's poll loop (GET /api/website-chat/messages)
 // to show the assigned agent's name plus a live/typing/last-seen indicator
 // once an agent has taken over.
 export async function getAgentPresence(conversationId: string): Promise<AgentPresence> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("website_chat_conversations")
     .select("admin_last_seen_at, admin_typing_at, assigned_to")
     .eq("conversation_id", conversationId)
     .maybeSingle();
+  if (error) logError("getAgentPresence failed", { conversationId, error: error.message });
 
   const lastSeenAt = data?.admin_last_seen_at ?? null;
   const typingAt = data?.admin_typing_at ?? null;
