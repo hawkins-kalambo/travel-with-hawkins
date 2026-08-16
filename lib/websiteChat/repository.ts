@@ -1,7 +1,14 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { WebsiteChatConversationState, WebsiteChatMessage } from "@/lib/websiteChat/types";
+import type { AgentPresence, WebsiteChatConversationState, WebsiteChatMessage } from "@/lib/websiteChat/types";
+
+// "Online" tolerates one missed 10s admin heartbeat (see the admin inbox's
+// heartbeat interval) before flipping to "last seen"; "typing" clears itself
+// quickly since the admin side also sends an explicit typing:false the
+// moment they pause, so this window only covers a dropped request.
+const AGENT_ONLINE_THRESHOLD_MS = 25_000;
+const AGENT_TYPING_THRESHOLD_MS = 6_000;
 
 export async function startConversation(input: { name: string; phone?: string; email?: string; customerId?: string }): Promise<{
   sessionToken: string;
@@ -207,6 +214,37 @@ export async function recordBotMessage(conversationId: string, body: string): Pr
   if (result.error || !result.data) throw result.error || new Error("bot_message_not_recorded");
   await touchLastMessage(conversationId);
   return { id: result.data.id, senderKind: "bot", senderName: "Travel with Hawkins", body, createdAt: result.data.created_at };
+}
+
+// Written by the admin inbox (app/admin/(sub)/communication/website-chat-inbox.tsx)
+// while a conversation is open there -- a heartbeat every 10s, plus a
+// typing:true burst while the reply textarea has recent keystrokes and an
+// explicit typing:false the moment it pauses or the reply is sent.
+export async function touchAdminPresence(conversationId: string, typing: boolean): Promise<void> {
+  await supabaseAdmin
+    .from("website_chat_conversations")
+    .update({ admin_last_seen_at: new Date().toISOString(), admin_typing_at: typing ? new Date().toISOString() : null })
+    .eq("conversation_id", conversationId);
+}
+
+// Read by the customer-facing widget's poll loop (GET /api/website-chat/messages)
+// to show a live/typing/last-seen indicator once an agent has taken over.
+export async function getAgentPresence(conversationId: string): Promise<AgentPresence> {
+  const { data } = await supabaseAdmin
+    .from("website_chat_conversations")
+    .select("admin_last_seen_at, admin_typing_at")
+    .eq("conversation_id", conversationId)
+    .maybeSingle();
+
+  const lastSeenAt = data?.admin_last_seen_at ?? null;
+  const typingAt = data?.admin_typing_at ?? null;
+  const now = Date.now();
+
+  return {
+    online: lastSeenAt ? now - new Date(lastSeenAt).getTime() < AGENT_ONLINE_THRESHOLD_MS : false,
+    typing: typingAt ? now - new Date(typingAt).getTime() < AGENT_TYPING_THRESHOLD_MS : false,
+    lastSeenAt,
+  };
 }
 
 export async function requestHuman(conversation: WebsiteChatConversationState): Promise<WebsiteChatConversationState> {
