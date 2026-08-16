@@ -248,8 +248,21 @@ export async function getCustomerProfile(userId: string): Promise<CustomerProfil
 // called from GET/PUT /api/customers/profile so a customer missing their
 // row gets backfilled on the very next request instead of staying broken.
 export async function ensureCustomerProfileExists(userId: string): Promise<void> {
-  const existing = await supabaseAdmin.from("customer_profiles").select("id").eq("id", userId).maybeSingle();
-  if (existing.data) return;
+  const existing = await supabaseAdmin.from("customer_profiles").select("id, profile_picture_url").eq("id", userId).maybeSingle();
+  if (existing.data) {
+    // Backfill a Google avatar for a row that was created before the
+    // account had one (e.g. picked up manually, or by an earlier version of
+    // this self-heal) — gated on the DB value being empty so this never
+    // overwrites a picture the customer already uploaded themselves.
+    if (!existing.data.profile_picture_url) {
+      const { data: authUserData } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const avatarUrl = authUserData?.user?.user_metadata?.avatar_url || authUserData?.user?.user_metadata?.picture || null;
+      if (avatarUrl) {
+        await supabaseAdmin.from("customer_profiles").update({ profile_picture_url: avatarUrl }).eq("id", userId);
+      }
+    }
+    return;
+  }
 
   const { data: authUserData } = await supabaseAdmin.auth.admin.getUserById(userId);
   const user = authUserData?.user;
@@ -262,7 +275,14 @@ export async function ensureCustomerProfileExists(userId: string): Promise<void>
 
   // customer_profiles.id is a foreign key into profiles(id) — that base row
   // must exist first, or the insert below fails its FK constraint outright.
-  const { data: baseProfile } = await supabaseAdmin.from("profiles").select("id").eq("id", userId).maybeSingle();
+  const { data: baseProfile } = await supabaseAdmin.from("profiles").select("id, role").eq("id", userId).maybeSingle();
+  // A base profile row that already exists with a non-customer role (admin,
+  // operator, ambassador) means this account was never a customer — this
+  // self-heal must never manufacture a customer_profiles row for it just
+  // because it hit an endpoint that also serves real customers (e.g. an
+  // admin browsing the public homepage, which now checks customer status
+  // the same way logged-in customers do — see SiteHeader.tsx).
+  if (baseProfile && baseProfile.role && baseProfile.role !== "customer") return;
   if (!baseProfile) {
     const { error: baseInsertError } = await supabaseAdmin.from("profiles").insert({
       id: userId,

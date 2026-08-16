@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IconMenu, IconX, IconUser } from "../Icon";
-import { getCurrentUser } from "@/lib/auth";
+import { authFetch, getCurrentSession } from "@/lib/auth";
 
 const NAV_LINKS: Array<[string, string]> = [
   ["Home", "/"],
@@ -36,16 +36,33 @@ export default function SiteHeader({ onOpenBooking, onOpenTrack }: SiteHeaderPro
   // sends them to /book (which just renders this same homepage) — without
   // this check it always showed "Sign In", making an active session look
   // like it had been logged out.
+  //
+  // This used to gate on `user.user_metadata?.role === "customer"`, but that
+  // field is only ever set for password-based signups (see
+  // registerCustomer() in lib/customerAuthAdmin.ts) — Google OAuth users
+  // never get it, so every Google-signed-in customer landing here still saw
+  // "Sign In" even with a fully valid session. Checking the real
+  // customer_profiles record via the API works for both signup paths.
   const [customerFirstName, setCustomerFirstName] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      getCurrentUser().then((user) => {
-        if (cancelled || !user || user.user_metadata?.role !== "customer") return;
-        const fullName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
-        setCustomerFirstName(fullName.split(" ")[0] || "Account");
-      });
+      void (async () => {
+        const session = await getCurrentSession();
+        if (cancelled || !session) return;
+        try {
+          const res = await authFetch("/api/customers/profile");
+          if (cancelled || !res.ok) return;
+          const data = await res.json();
+          const fullName = typeof data?.profile?.fullName === "string" ? data.profile.fullName : "";
+          if (!fullName) return;
+          setCustomerFirstName(fullName.split(" ")[0] || "Account");
+        } catch {
+          // Not a customer account, or the request failed — leave the
+          // header showing "Sign In" rather than guessing.
+        }
+      })();
     }, 0);
     return () => {
       cancelled = true;
