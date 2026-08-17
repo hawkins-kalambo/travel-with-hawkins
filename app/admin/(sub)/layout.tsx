@@ -9,6 +9,7 @@ import { authFetch, logout } from "@/lib/auth";
 const NAV_LINKS = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/trips", label: "Trips" },
+  { href: "/admin/students", label: "Students" },
   { href: "/admin/operators", label: "Operators" },
   { href: "/admin/applications", label: "Applications" },
   { href: "/admin/ambassadors", label: "Ambassadors" },
