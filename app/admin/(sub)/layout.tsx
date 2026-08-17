@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: "/admin/applications", label: "Applications" },
   { href: "/admin/ambassadors", label: "Ambassadors" },
   { href: "/admin/referral-bookings", label: "Referral bookings" },
+  { href: "/admin/referrals", label: "Referrals" },
   { href: "/admin/commission-rates", label: "Commission rates" },
   { href: "/admin/business-configuration", label: "Business configuration" },
   { href: "/admin/communication", label: "Communication" },
