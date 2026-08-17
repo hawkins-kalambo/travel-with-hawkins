@@ -15,7 +15,16 @@ import { supabase } from "@/lib/auth";
 function sanitizeNextPath(next: string | null): string {
   if (!next) return "/admin/dashboard";
   if (!next.startsWith("/") || next.startsWith("//")) return "/admin/dashboard";
-  return next;
+  // forceLogin is a one-time signal (see proxy.ts) that demanded this fresh
+  // login in the first place -- strip it from the destination so landing
+  // there doesn't itself trigger another forced login on refresh or when
+  // navigating back to it normally within the same session.
+  const [path, query] = next.split("?");
+  if (!query) return next;
+  const params = new URLSearchParams(query);
+  params.delete("forceLogin");
+  const remaining = params.toString();
+  return remaining ? `${path}?${remaining}` : path;
 }
 
 async function handleForgotPassword(email: string) {

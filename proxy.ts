@@ -177,7 +177,16 @@ export async function proxy(request: NextRequest) {
   const authResponse = NextResponse.next();
   const { user, error } = await requireAuthenticatedUser(request, authResponse);
 
-  if (error || !user) {
+  // A one-time signal on a specific link (currently: the chat-handoff alert
+  // email) that demands a fresh password entry before proceeding, even from
+  // a device that's already signed in -- since the link travels through
+  // email/SMS, an already-unlocked phone in someone else's hands shouldn't
+  // get straight in on an existing session. Stripped by the login page once
+  // satisfied (see sanitizeNextPath there), so it only fires for that one
+  // click, not every subsequent visit to the destination.
+  const forceLogin = request.nextUrl.searchParams.get("forceLogin") === "1";
+
+  if (forceLogin || error || !user) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }

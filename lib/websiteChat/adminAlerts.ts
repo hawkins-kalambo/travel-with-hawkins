@@ -11,9 +11,13 @@ import { getContactDetails } from "@/lib/websiteChat/repository";
 // chat conversations never get, so it always 404s ("Conversation not found
 // or access denied") no matter who's signed in. ?tab=website&conversation=
 // deep-links straight to the right tab with the conversation pre-selected.
+// forceLogin=1 (see proxy.ts) makes this link always demand a fresh
+// password entry, even from an already-signed-in device -- this link
+// travels through email/SMS, so an unlocked phone in someone else's hands
+// shouldn't get straight into the admin panel on an existing session.
 function conversationUrl(conversationId: string): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://travelwithhawkins.com";
-  return `${appUrl.replace(/\/$/, "")}/admin/communication?tab=website&conversation=${conversationId}`;
+  return `${appUrl.replace(/\/$/, "")}/admin/communication?tab=website&conversation=${conversationId}&forceLogin=1`;
 }
 
 // Fired exactly once, the moment a website-chat conversation is handed off
