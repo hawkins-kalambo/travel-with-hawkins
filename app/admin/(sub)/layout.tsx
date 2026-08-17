@@ -16,6 +16,7 @@ const NAV_LINKS = [
   { href: "/admin/business-configuration", label: "Business configuration" },
   { href: "/admin/communication", label: "Communication" },
   { href: "/admin/reports", label: "Reports" },
+  { href: "/admin/broadcast", label: "Broadcast" },
 ] as const;
 
 const UNIVERSITY_ADMIN_NAV_LINKS = [

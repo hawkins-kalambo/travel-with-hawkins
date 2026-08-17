@@ -78,7 +78,7 @@ type StudentGroup = {
   hasIdentityGap: boolean;
 };
 
-type TabName = "overview" | "trips" | "bookings" | "students" | "whatsapp" | "referrals" | "settings";
+type TabName = "overview" | "trips" | "bookings" | "students" | "referrals" | "settings";
 
 // ================= PRICING HELPERS =================
 // Revenue math lives in lib/bookingRevenue.ts (calcBookingRevenue), shared
@@ -210,7 +210,6 @@ const TABS: { key: TabName; label: string; icon: string }[] = [
   { key: "trips", label: "Trips", icon: "" },
   { key: "bookings", label: "Bookings", icon: "" },
   { key: "students", label: "Students CRM", icon: "" },
-  { key: "whatsapp", label: "WhatsApp Broadcast", icon: "" },
   { key: "referrals", label: "Referrals", icon: "" },
   { key: "settings", label: "Settings", icon: "" },
 ];
@@ -356,8 +355,6 @@ function AdminPageContent() {
 
   const [settingsMsg, setSettingsMsg] = useState("");
 
-  const [whatsappMsg, setWhatsappMsg] = useState("");
-  const [whatsappCopied, setWhatsappCopied] = useState(false);
   const [ambassadors, setAmbassadors] = useState<Array<Record<string, unknown>>>([]);
   const [referrals, setReferrals] = useState<Array<Record<string, unknown>>>([]);
   const [ambassadorMessage, setAmbassadorMessage] = useState("");
@@ -1001,55 +998,6 @@ const universityById = useMemo(() => {
     }
   };
 
-  const generateWhatsAppMessage = () => {
-    if (Object.keys(tripGroups).length === 0) {
-      setWhatsappMsg("No active trips to broadcast.");
-      return;
-    }
-
-    const parts: string[] = [];
-    parts.push("🚐 *TRAVEL WITH HAWKINS — ACTIVE TRIPS* 🚐\n");
-    parts.push("📅 " + formatDate(new Date()) + "\n");
-
-    for (const [tripId, passengers] of Object.entries(tripGroups)) {
-      const dest = passengers[0]?.destination || "—";
-      const date = passengers[0]?.travelDate || "—";
-      const status = passengers[0]?.status || "Pending";
-      const totalSeats = passengers.reduce((s, p) => s + (p.seats || 1), 0);
-      const maxSeats = parseInt(settings.maxSeats) || 15;
-      const remaining = maxSeats - totalSeats;
-
-      parts.push(`\n━━━━━━━━━━━━━━━━━`);
-      parts.push(`🚍 *Trip:* ${tripId}`);
-      parts.push(`📍 *Destination:* ${dest}`);
-      parts.push(`📆 *Date:* ${date}`);
-      parts.push(`📊 *Status:* ${status}`);
-      parts.push(`👥 *Passengers:* ${passengers.length} | *Seats:* ${totalSeats}/${maxSeats}`);
-      if (remaining > 0) parts.push(`🪑 *Seats Available:* ${remaining}`);
-      else parts.push(`❌ *Fully Booked*`);
-
-      const names = passengers.map((p) => `• ${p.name || "—"} (${p.phone || "—"})`).join("\n");
-      parts.push(`\n*Passenger List:*\n${names}`);
-    }
-
-    parts.push("\n━━━━━━━━━━━━━━━━━");
-    parts.push("📞 *Bookings & Inquiries:* +265989127308");
-    parts.push("💬 *WhatsApp:* https://wa.me/265989127308\n");
-    parts.push("_Safe Journeys • Trusted Service_");
-
-    setWhatsappMsg(parts.join("\n"));
-  };
-
-  const copyWhatsAppMessage = async () => {
-    try {
-      await navigator.clipboard.writeText(whatsappMsg);
-      setWhatsappCopied(true);
-      setTimeout(() => setWhatsappCopied(false), 2000);
-    } catch {
-      alert("Copy failed. Please select and copy manually.");
-    }
-  };
-
   const createAmbassador = async (payload: AmbassadorCreationPayload) => {
     setAmbassadorMessage("");
     try {
@@ -1234,7 +1182,7 @@ const universityById = useMemo(() => {
           <div className="flex lg:hidden gap-1 overflow-x-auto pb-2 flex-wrap">
             {visibleTabs.flatMap((tab) => {
               const items: Array<ReactNode> = [];
-              if (tab.key === "whatsapp") {
+              if (tab.key === "referrals") {
                 items.push(
                   <Link
                     key="applications-mobile"
@@ -1293,7 +1241,7 @@ const universityById = useMemo(() => {
           <nav className="hidden lg:block space-y-1 text-sm">
             {visibleTabs.flatMap((tab) => {
               const items: Array<ReactNode> = [];
-              if (tab.key === "whatsapp") {
+              if (tab.key === "referrals") {
                 items.push(
                   <Link
                     key="applications-desktop"
@@ -2195,52 +2143,6 @@ const universityById = useMemo(() => {
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ================= WHATSAPP BROADCAST TAB ================= */}
-              {!isViewer && effectiveActiveTab === "whatsapp" && (
-                <div className="space-y-6">
-                  <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
-                    <h3 className="mb-2 font-bold text-primary-900">📢 WhatsApp Broadcast Studio</h3>
-                    <p className="text-sm text-slate-500 mb-4">
-                      Generate a formatted promotional message from active trip manifests, ready to share on student WhatsApp groups.
-                    </p>
-                    <button
-                      onClick={generateWhatsAppMessage}
-                      className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg font-semibold shadow-sm transition"
-                    >
-                      📱 Generate Broadcast Message
-                    </button>
-                  </div>
-
-                  {whatsappMsg && (
-                    <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
-                      <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-sm font-bold text-primary-900">Your Broadcast Message</h4>
-                        <button
-                          onClick={copyWhatsAppMessage}
-                          className="rounded-lg bg-primary-900 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-800"
-                        >
-                          {whatsappCopied ? "✓ Copied!" : "📋 Copy"}
-                        </button>
-                      </div>
-                      <textarea
-                        readOnly
-                        value={whatsappMsg}
-                        rows={20}
-                        className="w-full resize-y whitespace-pre-wrap break-words-force rounded-xl border border-slate-200 bg-white p-4 font-mono text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600"
-                      />
-                    </div>
-                  )}
-
-                  {Object.keys(tripGroups).length > 0 && !whatsappMsg && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                      <p className="text-sm text-amber-800">
-                        ⚡ {Object.keys(tripGroups).length} active trip{Object.keys(tripGroups).length === 1 ? "" : "s"} ready for broadcast.
-                      </p>
                     </div>
                   )}
                 </div>
