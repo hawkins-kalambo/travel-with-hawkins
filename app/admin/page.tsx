@@ -19,6 +19,7 @@ import AmbassadorCreationSuccess from "@/app/admin/components/AmbassadorCreation
 import AmbassadorCreationWizard from "@/app/admin/components/AmbassadorCreationWizard";
 import BookingDetailsPanel, { type BookingAuditEntry } from "@/app/admin/components/BookingDetailsPanel";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import JourneyStatusBadge, { JOURNEY_STATUS_COLORS } from "@/app/components/ui/JourneyStatusBadge";
 
 // ================= TYPES =================
 type JourneyStatus =
@@ -78,7 +79,7 @@ type StudentGroup = {
   hasIdentityGap: boolean;
 };
 
-type TabName = "overview" | "trips" | "bookings" | "students" | "referrals";
+type TabName = "overview" | "bookings" | "students" | "referrals";
 
 // ================= PRICING HELPERS =================
 // Revenue math lives in lib/bookingRevenue.ts (calcBookingRevenue), shared
@@ -96,36 +97,15 @@ const BOOKINGS_PAGE_SIZE = 25;
 // auth helpers to accept the token when cookies are not present.
 const TABS: { key: TabName; label: string; icon: string }[] = [
   { key: "overview", label: "Overview", icon: "" },
-  { key: "trips", label: "Trips", icon: "" },
   { key: "bookings", label: "Bookings", icon: "" },
   { key: "students", label: "Students CRM", icon: "" },
   { key: "referrals", label: "Referrals", icon: "" },
 ];
 
-const JOURNEY_STATUS_COLORS: Record<string, { badge: string; button: string }> = {
-  Booked: { badge: "bg-amber-50 text-amber-700 border-amber-200", button: "bg-amber-600 hover:bg-amber-700" },
-  Confirmed: { badge: "bg-[#eef6ff] text-[#0a2d56] border-[#b8dcff]", button: "bg-[#0f3f78] hover:bg-[#0a2d56]" },
-  Boarding: { badge: "bg-orange-50 text-orange-700 border-orange-200", button: "bg-orange-600 hover:bg-orange-700" },
-  Departed: { badge: "bg-violet-50 text-violet-700 border-violet-200", button: "bg-violet-600 hover:bg-violet-700" },
-  Arrived: { badge: "bg-sky-50 text-sky-700 border-sky-200", button: "bg-sky-600 hover:bg-sky-700" },
-  Completed: { badge: "bg-emerald-50 text-emerald-700 border-emerald-200", button: "bg-emerald-600 hover:bg-emerald-700" },
-  Cancelled: { badge: "bg-[color:var(--danger)]/10 text-[color:var(--danger)] border-[color:var(--danger)]/20", button: "bg-[color:var(--danger)] hover:bg-[color:var(--danger)]/90" },
-};
-
 function formatDate(date: Date): string {
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${weekdays[date.getDay()]}, ${months[date.getMonth()]} ${String(date.getDate()).padStart(2, "0")}, ${date.getFullYear()}`;
-}
-
-function StatusBadge({ status }: { status: JourneyStatus }) {
-  const s = String(status || "Booked");
-  const colors = JOURNEY_STATUS_COLORS[s] ?? JOURNEY_STATUS_COLORS.Booked;
-  return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold border ${colors.badge}`}>
-      {s}
-    </span>
-  );
 }
 
 // Real per-booking payment truth (set by PayChangu webhooks and cash
@@ -625,18 +605,6 @@ const universityById = useMemo(() => {
       facultyBreakdown: Object.values(facultyBreakdown).sort((a, b) => b.customers - a.customers),
     };
   }, [ambassadors, referrals]);
-
-  const tripGroups = useMemo(() => {
-    // Single source of truth: group using the real bookings.trip_id.
-    const acc: Record<string, EnrichedBooking[]> = {};
-    for (const item of filtered) {
-      const tripId = String(item.tripId || "").trim();
-      if (!tripId) continue;
-      if (!acc[tripId]) acc[tripId] = [];
-      acc[tripId].push(item);
-    }
-    return acc;
-  }, [filtered]);
 
   const studentGroups = useMemo(() => {
     const acc: Record<string, StudentGroup> = {};
@@ -1201,7 +1169,7 @@ const universityById = useMemo(() => {
                   </button>
                 )}
               </div>
-              {(activeTab === "bookings" || activeTab === "trips") && universities.length > 0 && (
+              {activeTab === "bookings" && universities.length > 0 && (
                 <select
                   value={universityFilter}
                   onChange={(e) => {
@@ -1345,110 +1313,6 @@ const universityById = useMemo(() => {
                 </div>
               )}
 
-              {effectiveActiveTab === "trips" && (
-                <div>
-                  {Object.keys(tripGroups).length === 0 ? (
-                    <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-8 text-center">
-                      <p className="text-slate-700 font-semibold text-lg">No trips found</p>
-                      <p className="text-sm text-slate-500 mt-1">Create a booking to generate a trip.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
-                      {Object.entries(tripGroups).map(([tripId, passengers]) => {
-                        const dest = passengers[0]?.destination || "—";
-                        const date = passengers[0]?.travelDate || "—";
-                        const status = passengers[0]?.status || "Pending";
-                        const universityId = passengers[0]?.universityId;
-                        const campusName = universityId ? universityById.get(universityId)?.name : undefined;
-                        const totalSeats = passengers.reduce((s, p) => s + (p.seats || 1), 0);
-                        const maxSeats = parseInt(settings.maxSeats) || 15;
-                        const fillPercent = Math.min(100, Math.round((totalSeats / maxSeats) * 100));
-                        const isUpdating = statusUpdating === tripId;
-
-                        return (
-                          <div
-                            key={tripId}
-                            className="rounded-2xl border border-[#d7ebff] bg-[#eef6ff] p-4 shadow-sm transition hover:border-[#0f3f78]/30 hover:shadow-lg sm:p-5"
-                          >
-                            <div className="flex justify-between items-start mb-3 gap-2">
-                              <div className="min-w-0 flex-1">
-                                <h3 className="font-extrabold text-primary-900 text-sm sm:text-base truncate break-words-force">{tripId}</h3>
-                                <p className="text-[11px] text-slate-500 mt-1 break-words-force">📍 {dest}</p>
-                                {campusName && <p className="text-[11px] text-slate-400">🎓 {campusName}</p>}
-                                <p className="text-[11px] text-slate-400">📅 {date}</p>
-                              </div>
-                              <StatusBadge status={status} />
-                            </div>
-
-                            <div className="mb-3">
-                              <div className="flex justify-between text-xs text-slate-600 mb-1">
-                                <span>Seats</span>
-                                <span className="font-semibold">
-                                  {totalSeats} / {maxSeats}
-                                </span>
-                              </div>
-                              <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
-                                <div
-                                  className={`h-2.5 rounded-full transition-all duration-500 ${
-                                    fillPercent >= 100
-                                      ? "bg-red-500"
-                                      : fillPercent >= 80
-                                      ? "bg-orange-500"
-                                      : "bg-[#006B3F]"
-                                  }`}
-                                  style={{ width: `${fillPercent}%` }}
-                                />
-                              </div>
-                              <p className="text-[10px] text-slate-400 mt-1">{fillPercent}% filled</p>
-                            </div>
-
-                            <p className="text-xs text-slate-500 mb-3">
-                              👥 {passengers.length} passenger{passengers.length === 1 ? "" : "s"}
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-1.5 mb-3">
-                              {getAllowedJourneyTransitions(status).map((statusValue) => {
-                                const label = statusValue === "Cancelled" ? "Cancel" : statusValue;
-                                if (isViewer) return null;
-                                return (
-                                  <button
-                                    key={statusValue}
-                                    onClick={() => void updateStatus(tripId, statusValue)}
-                                    disabled={isUpdating}
-                                    className={`${(JOURNEY_STATUS_COLORS[statusValue] || JOURNEY_STATUS_COLORS.Confirmed).button} rounded-lg px-2 py-1.5 text-[11px] font-semibold text-white transition disabled:opacity-50`}
-                                  >
-                                    {isUpdating ? "..." : label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            <details className="text-xs">
-                              <summary className="cursor-pointer font-semibold text-accent-600 hover:text-accent-700">
-                                View Passengers ({passengers.length})
-                              </summary>
-                              <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                                {passengers.map((p, i) => (
-                                  <div
-                                    key={i}
-                                    className="flex justify-between items-center py-1 border-b border-[#d7ebff] last:border-0"
-                                  >
-                                    <span className="text-slate-700 break-words-force">{p.name || "—"}</span>
-                                    <span className="text-slate-400">
-                                      {p.seats || 1} seat{p.seats !== 1 ? "s" : ""}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* ================= BOOKINGS TAB ================= */}
               {effectiveActiveTab === "bookings" && (
                 <div className="bg-[#eef6ff] border border-[#d7ebff] rounded-xl shadow-sm overflow-hidden">
@@ -1534,7 +1398,7 @@ const universityById = useMemo(() => {
                               <td className="p-3 text-slate-600 hidden sm:table-cell">{b.travelDate || "—"}</td>
                               <td className="p-3 text-center font-semibold">{b.seats || 1}</td>
                               <td className="p-3 text-center">
-                                <StatusBadge status={b.status} />
+                                <JourneyStatusBadge status={b.status} />
                               </td>
                               <td className="p-3 text-center">
                                 <div className="flex min-w-32 flex-col items-start gap-1.5">
@@ -1982,7 +1846,7 @@ const universityById = useMemo(() => {
                                       </p>
                                     </div>
                                     <div className="flex items-center gap-1">
-                                      <StatusBadge status={b.status} />
+                                      <JourneyStatusBadge status={b.status} />
                                       <MoneyStatusBadge status={b.bookingFeeStatus || "unpaid"} colors={BOOKING_FEE_STATUS_COLORS} />
                                       <MoneyStatusBadge status={b.fareStatus || "unpaid"} colors={FARE_STATUS_COLORS} />
                                     </div>
