@@ -60,7 +60,7 @@ export default function LoginPage() {
         const status = String(profileData?.profile?.status || "active").toLowerCase();
 
         if (role === "super_admin" || role === "admin" || role === "viewer") {
-          window.location.assign("/admin/dashboard");
+          window.location.assign("/admin");
           return;
         }
 

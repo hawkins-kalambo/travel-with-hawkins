@@ -36,12 +36,13 @@ const UNIVERSITY_ADMIN_NAV_LINKS = [
 ] as const;
 
 /**
- * Shared nav shell for the admin sub-pages (applications, ambassadors,
- * referral-bookings, commission-rates, business-configuration,
- * communication) — previously each of these was an orphaned route with
- * just a "Back to admin" link and no persistent navigation. Deliberately
- * does NOT wrap /admin itself (app/admin/page.tsx, outside this route
- * group) — that page keeps its own existing internal sidebar untouched.
+ * Shared nav shell for every admin page, including /admin itself (this
+ * layout lives at app/admin/(sub)/layout.tsx and app/admin/(sub)/page.tsx
+ * is the Overview page — the route group adds no URL segment, so that
+ * file serves /admin directly, wrapped here same as every other admin
+ * route). Previously each sub-page was an orphaned route with just a
+ * "Back to admin" link and no persistent navigation, and /admin was a
+ * 2,425-line monolith with its own separate sidebar; both are gone now.
  */
 export default function AdminSubLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -61,6 +62,32 @@ export default function AdminSubLayout({ children }: { children: ReactNode }) {
     await logout();
     router.push("/admin/login");
   };
+
+  // Applies across every admin page now that they all route through this
+  // layout. Previously lived only in the old monolith's page-shell code,
+  // so the six pages already extracted from it before this one had no
+  // idle auto-logout at all — restoring it here for all of them at once
+  // rather than leaving that gap in place.
+  useEffect(() => {
+    const idleMs = 15 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const resetTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void logout().then(() => router.push("/admin/login"));
+      }, idleMs);
+    };
+
+    const events = ["mousemove", "keydown", "click", "scroll", "touchstart"] as const;
+    events.forEach((event) => window.addEventListener(event, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, resetTimer));
+      if (timer) clearTimeout(timer);
+    };
+  }, [router]);
 
   return (
     <div className="min-h-screen bg-gray-100 lg:flex">

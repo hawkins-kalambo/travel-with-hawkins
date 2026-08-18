@@ -13,8 +13,8 @@ import { supabase } from "@/lib/auth";
 // /admin/* route here) and must never be able to send a just-authenticated
 // admin off-site.
 function sanitizeNextPath(next: string | null): string {
-  if (!next) return "/admin/dashboard";
-  if (!next.startsWith("/") || next.startsWith("//")) return "/admin/dashboard";
+  if (!next) return "/admin";
+  if (!next.startsWith("/") || next.startsWith("//")) return "/admin";
   // forceLogin is a one-time signal (see proxy.ts) that demanded this fresh
   // login in the first place -- strip it from the destination so landing
   // there doesn't itself trigger another forced login on refresh or when

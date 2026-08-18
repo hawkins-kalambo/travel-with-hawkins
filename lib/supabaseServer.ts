@@ -168,10 +168,7 @@ export async function resolveAdminRole(user: { id: string; email?: string | null
 export function isViewerAuthorizedRoute(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "") || "/admin";
   if (normalizedPath === "/admin") return true;
-  if (normalizedPath === "/admin/dashboard") return true;
-  if (normalizedPath === "/admin/overview") return true;
-  if (normalizedPath === "/admin") return true;
-  return ["/admin/overview", "/admin/trips", "/admin/bookings", "/admin/dashboard"].includes(normalizedPath);
+  return ["/admin/trips", "/admin/bookings"].includes(normalizedPath);
 }
 
 export function canAccessAdminRoute(role: unknown, pathname: string): boolean {
