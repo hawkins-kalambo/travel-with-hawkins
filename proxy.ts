@@ -73,7 +73,13 @@ export async function proxy(request: NextRequest) {
   // Everything else under /api/payments/ (confirm, send-receipt, and any
   // future admin/reporting endpoints) stays admin-only.
   const isPublicPaymentInitialize = pathname.startsWith("/api/payments/") && pathname.endsWith("/initialize") && method === "POST";
-  const isPublicPaymentWebhook = pathname === "/api/payments/webhook" && method === "POST";
+  // GET is PayChangu's hosted checkout redirecting the customer's own
+  // browser here after payment (confirmed live: Referer checkout.paychangu.com,
+  // ?tx_ref=... in the query string) -- distinct from the signed
+  // server-to-server POST this route also handles. The route itself just
+  // forwards a GET straight to /payment/return, so it's exactly as safe to
+  // leave ungated as that page already is.
+  const isPublicPaymentWebhook = pathname === "/api/payments/webhook" && (method === "POST" || method === "GET");
   // Status checks are rate-limited and gated by possession of a
   // server-generated tx_ref (see app/api/payments/status/route.ts), not by
   // a Supabase session — the browser return page has no session context.
