@@ -47,16 +47,31 @@ const UNIVERSITY_ADMIN_NAV_LINKS = [
 export default function AdminSubLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [isUniversityAdmin, setIsUniversityAdmin] = useState(false);
+  const [role, setRole] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     void authFetch("/api/profile")
       .then(async (response) => response.json() as Promise<{ profile?: { role?: string } }>)
-      .then((body) => setIsUniversityAdmin(body.profile?.role === "university_admin"))
+      .then((body) => setRole(body.profile?.role))
       .catch(() => undefined);
   }, []);
 
-  const visibleLinks = isUniversityAdmin ? UNIVERSITY_ADMIN_NAV_LINKS : NAV_LINKS;
+  const isUniversityAdmin = role === "university_admin";
+  const isSuperAdmin = role === "super_admin";
+  // "admin" here covers both the legacy admins-table "admin" row and any
+  // other non-university/non-viewer admin role — same set NAV_LINKS already
+  // targets. Users is super_admin-only (mirrors canAccessAdminRoute in
+  // lib/supabaseServer.ts and the manageUsers permission gate on the API);
+  // Incidents/Feature flags are admin+super_admin, matching how every other
+  // NAV_LINKS entry below is already scoped away from university_admin.
+  const visibleLinks = isUniversityAdmin
+    ? UNIVERSITY_ADMIN_NAV_LINKS
+    : [
+        ...NAV_LINKS,
+        { href: "/admin/incidents", label: "Incidents" },
+        { href: "/admin/feature-flags", label: "Feature flags" },
+        ...(isSuperAdmin ? [{ href: "/admin/users", label: "Users" }] : []),
+      ];
 
   const handleLogout = async () => {
     await logout();

@@ -6,6 +6,7 @@ import test, { mock } from "node:test";
 // the plain authentication check on GET, these tests should fail.
 
 let authResult: unknown;
+let fromImpl: (table: string) => unknown = () => ({});
 
 mock.module("@/lib/operatorAuth", {
   exports: {
@@ -20,8 +21,21 @@ mock.module("@/lib/operatorDocuments", {
 });
 
 mock.module("@/lib/supabaseAdmin", {
-  exports: { supabaseAdmin: {} },
+  exports: { supabaseAdmin: { from: (table: string) => fromImpl(table) } },
 });
+
+// subjectBelongsToOperator() runs .eq("id", subjectId).eq("operator_id",
+// operatorId).maybeSingle() against vehicles/drivers — a real Supabase
+// client returns no row when the vehicle/driver belongs to a different
+// operator. This stub reproduces exactly that.
+function makeNoMatchBuilder() {
+  const builder = {
+    select: () => builder,
+    eq: () => builder,
+    maybeSingle: async () => ({ data: null, error: null }),
+  };
+  return builder;
+}
 
 const { GET, POST } = await import("./route.ts");
 
@@ -59,4 +73,27 @@ test("POST returns 400 when required fields are missing", async () => {
   authResult = { authorized: true, operatorId: "op-1", staffRole: "owner", user: { id: "u-1" } };
   const res = await POST(makePostRequest({ subjectType: "operator" }));
   assert.equal(res.status, 400);
+});
+
+// Cross-operator isolation: operator A is authorized, but attaches a
+// document to a vehicle id that belongs to a different operator.
+test("POST returns 403 when subjectId (vehicle) belongs to a different operator", async () => {
+  authResult = { authorized: true, operatorId: "operator-A", staffRole: "owner", user: { id: "u-1" } };
+  fromImpl = () => makeNoMatchBuilder();
+  const res = await POST(
+    makePostRequest({ subjectType: "vehicle", subjectId: "vehicle-owned-by-operator-B", documentType: "insurance", file: "data:application/pdf;base64,AAAA" })
+  );
+  assert.equal(res.status, 403);
+});
+
+// operator's own id as an "operator" subjectId never touches the DB at all
+// (subjectBelongsToOperator short-circuits to subjectId === operatorId), so
+// this is the one case worth confirming directly: operator A cannot attach
+// a document to operator B's own operator-level subject.
+test("POST returns 403 when subjectId (operator) is a different operator's own id", async () => {
+  authResult = { authorized: true, operatorId: "operator-A", staffRole: "owner", user: { id: "u-1" } };
+  const res = await POST(
+    makePostRequest({ subjectType: "operator", subjectId: "operator-B", documentType: "insurance", file: "data:application/pdf;base64,AAAA" })
+  );
+  assert.equal(res.status, 403);
 });

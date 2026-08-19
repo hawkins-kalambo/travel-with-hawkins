@@ -11,6 +11,7 @@ import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourney
 import { resolveActiveUniversity } from "@/lib/universityResolver";
 import { resolveDefaultOperatorId } from "@/lib/defaultOperator";
 import { jsonError } from "@/lib/apiResponse";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import {
   generateBookingId,
   generateTripId,
@@ -242,7 +243,14 @@ export async function POST(req: Request) {
     // record_manual_fare_payment() enforces the same requirement for cash.
     let fare: number | undefined;
 
+    // Server-side kill switches (Phase 3 launch-safety controls) — checked
+    // before any DB work in each branch. Turning off all four live-service
+    // flags at once *is* the emergency global pause; no separate mechanism
+    // exists for that on purpose (see db/migrations/2026_08_20_launch_safety_controls.sql).
+    const SERVICE_UNAVAILABLE_MESSAGE = "This service is temporarily unavailable. Please try again later or contact support.";
+
     if (requestedCarHireListingId) {
+      if (!(await isFeatureEnabled("car_hire_enabled"))) return jsonError(SERVICE_UNAVAILABLE_MESSAGE, 503);
       const rentalEndDateInput = getNonEmptyString(payload.rentalEndDate ?? payload.rental_end_date);
       if (!rentalEndDateInput || !/^\d{4}-\d{2}-\d{2}$/.test(rentalEndDateInput) || Number.isNaN(Date.parse(`${rentalEndDateInput}T00:00:00Z`))) {
         return jsonError("Please enter a valid return date.", 400);
@@ -285,6 +293,7 @@ export async function POST(req: Request) {
       const dailyRate = Number(listingRow.daily_rate);
       fare = Number.isFinite(dailyRate) && dailyRate > 0 ? dailyRate * days : undefined;
     } else if (requestedTaxiFareId) {
+      if (!(await isFeatureEnabled("taxi_enabled"))) return jsonError(SERVICE_UNAVAILABLE_MESSAGE, 503);
       const { data: taxiFareRow, error: taxiFareError } = await supabase
         .from("taxi_fares")
         .select("id, origin_label, destination_label, fare, status, operator_id, operator:operators(status)")
@@ -317,9 +326,10 @@ export async function POST(req: Request) {
       const structuredFare = Number(taxiFareRow.fare);
       fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
     } else if (requestedRouteId) {
+      if (!(await isFeatureEnabled("public_intercity_enabled"))) return jsonError(SERVICE_UNAVAILABLE_MESSAGE, 503);
       const { data: routeRow, error: routeError } = await supabase
         .from("routes")
-        .select("id, fare, status, operator_id, university_id, destination_label, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
+        .select("id, fare, status, operator_id, university_id, destination_label, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, operator:operators(status), university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
         .eq("id", requestedRouteId)
         .maybeSingle();
 
@@ -330,6 +340,7 @@ export async function POST(req: Request) {
       if (!routeRow) return jsonError("The selected route no longer exists.", 400);
 
       const relation = routeRow as unknown as {
+        operator?: { status?: string } | null;
         university?: { name?: string; status?: string } | null;
         pickupPoint?: { label?: string; status?: string } | null;
         districtPickupPoint?: { district?: string; label?: string; status?: string } | null;
@@ -350,7 +361,11 @@ export async function POST(req: Request) {
       if (!verifiedHomeDistrict) return jsonError("The selected route has no home district configured.", 500);
 
       if (isPublicDestinationRoute) {
-        if (routeRow.status !== "active" || (relation.districtPickupPoint && relation.districtPickupPoint.status !== "active")) {
+        if (
+          routeRow.status !== "active"
+          || relation.operator?.status !== "active"
+          || (relation.districtPickupPoint && relation.districtPickupPoint.status !== "active")
+        ) {
           return jsonError("The selected route is not currently available.", 400);
         }
 
@@ -368,6 +383,7 @@ export async function POST(req: Request) {
       } else {
         if (
           routeRow.status !== "active"
+          || relation.operator?.status !== "active"
           || relation.university?.status !== "active"
           || relation.districtPickupPoint?.status !== "active"
           || (relation.pickupPoint && relation.pickupPoint.status !== "active")
@@ -405,6 +421,7 @@ export async function POST(req: Request) {
         type: routeRow.commission_type === "percentage" ? "percentage" : "fixed",
       };
     } else if (requestedUniversityId) {
+      if (!(await isFeatureEnabled("student_booking_enabled"))) return jsonError(SERVICE_UNAVAILABLE_MESSAGE, 503);
       try {
         const university = await resolveActiveUniversity({ universityId: requestedUniversityId });
         resolvedUniversityId = university.id;
@@ -423,6 +440,12 @@ export async function POST(req: Request) {
       } catch (error) {
         return jsonError(error instanceof Error ? error.message : "The selected university is not available", 400);
       }
+    } else {
+      // Pure free-text/custom-destination path — no routeId/taxiFareId/
+      // carHireListingId/universityId matched anything. Same student/custom
+      // booking flow as the requestedUniversityId branch above, just without
+      // a catalogue match, so it's gated by the same flag.
+      if (!(await isFeatureEnabled("student_booking_enabled"))) return jsonError(SERVICE_UNAVAILABLE_MESSAGE, 503);
     }
 
     // Every booking carries an operator (Master Plan §3.3's universal

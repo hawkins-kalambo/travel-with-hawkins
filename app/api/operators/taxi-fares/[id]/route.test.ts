@@ -14,9 +14,8 @@ mock.module("@/lib/supabaseAdmin", {
   exports: { supabaseAdmin: { from: (table: string) => fromImpl(table) } },
 });
 
-// See app/api/operators/vehicles/[id]/route.test.ts for why this always
-// resolves to no row: it reproduces what a real .eq("operator_id", ...)
-// filter does when the id belongs to a different operator.
+// A real .eq("operator_id", ...) filter returns no row for a resource
+// owned by a different operator — this stub reproduces exactly that.
 function makeNoMatchBuilder() {
   const builder = {
     select: () => builder,
@@ -31,7 +30,7 @@ function makeNoMatchBuilder() {
 const { PATCH, DELETE } = await import("./route.ts");
 
 function makeRequest(method: string, body?: Record<string, unknown>) {
-  return new Request("https://example.com/api/operators/drivers/drv-1", {
+  return new Request("https://example.com/api/operators/taxi-fares/fare-1", {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -39,10 +38,10 @@ function makeRequest(method: string, body?: Record<string, unknown>) {
 }
 
 function makeParams() {
-  return { params: Promise.resolve({ id: "drv-1" }) };
+  return { params: Promise.resolve({ id: "fare-1" }) };
 }
 
-test("PATCH returns 403 when the caller's staff role lacks manageDrivers", async () => {
+test("PATCH returns 403 when the caller's staff role lacks manageRoutes", async () => {
   authResult = { authorized: false, error: "This action is not permitted for your role", status: 403 };
   const res = await PATCH(makeRequest("PATCH", { status: "inactive" }), makeParams());
   assert.equal(res.status, 403);
@@ -54,16 +53,16 @@ test("DELETE returns 401 when the caller is not authenticated", async () => {
   assert.equal(res.status, 401);
 });
 
-test("PATCH returns 404 (not found) when the driver belongs to a different operator", async () => {
+test("PATCH returns 404 (not found) when the taxi fare belongs to a different operator", async () => {
   authResult = { authorized: true, operatorId: "operator-A", staffRole: "owner", user: { id: "u-1" } };
   fromImpl = () => makeNoMatchBuilder();
   const res = await PATCH(makeRequest("PATCH", { status: "inactive" }), makeParams());
   assert.equal(res.status, 404);
 });
 
-test("DELETE returns 409 (no row deleted) when the driver belongs to a different operator", async () => {
+test("DELETE returns 404 (not found) when the taxi fare belongs to a different operator", async () => {
   authResult = { authorized: true, operatorId: "operator-A", staffRole: "owner", user: { id: "u-1" } };
   fromImpl = () => makeNoMatchBuilder();
   const res = await DELETE(makeRequest("DELETE"), makeParams());
-  assert.equal(res.status, 409);
+  assert.equal(res.status, 404);
 });

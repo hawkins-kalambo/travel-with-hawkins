@@ -160,6 +160,13 @@ export async function GET(request: NextRequest) {
       .from("bookings")
       .select("*")
       .order("created_at", { ascending: false });
+    // A university-scoped admin's `.in("university_id", auth.universityIds)`
+    // filter matches only rows with a non-null university_id, so taxi and
+    // car-hire bookings (which never set university_id) are invisible to
+    // them here. This is intentional, not a bug: a university admin's role
+    // is scoped to "my university's intercity operations," not the national
+    // marketplace — taxi/car-hire are surfaced to global admins only. See
+    // docs/marketplace-expansion/phase3-gap-and-continuation-plan.md (A11).
     if (!auth.isGlobal) bookingsQuery = bookingsQuery.in("university_id", auth.universityIds);
     const { data, error } = await bookingsQuery;
 

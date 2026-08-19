@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { jsonError } from "@/lib/apiResponse";
 import { requireAdminUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { notifyOperatorOfStatusChange } from "@/lib/operatorNotifications";
 
 const APPLICATION_STATUSES = ["draft", "submitted", "under_review", "changes_required", "approved", "rejected"] as const;
 const OPERATOR_STATUSES = ["draft", "approved", "active", "paused", "suspended", "closed"] as const;
@@ -128,6 +129,10 @@ export async function PATCH(request: NextRequest) {
     previousValue: existing,
     newValue: updated,
   });
+
+  if (operatorStatus === "paused" || operatorStatus === "suspended") {
+    await notifyOperatorOfStatusChange(operatorId, operatorStatus, suspensionReason ?? null);
+  }
 
   return NextResponse.json({ success: true, operator: updated });
 }

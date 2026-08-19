@@ -172,6 +172,18 @@ export function isViewerAuthorizedRoute(pathname: string): boolean {
 }
 
 export function canAccessAdminRoute(role: unknown, pathname: string): boolean {
+  const normalizedPathForUsers = pathname.replace(/\/+$/, "") || "/admin";
+  // /admin/users is user-role management (grants/revokes super_admin itself),
+  // so it must match the API's own gate (hasPermission(role, "manageUsers"),
+  // app/api/admin/users/route.ts:17 — manageUsers is super_admin-only in
+  // lib/permissions.ts) rather than the blanket "any admin/super_admin"
+  // rule below. A plain "admin" could previously load this page (though the
+  // API still rejected every request) with no matching nav entry pointing at
+  // it — this closes that mismatch at the page-route layer.
+  if (normalizedPathForUsers === "/admin/users" || normalizedPathForUsers.startsWith("/admin/users/")) {
+    return isSuperAdminRole(role);
+  }
+
   // Was previously written to only allow "super_admin", so a plain "admin"
   // row in the `admins` table (super_admin: false) could call every admin
   // API route (which checks isAdminAccessAllowed / requireAdminUser) but

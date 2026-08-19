@@ -74,6 +74,24 @@ const VEHICLE_ADMIN_ACTIONS: Record<string, { label: string; next: string }[]> =
   suspended: [{ label: "Reinstate", next: "active" }],
 };
 
+const OPERATOR_STATUS_ACTIONS: Record<string, { label: string; next: string }[]> = {
+  active: [
+    { label: "Pause", next: "paused" },
+    { label: "Suspend", next: "suspended" },
+    { label: "Close", next: "closed" },
+  ],
+  paused: [
+    { label: "Reinstate", next: "active" },
+    { label: "Suspend", next: "suspended" },
+    { label: "Close", next: "closed" },
+  ],
+  suspended: [
+    { label: "Reinstate", next: "active" },
+    { label: "Close", next: "closed" },
+  ],
+  closed: [{ label: "Reinstate", next: "active" }],
+};
+
 const DRIVER_ADMIN_ACTIONS: Record<string, { label: string; next: string }[]> = {
   pending: [
     { label: "Verify", next: "verified" },
@@ -281,17 +299,25 @@ export default function AdminOperatorsPage() {
                   Reject
                 </button>
               )}
-              {operator.status === "active" && (
+              {(OPERATOR_STATUS_ACTIONS[operator.status] ?? []).map((action) => (
                 <button
+                  key={action.label}
                   onClick={() => {
-                    const reason = window.prompt("Reason for suspending this operator?");
-                    if (reason && reason.length >= 5) updateOperator(operator.id, { status: "suspended", suspensionReason: reason });
+                    if (action.next === "suspended") {
+                      const reason = window.prompt("Reason for suspending this operator?");
+                      if (reason && reason.length >= 5) updateOperator(operator.id, { status: "suspended", suspensionReason: reason });
+                      return;
+                    }
+                    if (action.next === "closed" && !window.confirm(`Close ${operator.display_name}? This operator will no longer be able to take bookings.`)) {
+                      return;
+                    }
+                    updateOperator(operator.id, { status: action.next });
                   }}
                   className="btn-secondary"
                 >
-                  Suspend
+                  {action.label}
                 </button>
-              )}
+              ))}
             </div>
 
             {expandedId === operator.id && (

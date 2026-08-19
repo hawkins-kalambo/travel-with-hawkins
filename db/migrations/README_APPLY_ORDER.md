@@ -55,6 +55,13 @@ database has something for every other file to `ALTER TABLE` against.
     order, rather than failing confusingly). It does not modify that file —
     it lays a `CREATE OR REPLACE` onto the same function from a separate
     file, and adds two new functions plus an index.
+35. `2026_08_20_launch_safety_controls.sql` — depends on
+    `2026_08_10_operators_fleet_foundation.sql` (`incidents.operator_id`
+    references `public.operators`) and on `2026_08_10_whatsapp_customer_service.sql`
+    (`incidents.departure_id` references `public.route_departures`, same
+    FK-into-a-shared-table precedent as file 34 above). Creates two new,
+    previously nonexistent tables (`feature_flags`, `incidents`) — does not
+    modify either dependency file.
 
 **Do not run these three** — each is superseded or actively conflicts with
 a file already in the list above:
