@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jsonError } from "@/lib/apiResponse";
 import { registerOperator } from "@/lib/operatorRegistration";
+import { isRateLimited } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/clientIp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,6 +30,19 @@ export async function POST(req: NextRequest) {
       typeof ownerConfirmPassword !== "string"
     ) {
       return jsonError("Missing required fields", 400);
+    }
+
+    // Same gap as app/api/customers/register/route.ts had, same fix: nothing
+    // throttled repeated operator-application submissions, each of which
+    // creates a real Supabase Auth user via lib/operatorRegistration.ts.
+    const ip = getClientIp(req);
+    const normalizedEmail = ownerEmail.trim().toLowerCase();
+    const [accountLimited, ipLimited] = await Promise.all([
+      isRateLimited(`register:account:${normalizedEmail}`, 300, 5),
+      isRateLimited(`register:ip:${ip}`, 300, 20),
+    ]);
+    if (accountLimited || ipLimited) {
+      return jsonError("Too many registration attempts. Please wait a few minutes and try again.", 429);
     }
 
     const result = await registerOperator({

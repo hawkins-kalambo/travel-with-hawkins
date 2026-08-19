@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/supabaseServer";
+import { escapeLikePattern, requireAuthenticatedUser } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { jsonError } from "@/lib/apiResponse";
 
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       .limit(limit);
 
     if (unread) query = query.is("read_at", null);
-    if (search) query = query.ilike("title", `%${search}%`);
+    if (search) query = query.ilike("title", `%${escapeLikePattern(search)}%`);
 
     const { data, error } = await query;
     if (error) throw error;
