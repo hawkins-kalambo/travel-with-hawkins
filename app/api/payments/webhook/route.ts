@@ -52,6 +52,22 @@ async function markEventFailed(eventId: string, reason: string) {
     .eq("id", eventId);
 }
 
+// PayChangu's hosted checkout redirects the customer's own BROWSER here via
+// a plain GET (?tx_ref=...) once payment completes -- confirmed live in
+// production request logs, Referer: checkout.paychangu.com. This route was
+// only ever built for the signed server-to-server POST, so every customer
+// hit a bare 405 here instead of ever reaching the receipt page, and the
+// payment was left unfinalized unless a genuine POST webhook separately
+// happened to arrive too. Forward them to the real return page, which
+// re-verifies with the provider and finalizes via the same trusted path
+// the POST webhook itself uses (lib/payments/finalize-flow.ts) -- this
+// never marks anything paid on its own, it's just a redirect.
+export async function GET(req: NextRequest) {
+  const txRef = req.nextUrl.searchParams.get("tx_ref");
+  const destination = txRef ? `/payment/return?tx_ref=${encodeURIComponent(txRef)}` : "/payment/return";
+  return NextResponse.redirect(new URL(destination, req.url));
+}
+
 export async function POST(req: NextRequest) {
   // 1. Raw bytes — the signature is computed over exactly these, never a
   // re-serialized/parsed version.
