@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { logoPngBase64 } from "./logoBase64";
-import { formatMwk } from "./routePricing";
+import { formatMwk } from "./currency";
 
 export type PaymentReceiptRecord = BookingRecord & {
   receiptPaymentType?: "booking_fee" | "transport_fare";

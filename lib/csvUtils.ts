@@ -5,11 +5,7 @@ function quote(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-// routesStr is optional so callers without settings handy still get a valid
-// CSV — the three revenue columns just fall back to whatever `fare`/
-// `bookingFeeAmount` is already stored on each row (no route-price fallback
-// applied) rather than failing to export.
-export function createCsvFromBookings(rows: BookingRecord[], routesStr?: string | Record<string, unknown>) {
+export function createCsvFromBookings(rows: BookingRecord[]) {
   const header = [
     "Booking ID",
     "Trip ID",
@@ -34,7 +30,7 @@ export function createCsvFromBookings(rows: BookingRecord[], routesStr?: string 
   ];
 
   const lines = rows.map((row) => {
-    const revenue = calcBookingRevenue(row, routesStr);
+    const revenue = calcBookingRevenue(row);
     return [
       quote(String(row.bookingId ?? "")),
       quote(String(row.tripId ?? "")),

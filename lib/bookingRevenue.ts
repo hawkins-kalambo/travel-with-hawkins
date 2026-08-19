@@ -1,5 +1,4 @@
 import type { BookingRecord } from "@/lib/bookingTypes";
-import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 export type BookingRevenue = { ticketRevenue: number; bookingFee: number; total: number };
 
@@ -8,12 +7,16 @@ export type BookingRevenue = { ticketRevenue: number; bookingFee: number; total:
 // spend totals, and the Reports summary/exports. Revenue only counts what's
 // actually marked paid (bookingFeeStatus/fareStatus), never the nominal
 // fare/fee amount regardless of payment state.
+//
+// ticketPrice relies on `booking.fare` alone, never a guessed fallback:
+// record_manual_fare_payment() (db/migrations/2026_08_07_manual_fare_and_receipt_delivery.sql)
+// has always required fare > 0 before a booking can be marked
+// paid/cash_collected, so any booking counted as farePaid below is
+// guaranteed to already carry a real fare.
 export function calcBookingRevenue(
-  booking: Pick<BookingRecord, "destination" | "seats" | "fare" | "bookingFeeAmount" | "bookingFeeStatus" | "fareStatus">,
-  routesStr: string | Record<string, unknown> | undefined
+  booking: Pick<BookingRecord, "seats" | "fare" | "bookingFeeAmount" | "bookingFeeStatus" | "fareStatus">
 ): BookingRevenue {
-  const routePrice = resolveRouteFareIfAvailable(booking.destination, routesStr) ?? 0;
-  const ticketPrice = typeof booking.fare === "number" && Number.isFinite(booking.fare) && booking.fare > 0 ? booking.fare : routePrice;
+  const ticketPrice = typeof booking.fare === "number" && Number.isFinite(booking.fare) && booking.fare > 0 ? booking.fare : 0;
   const seats = booking.seats || 1;
   const farePaid = booking.fareStatus === "paid" || booking.fareStatus === "cash_collected";
   const fee = booking.bookingFeeStatus === "paid" ? booking.bookingFeeAmount ?? 0 : 0;

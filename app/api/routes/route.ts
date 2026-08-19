@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const universityId = url.searchParams.get("universityId");
+    const destinationLabel = url.searchParams.get("destinationLabel");
     const originDistrict = url.searchParams.get("originDistrict");
     const status = url.searchParams.get("status");
     const direction = url.searchParams.get("direction");
@@ -66,6 +67,7 @@ export async function GET(req: NextRequest) {
       .order("origin_district", { ascending: true });
 
     if (universityId) query = query.eq("university_id", universityId);
+    if (destinationLabel) query = query.eq("destination_label", destinationLabel);
     if (originDistrict) query = query.eq("origin_district", originDistrict);
     if (status) query = query.eq("status", status);
     if (direction) query = query.eq("direction", direction);
@@ -77,10 +79,16 @@ export async function GET(req: NextRequest) {
     const routes = status === "active"
       ? (data ?? []).filter((route) => {
           const relations = route as unknown as {
+            university_id?: string | null;
             university?: { status?: string } | null;
             pickupPoint?: { status?: string } | null;
             districtPickupPoint?: { status?: string } | null;
           };
+          // A public destination route has no university row to check —
+          // only its own district pickup point (if it has one) matters.
+          if (!relations.university_id) {
+            return !relations.districtPickupPoint || relations.districtPickupPoint.status === "active";
+          }
           return relations.university?.status === "active"
             && relations.districtPickupPoint?.status === "active"
             && (!relations.pickupPoint || relations.pickupPoint.status === "active");
@@ -103,6 +111,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as Record<string, unknown>;
     const originDistrict = toStringValue(body.originDistrict ?? body.origin_district);
     const universityId = toStringValue(body.universityId ?? body.university_id);
+    const destinationLabel = toStringValue(body.destinationLabel ?? body.destination_label);
     const pickupPointId = toStringValue(body.pickupPointId ?? body.pickup_point_id) ?? null;
     const districtPickupPointId = toStringValue(body.districtPickupPointId ?? body.district_pickup_point_id);
     const fare = toNonNegativeInteger(body.fare) ?? 0;
@@ -117,7 +126,46 @@ export async function POST(req: NextRequest) {
     if (!originDistrict || !isValidDistrict(originDistrict)) {
       return jsonError("originDistrict must be a valid Malawi district", 400);
     }
-    if (!universityId) return jsonError("universityId is required", 400);
+    if (!universityId && !destinationLabel) {
+      return jsonError("Either universityId or destinationLabel is required", 400);
+    }
+
+    // A public destination route (Marketplace Expansion Stage 3) has no
+    // university to anchor to, so it skips the district/campus pickup-point
+    // machinery below entirely — see docs/route-model-decision.md. It's
+    // national in scope, not owned by a specific university admin, so only
+    // a global operator/admin can create one.
+    if (!universityId) {
+      if (!access.isGlobal) return jsonError("Only a global administrator can create a public destination route", 403);
+
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from("routes")
+        .insert([
+          {
+            origin_district: originDistrict,
+            destination_label: destinationLabel,
+            fare,
+            status,
+            estimated_travel_time: estimatedTravelTime,
+            capacity,
+            commission_amount: commissionAmount,
+            commission_type: commissionType,
+            direction,
+          },
+        ])
+        .select(ROUTE_SELECT)
+        .single();
+
+      if (insertError) {
+        if (isDuplicateLegError(insertError)) {
+          return jsonError("A route already exists for this district, destination and direction.", 409);
+        }
+        throw insertError;
+      }
+
+      return NextResponse.json({ success: true, route: inserted });
+    }
+
     if (!districtPickupPointId) return jsonError("districtPickupPointId is required", 400);
     if (!canAccessUniversity(access, universityId)) return jsonError("This university is outside your assignment", 403);
 
@@ -216,6 +264,7 @@ export async function PATCH(req: NextRequest) {
     if (!canAccessUniversity(access, currentRoute.university_id)) return jsonError("This route is outside your assignment", 403);
 
     const originDistrict = toStringValue(body.originDistrict ?? body.origin_district);
+    const destinationLabel = toStringValue(body.destinationLabel ?? body.destination_label);
     const pickupPointId = toStringValue(body.pickupPointId ?? body.pickup_point_id);
     const districtPickupPointId = toStringValue(body.districtPickupPointId ?? body.district_pickup_point_id);
     const fare = toNonNegativeInteger(body.fare);
@@ -257,6 +306,7 @@ export async function PATCH(req: NextRequest) {
 
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (originDistrict) payload.origin_district = originDistrict;
+    if (destinationLabel !== undefined) payload.destination_label = destinationLabel;
     if (pickupPointId !== undefined) payload.pickup_point_id = pickupPointId;
     if (districtPickupPointId !== undefined) payload.district_pickup_point_id = districtPickupPointId;
     if (fare !== undefined) payload.fare = fare;

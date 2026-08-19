@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { authFetch } from "@/lib/auth";
 import type { BookingRecord } from "@/lib/bookingTypes";
 import type { JourneyStatus } from "@/lib/bookingUtils";
-import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import PageHeader from "@/app/components/ui/PageHeader";
 import { LoadingState } from "@/app/components/ui/Spinner";
 
@@ -13,7 +12,6 @@ type EnrichedBooking = BookingRecord & { status: JourneyStatus };
 export default function AdminOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
-  const [routes, setRoutes] = useState("");
 
   const refreshBookings = async () => {
     try {
@@ -36,12 +34,6 @@ export default function AdminOverviewPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(async () => {
       try {
-        const settingsRes = await authFetch("/api/settings", { method: "GET" });
-        if (settingsRes.ok) {
-          const data: unknown = await settingsRes.json();
-          const payload = (data as { settings?: Record<string, unknown> } | null | undefined)?.settings;
-          if (payload) setRoutes(String(payload.routes ?? ""));
-        }
         await refreshBookings();
       } finally {
         setLoading(false);
@@ -102,13 +94,11 @@ export default function AdminOverviewPage() {
         bookingFeeAttentionCount += 1;
       }
 
-      // The fare column isn't always populated on older/custom-destination
-      // bookings — fall back to the same route-price lookup the booking
-      // form itself uses, purely so the amount isn't blank. The *status*
-      // bucket below always comes from the real fareStatus field, never guessed.
+      // A free-text/custom-destination booking with no admin-confirmed fare
+      // yet contributes 0 here rather than a guessed amount — see
+      // app/api/bookings/route.ts for why fare legitimately starts unset.
       const seats = b.seats || 1;
-      const fareEach =
-        typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0 ? b.fare : (resolveRouteFareIfAvailable(b.destination, routes) ?? 0);
+      const fareEach = typeof b.fare === "number" && Number.isFinite(b.fare) && b.fare > 0 ? b.fare : 0;
       const fareTotal = fareEach * seats;
       const fareStatusValue = b.fareStatus || "unpaid";
 
@@ -148,7 +138,7 @@ export default function AdminOverviewPage() {
       totalCollected: bookingFeePaid + farePaid,
       totalOutstanding: bookingFeePending + farePending,
     };
-  }, [bookings, routes]);
+  }, [bookings]);
 
   return (
     <div className="space-y-6">

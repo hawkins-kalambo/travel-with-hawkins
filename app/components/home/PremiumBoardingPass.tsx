@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { logoPngBase64 } from "@/lib/logoBase64";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 
 type PremiumBoardingPassProps = {
   name: string;

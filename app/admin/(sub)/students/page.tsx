@@ -66,7 +66,6 @@ function StatTile({ label, value, accent }: { label: string; value: string | num
 
 export default function AdminStudentsPage() {
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
-  const [routes, setRoutes] = useState("");
   const [loading, setLoading] = useState(true);
   const [studentSearch, setStudentSearch] = useState("");
   const [studentSort, setStudentSort] = useState<"bookings" | "spend" | "recent" | "name">("bookings");
@@ -76,10 +75,7 @@ export default function AdminStudentsPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(async () => {
       try {
-        const [bookingsRes, settingsRes] = await Promise.all([
-          authFetch("/api/admin/bookings", { method: "GET", cache: "no-store" }),
-          authFetch("/api/settings", { method: "GET" }),
-        ]);
+        const bookingsRes = await authFetch("/api/admin/bookings", { method: "GET", cache: "no-store" });
 
         if (bookingsRes.ok) {
           const data: unknown = await bookingsRes.json();
@@ -91,12 +87,6 @@ export default function AdminStudentsPage() {
               status: typeof b.status === "string" && b.status.trim() ? (b.status as JourneyStatus) : "Booked",
             }))
           );
-        }
-
-        if (settingsRes.ok) {
-          const data: unknown = await settingsRes.json();
-          const payload = (data as { settings?: Record<string, unknown> } | null | undefined)?.settings;
-          if (payload) setRoutes(String(payload.routes ?? ""));
         }
       } catch (error) {
         console.error("Failed to load students data:", error);
@@ -111,7 +101,7 @@ export default function AdminStudentsPage() {
     const acc: Record<string, StudentGroup> = {};
 
     bookings.forEach((b, index) => {
-      const rev = calcBookingRevenue(b, routes);
+      const rev = calcBookingRevenue(b);
       const rawStudentId = String(b.studentId ?? "").trim();
       const rawPhone = String(b.phone ?? "").trim();
 
@@ -160,7 +150,7 @@ export default function AdminStudentsPage() {
     });
 
     return Object.values(acc);
-  }, [bookings, routes]);
+  }, [bookings]);
 
   const studentStats = useMemo(() => {
     const totalStudents = studentGroups.length;

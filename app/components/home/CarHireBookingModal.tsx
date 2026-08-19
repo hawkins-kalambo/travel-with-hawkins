@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { IconX } from "@/app/components/Icon";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import type { BookingSuccessData } from "./BookingSuccessModal";
 import type { CarHireListing } from "./CarHireSection";
 

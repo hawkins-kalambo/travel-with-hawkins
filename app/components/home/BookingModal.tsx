@@ -5,7 +5,7 @@ import { IconX } from "@/app/components/Icon";
 import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
 import { fetchActiveRoutes, type ActiveRoute } from "@/lib/routesClient";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import type { ActiveUniversity } from "@/lib/universitiesClient";
 import { buildJourneyName, type JourneyDirection } from "@/lib/journeyDirection";
 
@@ -119,7 +119,7 @@ export default function BookingModal({
     const loadingTimer = window.setTimeout(() => {
       if (!cancelled) setRouteLookupState("loading");
     }, 0);
-    fetchActiveRoutes(district, universityId, journeyDirection).then((routes) => {
+    fetchActiveRoutes(district, { universityId }, journeyDirection).then((routes) => {
       if (cancelled) return;
       setRouteChoices(routes);
       setRouteLookupState(routes.length > 0 ? "resolved" : "none");

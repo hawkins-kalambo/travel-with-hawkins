@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { formatMwk, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
 
 type BookingStatus = "Booked" | "Confirmed" | "Boarding" | "Departed" | "Arrived" | "Completed" | "Cancelled" | string;
@@ -80,12 +80,11 @@ type TrackModalProps = {
   trackLoading: boolean;
   trackError: string;
   trackResult: BookingRecord | null;
-  settingsText: string | Record<string, unknown>;
   onTrack: () => void;
   onClose: () => void;
 };
 
-export default function TrackModal({ trackId, onTrackIdChange, trackContact, onTrackContactChange, trackLoading, trackError, trackResult, settingsText, onTrack, onClose }: TrackModalProps) {
+export default function TrackModal({ trackId, onTrackIdChange, trackContact, onTrackContactChange, trackLoading, trackError, trackResult, onTrack, onClose }: TrackModalProps) {
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-6 shadow-2xl">
@@ -109,9 +108,7 @@ export default function TrackModal({ trackId, onTrackIdChange, trackContact, onT
         </button>
         {trackResult && (() => {
           const displayFare =
-            typeof trackResult.fare === "number" && Number.isFinite(trackResult.fare) && trackResult.fare > 0
-              ? trackResult.fare
-              : resolveRouteFareIfAvailable(String(trackResult.destination || ""), settingsText);
+            typeof trackResult.fare === "number" && Number.isFinite(trackResult.fare) && trackResult.fare > 0 ? trackResult.fare : undefined;
           const feeSettled = trackResult.bookingFeeStatus === "paid";
           const fareStatus = String(trackResult.fareStatus || "unpaid");
           const fareResolved = fareStatus === "paid" || fareStatus === "cash_collected" || fareStatus === "cash_selected";

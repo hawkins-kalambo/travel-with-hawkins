@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { formatMwk, resolveRouteFareIfAvailable } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import { generateReceiptPdfBlob } from "@/lib/receiptGenerator";
 import type { BookingRecord } from "@/lib/bookingTypes";
 
@@ -29,7 +29,6 @@ function PaymentContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<BookingRecord | null>(null);
-  const [settingsText, setSettingsText] = useState<string | Record<string, unknown>>("");
 
   const [payingFee, setPayingFee] = useState(false);
   const [payError, setPayError] = useState("");
@@ -46,19 +45,6 @@ function PaymentContent() {
 
     return () => window.clearTimeout(prefillTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        const data = await res.json();
-        const rawSettings = data?.settings;
-        const routesText = typeof rawSettings?.routes === "string" ? rawSettings.routes : "";
-        setSettingsText(typeof rawSettings === "object" && rawSettings != null ? rawSettings : routesText);
-      } catch {}
-    };
-    fetchSettings();
   }, []);
 
   const handleSearch = async () => {
@@ -148,9 +134,7 @@ function PaymentContent() {
   const handleDownloadReceipt = (paymentType: "booking_fee" | "transport_fare") => {
     if (!result) return;
     const displayFare =
-      typeof result.fare === "number" && Number.isFinite(result.fare) && result.fare > 0
-        ? result.fare
-        : resolveRouteFareIfAvailable(String(result.destination || ""), settingsText);
+      typeof result.fare === "number" && Number.isFinite(result.fare) && result.fare > 0 ? result.fare : undefined;
 
     const receiptBooking: BookingRecord = {
       ...result,
@@ -178,11 +162,8 @@ function PaymentContent() {
     }
   };
 
-  const displayFare = result
-    ? typeof result.fare === "number" && Number.isFinite(result.fare) && result.fare > 0
-      ? result.fare
-      : resolveRouteFareIfAvailable(String(result.destination || ""), settingsText)
-    : undefined;
+  const displayFare =
+    result && typeof result.fare === "number" && Number.isFinite(result.fare) && result.fare > 0 ? result.fare : undefined;
   const feeSettled = result?.bookingFeeStatus === "paid";
   const fareStatus = String(result?.fareStatus || "unpaid");
   const fareSettled = fareStatus === "paid" || fareStatus === "cash_collected";

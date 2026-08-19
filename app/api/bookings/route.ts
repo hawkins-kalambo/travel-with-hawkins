@@ -4,7 +4,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { DELETE as deleteAdminBooking, GET as getAdminBookings, PATCH as patchAdminBookings } from "@/app/api/admin/bookings/route";
 import { sendBookingEmail, sendEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
-import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { sendBookingConfirmationSms, sendAdminBookingAlertSms } from "@/lib/africasTalking";
 import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
@@ -47,7 +46,7 @@ function normalizeRouteName(route: string | undefined): string {
   return (route || "").trim().toLowerCase();
 }
 
-async function resolveCommissionAmount(routeName: string, fare: number | undefined, routesText: string): Promise<number> {
+async function resolveCommissionAmount(routeName: string, fare: number | undefined): Promise<number> {
   const normalizedRoute = normalizeRouteName(routeName);
   if (!normalizedRoute) return 0;
 
@@ -86,37 +85,11 @@ async function resolveCommissionAmount(routeName: string, fare: number | undefin
   const type = typeof matchingRule?.commission_type === "string" ? matchingRule?.commission_type : "fixed";
 
   if (type === "percentage") {
-    const resolvedFare = typeof fare === "number" && Number.isFinite(fare) && fare > 0 ? fare : resolveRouteFareIfAvailable(routeName, routesText);
-    if (typeof resolvedFare !== "number" || !Number.isFinite(resolvedFare) || resolvedFare <= 0) return 0;
-    return Math.round((resolvedFare * amount) / 100);
+    if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) return 0;
+    return Math.round((fare * amount) / 100);
   }
 
   return Number.isFinite(amount) ? amount : 0;
-}
-
-function routeObjectsToRoutesText(routeObjects: unknown): string {
-  if (!Array.isArray(routeObjects)) return "";
-  return routeObjects
-    .map((item) => {
-      if (!item || typeof item !== "object") return "";
-      const record = item as Record<string, unknown>;
-      const origin = String(record.origin ?? "").trim();
-      const destination = String(record.destination ?? "").trim();
-      const configuredRouteName = String(record.route_name ?? "").trim();
-      const routeName = configuredRouteName || (origin && destination ? `${origin} - ${destination}` : "");
-      const fare = Number(record.fare ?? 0);
-      if (!routeName || !Number.isFinite(fare) || fare <= 0) return "";
-      return `${routeName}: ${fare}`;
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function extractRouteSettingsData(settingsData: Record<string, unknown> | null | undefined): string {
-  const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-  const routeObjects = settingsData?.route_objects;
-  const routeObjectText = routeObjectsToRoutesText(routeObjects);
-  return routeObjectText || routesText;
 }
 
 async function sendAdminNotification(
@@ -129,18 +102,6 @@ async function sendAdminNotification(
   if (!adminEmail) {
     logWarn("Admin notification skipped because ADMIN_NOTIFICATION_EMAIL is not configured.");
     return "skipped";
-  }
-  // Ensure we have a fare to show in the admin notification. If not provided,
-  // attempt to resolve from the latest settings.routes so the admin sees the amount.
-  try {
-    if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
-      const { data: settingsData } = await supabase.from("settings").select("routes").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-      const routesText = typeof settingsData?.routes === "string" ? settingsData.routes : "";
-      const resolved = resolveRouteFareIfAvailable(payload.destination, routesText);
-      if (typeof resolved === "number" && Number.isFinite(resolved) && resolved > 0) fare = resolved;
-    }
-  } catch {
-    // fallback to whatever was passed in; this should never block notification sending
   }
   const result = await sendEmail({
     to: adminEmail,
@@ -191,17 +152,6 @@ async function sendUserConfirmationEmail(
     travelDate: payload.travelDate || "TBD",
     seats: payload.seats || 1,
   });
-
-  // If fare was not provided, try to resolve it from settings so the user sees the amount.
-  try {
-    if (typeof fare !== "number" || !Number.isFinite(fare) || fare <= 0) {
-      const { data: settingsData } = await supabase.from("settings").select("routes, route_objects").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-      const resolved = resolveRouteFareIfAvailable(payload.destination, settingsData as Record<string, unknown> | undefined);
-      if (typeof resolved === "number" && Number.isFinite(resolved) && resolved > 0) fare = resolved;
-    }
-  } catch {
-    // ignore and proceed with whatever fare is available
-  }
 
   const result = await sendBookingEmail({
     to: userEmail,
@@ -277,10 +227,15 @@ export async function POST(req: Request) {
     const requestedTaxiFareId = getNonEmptyString(payload.taxiFareId ?? payload.taxi_fare_id);
     const requestedCarHireListingId = getNonEmptyString(payload.carHireListingId ?? payload.car_hire_listing_id);
 
-    const { data: settingsData } = await supabase.from("settings").select("routes, route_objects, booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    const routesText = extractRouteSettingsData(settingsData ?? null);
-    const routeFare = resolveRouteFareIfAvailable(destination, routesText);
-    let fare = typeof routeFare === "number" && Number.isFinite(routeFare) && routeFare > 0 ? routeFare : undefined;
+    const { data: settingsData } = await supabase.from("settings").select("booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    // Fare starts unresolved for a free-text/custom destination with no
+    // matched structured route, taxi fare, or car-hire listing below — an
+    // admin sets it manually (PATCH /api/admin/bookings) before the booking
+    // fee/fare payment flow. See the comment further down (near
+    // initiatePayChanguPayment's "amount_not_configured" rejection) for why
+    // this was always the intended behavior for the online-payment path;
+    // record_manual_fare_payment() enforces the same requirement for cash.
+    let fare: number | undefined;
 
     if (requestedCarHireListingId) {
       const rentalEndDateInput = getNonEmptyString(payload.rentalEndDate ?? payload.rental_end_date);
@@ -359,7 +314,7 @@ export async function POST(req: Request) {
     } else if (requestedRouteId) {
       const { data: routeRow, error: routeError } = await supabase
         .from("routes")
-        .select("id, fare, status, operator_id, university_id, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
+        .select("id, fare, status, operator_id, university_id, destination_label, pickup_point_id, district_pickup_point_id, origin_district, direction, commission_amount, commission_type, university:universities(name, status), pickupPoint:university_pickup_points(label, status), districtPickupPoint:district_pickup_points(district, label, status)")
         .eq("id", requestedRouteId)
         .maybeSingle();
 
@@ -374,42 +329,68 @@ export async function POST(req: Request) {
         pickupPoint?: { label?: string; status?: string } | null;
         districtPickupPoint?: { district?: string; label?: string; status?: string } | null;
       };
-      if (
-        routeRow.status !== "active"
-        || relation.university?.status !== "active"
-        || relation.districtPickupPoint?.status !== "active"
-        || (relation.pickupPoint && relation.pickupPoint.status !== "active")
-      ) {
-        return jsonError("The selected route is not currently available.", 400);
-      }
+
+      // A plain public destination route (Marketplace Expansion Stage 3) has
+      // no university row to anchor to — district_pickup_point_id is
+      // optional for these (see docs/route-model-decision.md), so it's only
+      // checked for active status when one is actually set.
+      const isPublicDestinationRoute = !routeRow.university_id && typeof routeRow.destination_label === "string" && routeRow.destination_label.trim().length > 0;
 
       const verifiedDirection = isJourneyDirection(routeRow.direction) ? routeRow.direction : "to_university";
       if (verifiedDirection !== submittedJourneyDirection) {
         return jsonError("The selected route does not match this journey. Please search again.", 400);
       }
 
-      const universityName = relation.university?.name || "University";
       const verifiedHomeDistrict = typeof routeRow.origin_district === "string" ? routeRow.origin_district : "";
       if (!verifiedHomeDistrict) return jsonError("The selected route has no home district configured.", 500);
-      journeyDirection = verifiedDirection;
-      homeDistrict = verifiedHomeDistrict;
-      destination = buildJourneyName(verifiedHomeDistrict, universityName, journeyDirection);
-      const endpoints = getJourneyEndpoints(verifiedHomeDistrict, universityName, journeyDirection);
-      journeyOrigin = endpoints.origin;
-      journeyDestination = endpoints.destination;
-      pickup = getJourneyPickupLabel(
-        journeyDirection,
-        relation.districtPickupPoint?.label,
-        relation.pickupPoint?.label,
-        verifiedHomeDistrict,
-        universityName
-      );
-      location = journeyDirection === "from_university" ? "University" : "Home district";
-      resolvedUniversityId = routeRow.university_id ?? undefined;
-      resolvedDistrictPickupPointId = routeRow.district_pickup_point_id ?? undefined;
-      resolvedUniversityPickupPointId = routeRow.pickup_point_id ?? undefined;
-      resolvedOperatorId = routeRow.operator_id ?? undefined;
 
+      if (isPublicDestinationRoute) {
+        if (routeRow.status !== "active" || (relation.districtPickupPoint && relation.districtPickupPoint.status !== "active")) {
+          return jsonError("The selected route is not currently available.", 400);
+        }
+
+        const destinationLabel = routeRow.destination_label!.trim();
+        journeyDirection = verifiedDirection;
+        homeDistrict = verifiedHomeDistrict;
+        destination = verifiedDirection === "from_university" ? `${destinationLabel} - ${verifiedHomeDistrict}` : `${verifiedHomeDistrict} - ${destinationLabel}`;
+        journeyOrigin = verifiedDirection === "from_university" ? destinationLabel : verifiedHomeDistrict;
+        journeyDestination = verifiedDirection === "from_university" ? verifiedHomeDistrict : destinationLabel;
+        pickup = relation.districtPickupPoint?.label || verifiedHomeDistrict;
+        location = verifiedDirection === "from_university" ? destinationLabel : "Home district";
+        resolvedUniversityId = undefined;
+        resolvedDistrictPickupPointId = routeRow.district_pickup_point_id ?? undefined;
+        resolvedUniversityPickupPointId = undefined;
+      } else {
+        if (
+          routeRow.status !== "active"
+          || relation.university?.status !== "active"
+          || relation.districtPickupPoint?.status !== "active"
+          || (relation.pickupPoint && relation.pickupPoint.status !== "active")
+        ) {
+          return jsonError("The selected route is not currently available.", 400);
+        }
+
+        const universityName = relation.university?.name || "University";
+        journeyDirection = verifiedDirection;
+        homeDistrict = verifiedHomeDistrict;
+        destination = buildJourneyName(verifiedHomeDistrict, universityName, journeyDirection);
+        const endpoints = getJourneyEndpoints(verifiedHomeDistrict, universityName, journeyDirection);
+        journeyOrigin = endpoints.origin;
+        journeyDestination = endpoints.destination;
+        pickup = getJourneyPickupLabel(
+          journeyDirection,
+          relation.districtPickupPoint?.label,
+          relation.pickupPoint?.label,
+          verifiedHomeDistrict,
+          universityName
+        );
+        location = journeyDirection === "from_university" ? "University" : "Home district";
+        resolvedUniversityId = routeRow.university_id ?? undefined;
+        resolvedDistrictPickupPointId = routeRow.district_pickup_point_id ?? undefined;
+        resolvedUniversityPickupPointId = routeRow.pickup_point_id ?? undefined;
+      }
+
+      resolvedOperatorId = routeRow.operator_id ?? undefined;
       const structuredFare = Number(routeRow.fare);
       fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
       const rawCommissionAmount = Number(routeRow.commission_amount);
@@ -578,7 +559,7 @@ export async function POST(req: Request) {
               ? Math.round(((fare ?? 0) * resolvedRouteCommission.amount) / 100)
               : resolvedRouteCommission.amount;
         } else {
-          commissionAmount = await resolveCommissionAmount(destination, fare, routesText);
+          commissionAmount = await resolveCommissionAmount(destination, fare);
         }
       }
     }

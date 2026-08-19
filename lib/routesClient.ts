@@ -7,6 +7,9 @@ export type ActiveRoute = {
   districtPointLabel: string | null;
   campusPointLabel: string | null;
   direction: JourneyDirection;
+  universityId: string | null;
+  universityName: string | null;
+  destinationLabel: string | null;
 };
 
 function parseRoutesResponse(data: unknown): ActiveRoute[] {
@@ -17,6 +20,7 @@ function parseRoutesResponse(data: unknown): ActiveRoute[] {
       const row = r as Record<string, unknown>;
       const pickupPoint = row.pickupPoint as Record<string, unknown> | null | undefined;
       const districtPickupPoint = row.districtPickupPoint as Record<string, unknown> | null | undefined;
+      const university = row.university as Record<string, unknown> | null | undefined;
       const direction = row.direction === "from_university" ? "from_university" : "to_university";
       const campusPointLabel = pickupPoint?.label ? String(pickupPoint.label) : null;
       const districtPointLabel = districtPickupPoint?.label ? String(districtPickupPoint.label) : null;
@@ -27,6 +31,9 @@ function parseRoutesResponse(data: unknown): ActiveRoute[] {
         districtPointLabel,
         campusPointLabel,
         direction,
+        universityId: row.university_id ? String(row.university_id) : null,
+        universityName: university?.name ? String(university.name) : null,
+        destinationLabel: row.destination_label ? String(row.destination_label) : null,
       };
     })
     .filter((r) => r.id);
@@ -37,9 +44,20 @@ function parseRoutesResponse(data: unknown): ActiveRoute[] {
 // resolution app/book/page.tsx already does for the search-driven flow.
 // Falls back to an empty list on any failure; callers should treat that the
 // same as "no configured route yet" rather than erroring the form.
-export async function fetchActiveRoutes(homeDistrict: string, universityId: string, direction: JourneyDirection): Promise<ActiveRoute[]> {
+//
+// universityId and destinationLabel are alternatives, not both required —
+// a university-anchored leg passes universityId; a public destination route
+// (Marketplace Expansion Stage 3, see docs/route-model-decision.md) passes
+// destinationLabel instead.
+export async function fetchActiveRoutes(
+  homeDistrict: string,
+  destination: { universityId?: string; destinationLabel?: string },
+  direction: JourneyDirection
+): Promise<ActiveRoute[]> {
   try {
-    const params = new URLSearchParams({ originDistrict: homeDistrict, universityId, direction, status: "active" });
+    const params = new URLSearchParams({ originDistrict: homeDistrict, direction, status: "active" });
+    if (destination.universityId) params.set("universityId", destination.universityId);
+    if (destination.destinationLabel) params.set("destinationLabel", destination.destinationLabel);
     const res = await fetch(`/api/routes?${params.toString()}`, { cache: "no-store" });
     if (!res.ok) return [];
     return parseRoutesResponse(await res.json());

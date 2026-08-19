@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { IconArrowRight, IconRoute } from "../Icon";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 
 export const ROUTES_DATA = [
   { route: "Lilongwe - Mzuzu", buses: "Travel With Us today", fallbackPrice: 70000, rating: "4.8 (120+)", img: "/images/routes/mzuzu-lilongwe.jpg" },

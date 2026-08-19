@@ -27,14 +27,6 @@ export async function GET(request: NextRequest) {
     // must reflect every matching row, not just the current page.
     const wantsFullSet = url.searchParams.get("full") === "1";
 
-    const { data: settingsData } = await supabaseAdmin
-      .from("settings")
-      .select("routes")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const routesStr = (settingsData?.routes as string | undefined) ?? "";
-
     const buildBaseQuery = () => {
       let query = supabaseAdmin.from("bookings").select("*");
       if (!auth.isGlobal) query = query.in("university_id", auth.universityIds);
@@ -67,7 +59,7 @@ export async function GET(request: NextRequest) {
     }
 
     const fullRows = (fullData ?? []).map((row) => normalizeBookingRecord(row as Record<string, unknown>));
-    const summary = summarizeReportRows(fullRows, routesStr);
+    const summary = summarizeReportRows(fullRows);
     const truncated = (totalCount ?? 0) > fullRows.length;
 
     if (wantsFullSet) {

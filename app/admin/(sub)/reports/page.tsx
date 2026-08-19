@@ -8,7 +8,7 @@ import type { BookingRecord } from "@/lib/bookingTypes";
 import { groupByDateThenTrip, groupByTrip, summarizeReportRows } from "@/lib/reportUtils";
 import { authFetch } from "@/lib/auth";
 import { BOOKING_FEE_STATUS_VALUES, FARE_STATUS_VALUES } from "@/lib/paymentTypes";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import { calcBookingRevenue } from "@/lib/bookingRevenue";
 
 type ReportSummary = ReturnType<typeof summarizeReportRows>;
@@ -124,7 +124,6 @@ export default function AdminReportsPage() {
     null
   );
   const [savedRoutes, setSavedRoutes] = useState<string[]>(DEFAULT_ROUTE_OPTIONS);
-  const [routesStr, setRoutesStr] = useState<string>("");
   // Summary/revenue totals come from the server, computed over the FULL
   // filtered set — never derived from `bookings` (which is just the current
   // page), or these numbers would silently under-report anything beyond
@@ -159,10 +158,7 @@ export default function AdminReportsPage() {
 
         const rawRoutes = typeof data?.settings?.routes === "string" ? data.settings.routes : "";
         const routes = parseRouteOptions(rawRoutes || undefined);
-        if (active) {
-          setSavedRoutes(routes);
-          setRoutesStr(rawRoutes);
-        }
+        if (active) setSavedRoutes(routes);
       } catch {
         if (active) setSavedRoutes(DEFAULT_ROUTE_OPTIONS);
       }
@@ -251,7 +247,7 @@ export default function AdminReportsPage() {
     setExporting("csv");
     try {
       const fullRows = await fetchFullFilteredSet();
-      const csv = createCsvFromBookings(fullRows, routesStr);
+      const csv = createCsvFromBookings(fullRows);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -276,7 +272,7 @@ export default function AdminReportsPage() {
 
     try {
       const fullRows = await fetchFullFilteredSet();
-      const fullSummary = summarizeReportRows(fullRows, routesStr);
+      const fullSummary = summarizeReportRows(fullRows);
       const metadata = {
         "Report Type": REPORT_TYPES.find((item) => item.key === reportType)?.label,
         "Trip ID": filters.tripId || undefined,
@@ -864,7 +860,7 @@ export default function AdminReportsPage() {
                       {moneyStatusBadge(selectedRow.bookingFeeStatus)}
                       {selectedRow.bookingFeeStatus === "paid" && (
                         <span className="text-sm font-semibold text-slate-900">
-                          {formatMwk(calcBookingRevenue(selectedRow, routesStr).bookingFee)}
+                          {formatMwk(calcBookingRevenue(selectedRow).bookingFee)}
                         </span>
                       )}
                     </div>
@@ -881,7 +877,7 @@ export default function AdminReportsPage() {
                       {moneyStatusBadge(selectedRow.fareStatus)}
                       {(selectedRow.fareStatus === "paid" || selectedRow.fareStatus === "cash_collected") && (
                         <span className="text-sm font-semibold text-slate-900">
-                          {formatMwk(calcBookingRevenue(selectedRow, routesStr).ticketRevenue)}
+                          {formatMwk(calcBookingRevenue(selectedRow).ticketRevenue)}
                         </span>
                       )}
                     </div>

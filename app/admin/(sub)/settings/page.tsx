@@ -1,111 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { authFetch } from "@/lib/auth";
-import { parseRoutePrices } from "@/lib/routePricing";
 import PageHeader from "@/app/components/ui/PageHeader";
 import { LoadingState } from "@/app/components/ui/Spinner";
-
-type FairRatesEditorProps = {
-  routesStr: string;
-  onChange: (next: string) => void;
-};
-
-function FairRatesEditor({ routesStr, onChange }: FairRatesEditorProps) {
-  const priceMap = useMemo(() => parseRoutePrices(routesStr), [routesStr]);
-  const destinations = useMemo(() => Object.keys(priceMap).sort((a, b) => a.localeCompare(b)), [priceMap]);
-
-  const [selected, setSelected] = useState<string>(destinations[0] || "");
-  const [fairValue, setFairValue] = useState<string>("0");
-
-  const save = () => {
-    const nextFair = parseInt(fairValue, 10);
-    if (!selected || isNaN(nextFair) || nextFair < 0) return;
-
-    const updated = new Map<string, number>(Object.entries(priceMap));
-    updated.set(selected, nextFair);
-
-    const lines = Array.from(updated.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([dest, fair]) => `${dest}: ${fair}`);
-
-    onChange(lines.join("\n"));
-  };
-
-  const addNew = () => {
-    const newDest = prompt(
-      "Enter destination/route exactly as it appears in booking destination (e.g. 'Mzuzu → Lilongwe'):"
-    );
-    if (!newDest) return;
-    const trimmed = newDest.trim();
-    if (!trimmed) return;
-
-    const nextFair = parseInt(fairValue, 10);
-    const v = isNaN(nextFair) ? 0 : nextFair;
-
-    const updated = new Map<string, number>(Object.entries(priceMap));
-    updated.set(trimmed, v);
-
-    const lines = Array.from(updated.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([dest, fair]) => `${dest}: ${fair}`);
-
-    setSelected(trimmed);
-    onChange(lines.join("\n"));
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">Route/Destination</label>
-          <select value={selected} onChange={(e) => setSelected(e.target.value)} className="input-field">
-            {destinations.length === 0 ? (
-              <option value="">No routes found</option>
-            ) : (
-              destinations.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">Fair (per seat) (MWK)</label>
-          <input
-            type="number"
-            inputMode="numeric"
-            value={fairValue}
-            onChange={(e) => setFairValue(e.target.value)}
-            className="input-field"
-          />
-        </div>
-      </div>
-
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={save} disabled={!selected} className="btn-primary disabled:opacity-50">
-          ✓ Set Fair
-        </button>
-        <button onClick={addNew} className="btn-secondary">
-          ＋ Add route
-        </button>
-      </div>
-
-      <p className="text-[12px] text-slate-500">
-        The editor updates the same underlying <span className="font-mono">routes</span> config. Default format supported:
-        <span className="block font-mono mt-1">Destination: Fair</span>
-      </p>
-    </div>
-  );
-}
 
 const defaultSettings = {
   bookingFee: "2000",
   maxSeats: "15",
-  routes:
-    "Mzuzu - Lilongwe: 5000\nMzuzu - Blantyre: 8000\nMzuzu - Zomba: 7000\nMzuzu - Kasungu: 3000\nMzuzu - Karonga: 6000",
 };
 
 export default function AdminSettingsPage() {
@@ -124,7 +27,6 @@ export default function AdminSettingsPage() {
         setSettings({
           bookingFee: String(payload.booking_fee ?? payload.bookingFee ?? defaultSettings.bookingFee),
           maxSeats: String(payload.max_seats ?? payload.maxSeats ?? defaultSettings.maxSeats),
-          routes: String(payload.routes ?? defaultSettings.routes),
         });
       }
     } catch (error) {
@@ -146,7 +48,7 @@ export default function AdminSettingsPage() {
       const res = await authFetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingFee: settings.bookingFee, maxSeats: settings.maxSeats, routes: settings.routes }),
+        body: JSON.stringify({ bookingFee: settings.bookingFee, maxSeats: settings.maxSeats }),
       });
 
       const data: unknown = await res.json();
@@ -178,7 +80,7 @@ export default function AdminSettingsPage() {
       <PageHeader
         eyebrow="Settings"
         title="System Configuration"
-        description="Adjust ticket parameters, routes, and vehicle settings for the current dashboard session."
+        description="Adjust ticket parameters for the current dashboard session."
       />
 
       {loading ? (
@@ -218,11 +120,6 @@ export default function AdminSettingsPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Fair rates per route (per seat) (MWK)</label>
-                <FairRatesEditor routesStr={settings.routes} onChange={(next) => setSettings({ ...settings, routes: next })} />
-              </div>
-
               <button
                 onClick={saveSettings}
                 className="rounded-lg bg-primary-900 px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-primary-800"
@@ -230,6 +127,20 @@ export default function AdminSettingsPage() {
                 Save Settings
               </button>
             </div>
+          </div>
+
+          <div className="bg-white border border-[#d7ebff] rounded-xl shadow-sm p-6">
+            <h3 className="text-sm font-semibold text-slate-700">Route fares</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Route and fare management has moved to Business Configuration, where every route is a real, structured
+              record instead of free text.
+            </p>
+            <Link
+              href="/admin/business-configuration/routes-and-fares"
+              className="mt-3 inline-flex rounded-lg bg-primary-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800"
+            >
+              Go to Routes and Fares
+            </Link>
           </div>
         </div>
       )}

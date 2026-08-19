@@ -23,7 +23,6 @@ import BookingSuccessModal, { type BookingSuccessData } from "./components/home/
 import WhatsAppButton from "./components/WhatsAppButton";
 import WebsiteChatWidget from "./components/WebsiteChatWidget";
 import { normalizeBookingRecord } from "@/lib/bookingClientUtils";
-import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { REFERRAL_STORAGE_KEY, resolveInitialReferral, type ReferralSource } from "@/lib/referralStorage";
 import { fetchActiveUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
 import { fetchActiveRoutes } from "@/lib/routesClient";
@@ -79,8 +78,12 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
   const [trackError, setTrackError] = useState("");
   const [trackResult, setTrackResult] = useState<BookingRecord | null>(null);
   const [urgencyDestination, setUrgencyDestination] = useState<string | null>(null);
-  const [routePrices, setRoutePrices] = useState<Record<string, number>>({});
-  const [settingsText, setSettingsText] = useState<string | Record<string, unknown>>("");
+  // Keyed by the same "District - Mzuzu" label PopularRoutesSection's
+  // curated tiles use — sourced live from the structured `routes` table
+  // (see docs/route-model-decision.md), never from settings.routes/
+  // route_objects. The route id lets a pill click submit through the
+  // verified structured-route booking path instead of a free-text guess.
+  const [popularRoutes, setPopularRoutes] = useState<Record<string, { id: string; fare: number }>>({});
   const [universities, setUniversities] = useState<string[]>([]);
   const [activeUniversities, setActiveUniversities] = useState<ActiveUniversity[]>([]);
   const [routeOptions, setRouteOptions] = useState<RouteOption[]>(initialTrip?.routeOptions ?? []);
@@ -135,18 +138,6 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       } catch {}
     };
 
-    const fetchSettings = async () => {
-      try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        const data = await res.json();
-        const rawSettings = data?.settings;
-        const routesText = typeof rawSettings?.routes === "string" ? rawSettings.routes : "";
-        const parsedPrices = parseRoutePrices(rawSettings);
-        setRoutePrices(parsedPrices);
-        setSettingsText(typeof rawSettings === "object" && rawSettings != null ? rawSettings : routesText);
-      } catch {}
-    };
-
     const fetchUniversities = async () => {
       const active = await fetchActiveUniversities();
       setUniversities(active.map((u) => u.name));
@@ -159,32 +150,27 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           const routeResults = await Promise.all(
             popularDistricts.map(async (district) => ({
               district,
-              routes: await fetchActiveRoutes(district, mzuzu.id, "to_university"),
+              routes: await fetchActiveRoutes(district, { universityId: mzuzu.id }, "to_university"),
             }))
           );
-          const structuredPrices: Record<string, number> = {};
+          const resolved: Record<string, { id: string; fare: number }> = {};
           for (const result of routeResults) {
-            const fare = result.routes[0]?.fare;
-            if (typeof fare === "number" && fare > 0) structuredPrices[`${result.district} - Mzuzu`] = fare;
+            const route = result.routes[0];
+            if (route && route.fare > 0) resolved[`${result.district} - Mzuzu`] = { id: route.id, fare: route.fare };
           }
-          setRoutePrices((current) => ({ ...current, ...structuredPrices }));
+          setPopularRoutes(resolved);
         }
       }
     };
 
     fetchUrgencySignal();
-    const loadRouteConfiguration = async () => {
-      await fetchSettings();
-      await fetchUniversities();
-    };
-    void loadRouteConfiguration();
+    void fetchUniversities();
     const interval = setInterval(fetchUrgencySignal, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const isFormValid = () =>
     Boolean(form.name.trim() && normalizeMalawiPhone(form.phone) && form.seats >= 1 && form.travelDate.trim() && !(routeOptions.length > 1 && !selectedRouteId));
-  const getFareForDestination = (destination: string) => resolveRouteFareIfAvailable(destination, settingsText);
   const urgencyDisplay = urgencyDestination;
   const tripSearchReady = Boolean(departureDistrict && destinationUniversity);
 
@@ -214,7 +200,10 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     setBookingType("custom");
     setCustomDestination(buildJourneyName(homeDistrict, universityName, "to_university"));
     setRouteOptions([]);
-    setSelectedRouteId("");
+    // Submits through the verified structured-route path (real stored fare,
+    // real commission) instead of the free-text path whenever this pill's
+    // route was actually resolved live — see the popularRoutes fetch above.
+    setSelectedRouteId(popularRoutes[route]?.id ?? "");
     setError("");
     setShowBooking(true);
   };
@@ -393,7 +382,6 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
     const destination = selectedRouteId || bookingType === "custom"
       ? customDestination.trim()
       : selectedRoute;
-    const fare = getFareForDestination(destination);
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
@@ -413,7 +401,6 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
       const result = await res.json();
       if (result?.success) {
         const normalized = normalizeBookingRecord(result.booking ?? {});
-        const finalFare = normalized.fare ?? fare ?? resolveRouteFareIfAvailable(destination, settingsText);
         setSuccessData({
           name: form.name,
           studentId: form.studentId,
@@ -423,7 +410,7 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           travelDate: form.travelDate,
           seats: form.seats,
           bookingId: normalized.bookingId || result.bookingId || "PENDING",
-          fare: finalFare,
+          fare: normalized.fare,
           bookingFeeAmount: normalized.bookingFeeAmount,
           journeyDirection,
           operatorDisplayName: typeof result.operatorDisplayName === "string" ? result.operatorDisplayName : undefined,
@@ -493,7 +480,11 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
 
       <StatsStrip />
 
-      <PopularRoutesSection routePrices={routePrices} onBookRoute={openPopularRoute} onCustomize={focusTripSearch} />
+      <PopularRoutesSection
+        routePrices={Object.fromEntries(Object.entries(popularRoutes).map(([route, data]) => [route, data.fare]))}
+        onBookRoute={openPopularRoute}
+        onCustomize={focusTripSearch}
+      />
 
       <TaxiSection onBookFare={setSelectedTaxiFare} />
 
@@ -569,7 +560,6 @@ export default function Home({ initialTrip, initialReferralCode }: HomeProps = {
           trackLoading={trackLoading}
           trackError={trackError}
           trackResult={trackResult}
-          settingsText={settingsText}
           onTrack={trackBooking}
           onClose={() => {
             setShowTrack(false);

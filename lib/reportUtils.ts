@@ -1,6 +1,5 @@
 import type { BookingRecord } from "@/lib/bookingTypes";
 import { calcBookingRevenue } from "@/lib/bookingRevenue";
-import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 
 // Supabase query builders expose a wider API than the minimal helper interface.
 // This helper accepts any query type as long as it supports the filter methods.
@@ -101,10 +100,7 @@ export function applyReportFilters<T extends FilterableQuery>(query: T, filters:
   return result;
 }
 
-// routesStr is optional so existing callers that only need the count-based
-// fields (never revenue) don't need to thread settings through — revenue
-// fields simply come back as 0 without it.
-export function summarizeReportRows(rows: BookingRecord[], routesStr?: string | Record<string, unknown>) {
+export function summarizeReportRows(rows: BookingRecord[]) {
   const totalSeats = rows.reduce((sum, row) => sum + (row.seats || 1), 0);
   const totalTrips = new Set(rows.map((row) => String(row.tripId || "").trim()).filter(Boolean)).size;
   const bookingFeePaid = rows.filter((row) => row.bookingFeeStatus === "paid").length;
@@ -119,7 +115,7 @@ export function summarizeReportRows(rows: BookingRecord[], routesStr?: string | 
   let outstandingFare = 0;
 
   for (const row of rows) {
-    const revenue = calcBookingRevenue(row, routesStr);
+    const revenue = calcBookingRevenue(row);
     bookingFeeRevenue += revenue.bookingFee;
     fareRevenue += revenue.ticketRevenue;
 
@@ -127,9 +123,12 @@ export function summarizeReportRows(rows: BookingRecord[], routesStr?: string | 
       outstandingBookingFee += row.bookingFeeAmount;
     }
 
+    // A booking with no fare yet (a free-text destination pending admin
+    // review, see app/api/bookings/route.ts) contributes 0 here rather than
+    // a guessed amount — outstandingFare only ever reflects a real,
+    // admin-confirmed fare.
     if (row.fareStatus !== "paid" && row.fareStatus !== "cash_collected") {
-      const routePrice = resolveRouteFareIfAvailable(row.destination, routesStr) ?? 0;
-      const ticketPrice = typeof row.fare === "number" && Number.isFinite(row.fare) && row.fare > 0 ? row.fare : routePrice;
+      const ticketPrice = typeof row.fare === "number" && Number.isFinite(row.fare) && row.fare > 0 ? row.fare : 0;
       outstandingFare += ticketPrice * (row.seats || 1);
     }
   }

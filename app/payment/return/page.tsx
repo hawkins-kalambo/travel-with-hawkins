@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { generateReceiptPdfBlob, type PaymentReceiptRecord } from "@/lib/receiptGenerator";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import WhatsAppButton from "../../components/WhatsAppButton";
 
 type StatusOutcome = "checking" | "paid" | "pending" | "failed" | "error";

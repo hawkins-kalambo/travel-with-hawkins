@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { authFetch } from "@/lib/auth";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 
 type ServiceApproval = {
   id: string;

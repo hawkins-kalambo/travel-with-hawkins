@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatMwk } from "@/lib/routePricing";
+import { formatMwk } from "@/lib/currency";
 import PremiumBoardingPass from "./PremiumBoardingPass";
 import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
 

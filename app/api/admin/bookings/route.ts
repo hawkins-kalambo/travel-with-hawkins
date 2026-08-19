@@ -11,7 +11,6 @@ import { buildCommissionReversalUpdate } from "@/lib/commissionLifecycle";
 import { sendBookingJourneyUpdateSms } from "@/lib/africasTalking";
 import { createCommunicationNotification } from "@/lib/communicationEngine";
 import { sendEmail } from "@/lib/resend";
-import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { generateTripId, normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { jsonError } from "@/lib/apiResponse";
@@ -169,19 +168,7 @@ export async function GET(request: NextRequest) {
       return jsonError("Unable to load bookings", 500);
     }
 
-    const { data: settings } = await supabaseAdmin
-      .from("settings")
-      .select("routes, route_objects")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const bookings = (data ?? []).map((row) => {
-      const booking = normalizeBookingRecord(row as Record<string, unknown>);
-      if (typeof booking.fare !== "number" || !Number.isFinite(booking.fare) || booking.fare <= 0) {
-        booking.fare = resolveRouteFareIfAvailable(booking.destination, settings as Record<string, unknown> | undefined);
-      }
-      return booking;
-    });
+    const bookings = (data ?? []).map((row) => normalizeBookingRecord(row as Record<string, unknown>));
 
     return NextResponse.json({
       success: true,
@@ -205,6 +192,7 @@ export async function PATCH(request: NextRequest) {
     const requestedTravelDate = body.travelDate === undefined ? undefined : parseFutureTravelDate(body.travelDate);
     const cancellationReason = typeof body.cancellationReason === "string" ? body.cancellationReason.trim() : "";
     const paymentNotes = typeof body.paymentNotes === "string" ? body.paymentNotes.trim() : undefined;
+    const requestedFare = body.fare === undefined ? undefined : body.fare;
 
     if ((!bookingId && !tripId) || (bookingId && tripId)) {
       return jsonError("Provide exactly one of bookingId or tripId", 400);
@@ -221,7 +209,13 @@ export async function PATCH(request: NextRequest) {
     if (requestedTravelDate && !bookingId) {
       return jsonError("Rescheduling requires a single bookingId", 400);
     }
-    if (!requestedStatus && !requestedTravelDate && paymentNotes === undefined) {
+    if (requestedFare !== undefined && !(typeof requestedFare === "number" && Number.isFinite(requestedFare) && requestedFare > 0)) {
+      return jsonError("Fare must be a positive number", 400);
+    }
+    if (requestedFare !== undefined && !bookingId) {
+      return jsonError("Setting a fare requires a single bookingId", 400);
+    }
+    if (!requestedStatus && !requestedTravelDate && paymentNotes === undefined && requestedFare === undefined) {
       return jsonError("No supported update fields provided", 400);
     }
 
@@ -251,10 +245,17 @@ export async function PATCH(request: NextRequest) {
     if (requestedTravelDate && !canRescheduleJourney(existingBookings[0]?.status)) {
       return jsonError("Only booked or confirmed journeys can be rescheduled", 409);
     }
+    if (requestedFare !== undefined) {
+      const fareStatus = existingBookings[0]?.fareStatus;
+      if (fareStatus === "paid" || fareStatus === "cash_collected") {
+        return jsonError("Fare is already settled and cannot be edited", 409);
+      }
+    }
 
     const updatePayload: Record<string, unknown> = {};
     if (requestedStatus) updatePayload.status = requestedStatus;
     if (paymentNotes !== undefined) updatePayload.payment_notes = paymentNotes;
+    if (requestedFare !== undefined) updatePayload.fare = requestedFare;
     if (requestedTravelDate) {
       updatePayload.travel_date = requestedTravelDate;
       updatePayload.trip_id = generateTripId(existingBookings[0]?.destination, requestedTravelDate);
