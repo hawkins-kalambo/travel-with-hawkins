@@ -9,6 +9,7 @@ export type JourneyStatus =
   | "Arrived"
   | "Completed"
   | "Cancelled"
+  | "Expired"
   | string;
 
 export type PaymentStatus =
@@ -34,6 +35,7 @@ export type BookingRecord = {
   operatorId?: string;
   serviceType?: string;
   routeId?: string;
+  departureId?: string;
   universityId?: string;
   districtPickupPointId?: string;
   universityPickupPointId?: string;
@@ -88,6 +90,7 @@ const SNAKE_TO_CAMEL: Record<string, keyof BookingRecord> = {
   operator_id: "operatorId",
   service_type: "serviceType",
   route_id: "routeId",
+  departure_id: "departureId",
   university_id: "universityId",
   district_pickup_point_id: "districtPickupPointId",
   university_pickup_point_id: "universityPickupPointId",
@@ -129,6 +132,7 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   operatorId: "operator_id",
   serviceType: "service_type",
   routeId: "route_id",
+  departureId: "departure_id",
   universityId: "university_id",
   districtPickupPointId: "district_pickup_point_id",
   universityPickupPointId: "university_pickup_point_id",
@@ -214,6 +218,7 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       else if (camelKey === "operatorId") normalized.operatorId = toSafeString(value);
       else if (camelKey === "serviceType") normalized.serviceType = toSafeString(value);
       else if (camelKey === "routeId") normalized.routeId = toSafeString(value);
+      else if (camelKey === "departureId") normalized.departureId = toSafeString(value);
       else if (camelKey === "universityId") normalized.universityId = toSafeString(value);
       else if (camelKey === "districtPickupPointId") normalized.districtPickupPointId = toSafeString(value);
       else if (camelKey === "universityPickupPointId") normalized.universityPickupPointId = toSafeString(value);
@@ -258,6 +263,7 @@ export function normalizeBookingRecord(record: Record<string, unknown> | null | 
       else if (camelKey === "operatorId") normalized.operatorId = toSafeString(value);
       else if (camelKey === "serviceType") normalized.serviceType = toSafeString(value);
       else if (camelKey === "routeId") normalized.routeId = toSafeString(value);
+      else if (camelKey === "departureId") normalized.departureId = toSafeString(value);
       else if (camelKey === "universityId") normalized.universityId = toSafeString(value);
       else if (camelKey === "districtPickupPointId") normalized.districtPickupPointId = toSafeString(value);
       else if (camelKey === "universityPickupPointId") normalized.universityPickupPointId = toSafeString(value);
@@ -389,6 +395,7 @@ export function toSupabaseBookingPayload(
     operator_id: toSafeString(input.operatorId),
     service_type: toSafeString(input.serviceType) ?? "intercity",
     route_id: toSafeString(input.routeId),
+    departure_id: toSafeString(input.departureId),
     university_id: toSafeString(input.universityId),
     district_pickup_point_id: toSafeString(input.districtPickupPointId),
     university_pickup_point_id: toSafeString(input.universityPickupPointId),
@@ -412,8 +419,12 @@ export function toSupabaseBookingPayload(
   };
 }
 
-// How long an unpaid booking holds its place before the (not-yet-built) expiry
-// job would release it. Not yet configurable via system settings — Phase 7.
+// How long an unpaid booking holds its place before it's released — see
+// expire_overdue_bookings() in
+// db/migrations/2026_08_19_web_capacity_and_booking_expiry.sql (cron sweep)
+// and create_capacity_checked_booking()'s own reserved-seat exclusion (the
+// mechanism capacity correctness actually depends on; the cron is for admin
+// visibility only). Not yet configurable via system settings — Phase 7.
 export const DEFAULT_BOOKING_FEE_EXPIRY_HOURS = 48;
 
 export function computeBookingExpiryIso(fromDate: Date = new Date()): string {

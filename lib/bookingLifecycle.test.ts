@@ -30,10 +30,22 @@ test("journey lifecycle rejects skips and terminal-state changes", () => {
 });
 
 test("cancellation is available only before departure", () => {
-  assert.deepEqual(getAllowedJourneyTransitions("Booked"), ["Confirmed", "Cancelled"]);
-  assert.deepEqual(getAllowedJourneyTransitions("Confirmed"), ["Boarding", "Cancelled"]);
+  assert.deepEqual(getAllowedJourneyTransitions("Booked"), ["Confirmed", "Cancelled", "Expired"]);
+  assert.deepEqual(getAllowedJourneyTransitions("Confirmed"), ["Boarding", "Cancelled", "Expired"]);
   assert.deepEqual(getAllowedJourneyTransitions("Boarding"), ["Departed", "Cancelled"]);
   assert.equal(canTransitionJourneyStatus("Departed", "Cancelled"), false);
+});
+
+test("expiry is reachable only from Booked/Confirmed, before travel starts", () => {
+  assert.equal(parseJourneyStatus("expired"), "Expired");
+  assert.equal(canTransitionJourneyStatus("Booked", "Expired"), true);
+  assert.equal(canTransitionJourneyStatus("Confirmed", "Expired"), true);
+  assert.equal(canTransitionJourneyStatus("Boarding", "Expired"), false);
+  assert.equal(canTransitionJourneyStatus("Departed", "Expired"), false);
+  assert.equal(canTransitionJourneyStatus("Arrived", "Expired"), false);
+  assert.equal(canTransitionJourneyStatus("Completed", "Expired"), false);
+  assert.equal(canTransitionJourneyStatus("Cancelled", "Expired"), false);
+  assert.deepEqual(getAllowedJourneyTransitions("Expired"), []);
 });
 
 test("only pre-departure bookings can be rescheduled", () => {

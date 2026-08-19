@@ -48,6 +48,13 @@ database has something for every other file to `ALTER TABLE` against.
 33. `2026_08_15_website_chat.sql` — depends on the `channel`/`direction`/etc
     columns `2026_08_10_whatsapp_customer_service.sql` adds to
     `communication_messages`; must run after it.
+34. `2026_08_19_web_capacity_and_booking_expiry.sql` — depends on the
+    `route_departures` table and `create_capacity_checked_booking()`
+    function `2026_08_10_whatsapp_customer_service.sql` defines; must run
+    after it (the migration itself raises a clear error if applied out of
+    order, rather than failing confusingly). It does not modify that file —
+    it lays a `CREATE OR REPLACE` onto the same function from a separate
+    file, and adds two new functions plus an index.
 
 **Do not run these three** — each is superseded or actively conflicts with
 a file already in the list above:

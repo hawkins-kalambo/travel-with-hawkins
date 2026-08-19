@@ -219,6 +219,11 @@ export async function POST(req: Request) {
     let resolvedDistrictPickupPointId: string | undefined;
     let resolvedUniversityPickupPointId: string | undefined;
     let resolvedRouteCommission: { amount: number; type: "fixed" | "percentage" } | undefined;
+    // Set only once the resolved route (university-anchored or public
+    // destination_label — both branches below) is confirmed active. Doubles
+    // as the "does capacity enforcement apply" flag further down: never set
+    // for taxi/car-hire/legacy-university/freeform bookings.
+    let resolvedRouteId: string | undefined;
     let resolvedOperatorId: string | undefined;
     let resolvedServiceType: "intercity" | "taxi" | "car_hire" = "intercity";
     let resolvedRentalEndDate: string | undefined;
@@ -227,7 +232,7 @@ export async function POST(req: Request) {
     const requestedTaxiFareId = getNonEmptyString(payload.taxiFareId ?? payload.taxi_fare_id);
     const requestedCarHireListingId = getNonEmptyString(payload.carHireListingId ?? payload.car_hire_listing_id);
 
-    const { data: settingsData } = await supabase.from("settings").select("booking_fee").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: settingsData } = await supabase.from("settings").select("booking_fee, max_seats").order("updated_at", { ascending: false }).limit(1).maybeSingle();
     // Fare starts unresolved for a free-text/custom destination with no
     // matched structured route, taxi fare, or car-hire listing below — an
     // admin sets it manually (PATCH /api/admin/bookings) before the booking
@@ -390,6 +395,7 @@ export async function POST(req: Request) {
         resolvedUniversityPickupPointId = routeRow.pickup_point_id ?? undefined;
       }
 
+      resolvedRouteId = routeRow.id;
       resolvedOperatorId = routeRow.operator_id ?? undefined;
       const structuredFare = Number(routeRow.fare);
       fare = Number.isFinite(structuredFare) && structuredFare > 0 ? structuredFare : undefined;
@@ -437,6 +443,18 @@ export async function POST(req: Request) {
     // key (see db/migrations/2026_08_03_booking_dedupe_claim.sql).
     const dedupeWindowSeconds = 120;
     const dedupeKey = `booking:${phone}|${studentId}|${requestedRouteId || requestedTaxiFareId || requestedCarHireListingId || destination}|${journeyDirection}|${travelDate}|${seats}`;
+    // Otherwise the dedupe claim taken below would hold this key for the
+    // rest of the window with no booking_id — a legitimate retry (or anyone
+    // else with the same natural key) would get a false "already received"
+    // response instead of being allowed to actually book. Used both by the
+    // existing plain-insert failure path and the new capacity-checked path.
+    const releaseDedupeClaim = async () => {
+      try {
+        await supabase.rpc("release_booking_dedupe_claim", { p_key: dedupeKey });
+      } catch (releaseError) {
+        logWarn("Failed to release booking dedupe claim after failure", { error: releaseError instanceof Error ? releaseError.message : String(releaseError) });
+      }
+    };
     const { data: dedupeRows, error: dedupeError } = await supabase.rpc("claim_booking_dedupe", {
       p_key: dedupeKey,
       p_window_seconds: dedupeWindowSeconds,
@@ -581,11 +599,11 @@ export async function POST(req: Request) {
       fare,
       operatorId: resolvedOperatorId,
       serviceType: resolvedServiceType,
-      // Only ever stamped once the route/university pair has been verified
-      // active above — an unresolved or rejected routeId is dropped rather
-      // than recorded, so a booking never references a route that wasn't
-      // actually live when it was made.
-      routeId: resolvedUniversityId ? requestedRouteId : undefined,
+      // Only ever stamped once the route has been verified active above —
+      // an unresolved or rejected routeId is dropped rather than recorded,
+      // so a booking never references a route that wasn't actually live
+      // when it was made.
+      routeId: resolvedRouteId,
       universityId: resolvedUniversityId,
       districtPickupPointId: resolvedDistrictPickupPointId,
       universityPickupPointId: resolvedUniversityPickupPointId,
@@ -605,46 +623,153 @@ export async function POST(req: Request) {
 
     const bookingPayload = toSupabaseBookingPayload(normalizedPayload, bookingId, tripId, "Booked");
 
-    const insertResult = await supabase.from("bookings").insert([bookingPayload]).select().single();
-    let data = insertResult.data as Record<string, unknown> | null;
-    let error = insertResult.error;
+    let data: Record<string, unknown> | null = null;
+    let error: { message?: string; code?: string; details?: string } | null = null;
 
-    if (error) {
-      const reason = String(error?.message || error?.details || error).toLowerCase();
-      const missingFareColumn = reason.includes("fare") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
-      // route_id/university_id are new (2026_08_04_universities_and_structured_routes.sql) —
-      // fail open the same way the fare column already does if that migration
-      // hasn't been applied to this environment yet, rather than blocking every booking.
-      const missingRouteColumns =
-        (reason.includes("route_id") || reason.includes("university_id")) &&
-        (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
-      // operator_id/service_type are new (2026_08_10_bookings_operator_service_type.sql) —
-      // same fail-open treatment as route_id/university_id above.
-      const missingOperatorColumns =
-        (reason.includes("operator_id") || reason.includes("service_type")) &&
-        (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
-      // rental_end_date is new (2026_08_11_car_hire_listings.sql) — same
-      // fail-open treatment; a missing column here would otherwise block
-      // every booking, not just car-hire ones, since it's always present
-      // (if undefined) on the insert payload.
-      const missingRentalEndDateColumn =
-        reason.includes("rental_end_date") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+    if (resolvedRouteId) {
+      // Capacity-checked path for intercity structured-route bookings (both
+      // university-anchored and public destination_label routes) — reuses
+      // the WhatsApp booking flow's capacity infrastructure (see
+      // db/migrations/2026_08_10_whatsapp_customer_service.sql, extended by
+      // db/migrations/2026_08_19_web_capacity_and_booking_expiry.sql). Taxi,
+      // car-hire, and any unresolved/legacy path fall through to the plain
+      // insert below, unchanged — no capacity concept for them yet.
+      //
+      // Deliberately fails closed (unlike claim_booking_dedupe's fail-open
+      // design above): an outage here blocks the booking rather than
+      // silently skipping the capacity check, since the entire point of
+      // this path is "never oversell."
+      const defaultCapacity = getPositiveNumber((settingsData as Record<string, unknown> | null)?.max_seats);
 
-      if (missingFareColumn) delete (bookingPayload as Record<string, unknown>).fare;
-      if (missingRouteColumns) {
-        delete (bookingPayload as Record<string, unknown>).route_id;
-        delete (bookingPayload as Record<string, unknown>).university_id;
+      const { data: depRows, error: depError } = await supabase.rpc("get_or_create_route_departure", {
+        p_route_id: resolvedRouteId,
+        p_travel_date: travelDate,
+        p_default_capacity: defaultCapacity ?? null,
+      });
+      const departure = Array.isArray(depRows) ? depRows[0] : depRows;
+
+      if (depError) {
+        await releaseDedupeClaim();
+        logError("get_or_create_route_departure failed", { error: depError.message });
+        return jsonError("Booking could not be processed right now. Please try again.", 500);
       }
-      if (missingOperatorColumns) {
-        delete (bookingPayload as Record<string, unknown>).operator_id;
-        delete (bookingPayload as Record<string, unknown>).service_type;
+      if (!departure || departure.outcome !== "ready") {
+        await releaseDedupeClaim();
+        return jsonError("The selected travel date is not currently available. Please choose another date.", 400);
       }
-      if (missingRentalEndDateColumn) delete (bookingPayload as Record<string, unknown>).rental_end_date;
 
-      if (missingFareColumn || missingRouteColumns || missingOperatorColumns || missingRentalEndDateColumn) {
-        const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
-        data = retry.data as Record<string, unknown> | null;
-        error = retry.error;
+      const { data: rpcRows, error: rpcError } = await supabase.rpc("create_capacity_checked_booking", {
+        p_operation_key: `web:${bookingId}`,
+        p_booking_id: bookingId,
+        p_trip_id: tripId,
+        p_departure_id: departure.departure_id,
+        p_name: name,
+        p_phone: phone,
+        p_email: email ?? "",
+        p_student_id: studentId ?? "",
+        p_seats: seats,
+        p_destination: destination,
+        p_pickup: pickup,
+        p_location: location,
+        p_booking_type: bookingType,
+        p_booking_source: "web",
+      });
+      const rpc = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+
+      if (rpcError) {
+        await releaseDedupeClaim();
+        logError("create_capacity_checked_booking failed", { error: rpcError.message });
+        return jsonError("Booking could not be saved right now. Please try again.", 500);
+      }
+      if (!rpc || rpc.outcome === "rejected") {
+        await releaseDedupeClaim();
+        const reason = rpc?.reason;
+        const message =
+          reason === "insufficient_seats"
+            ? "Sorry, there aren't enough seats left for this date. Please try another date or fewer seats."
+            : "The selected route is not currently available. Please try again.";
+        return jsonError(message, 400);
+      }
+
+      // The RPC's own insert only sets the columns it needs to be
+      // transactionally correct (capacity + idempotency) — everything else
+      // (operator/journey/referral display fields) gets a best-effort,
+      // non-transactional follow-up write here, same as the referrals
+      // insert further below already is. Logged-but-non-fatal on failure.
+      const { data: readback, error: readbackError } = await supabase.from("bookings").select("*").eq("booking_id", rpc.booking_id).maybeSingle();
+      data = readback as Record<string, unknown> | null;
+      error = readbackError;
+
+      if (data) {
+        const { data: patched, error: patchError } = await supabase
+          .from("bookings")
+          .update({
+            operator_id: resolvedOperatorId,
+            service_type: resolvedServiceType,
+            district_pickup_point_id: resolvedDistrictPickupPointId,
+            university_pickup_point_id: resolvedUniversityPickupPointId,
+            journey_direction: journeyDirection,
+            home_district: homeDistrict,
+            journey_origin: journeyOrigin,
+            journey_destination: journeyDestination,
+            referral_code: referralCode,
+            ambassador_id: ambassadorId,
+            referral_source: referralSource,
+            commission_amount: commissionAmount,
+            referral_status: selfReferralBlocked ? "self_referral_blocked" : referralCode ? "pending" : undefined,
+          })
+          .eq("booking_id", rpc.booking_id)
+          .select()
+          .single();
+
+        if (patchError) {
+          logWarn("Non-capacity booking field parity update failed", { error: patchError.message });
+        } else if (patched) {
+          data = patched as Record<string, unknown>;
+        }
+      }
+    } else {
+      const insertResult = await supabase.from("bookings").insert([bookingPayload]).select().single();
+      data = insertResult.data as Record<string, unknown> | null;
+      error = insertResult.error;
+
+      if (error) {
+        const reason = String(error?.message || error?.details || error).toLowerCase();
+        const missingFareColumn = reason.includes("fare") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+        // route_id/university_id are new (2026_08_04_universities_and_structured_routes.sql) —
+        // fail open the same way the fare column already does if that migration
+        // hasn't been applied to this environment yet, rather than blocking every booking.
+        const missingRouteColumns =
+          (reason.includes("route_id") || reason.includes("university_id")) &&
+          (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+        // operator_id/service_type are new (2026_08_10_bookings_operator_service_type.sql) —
+        // same fail-open treatment as route_id/university_id above.
+        const missingOperatorColumns =
+          (reason.includes("operator_id") || reason.includes("service_type")) &&
+          (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+        // rental_end_date is new (2026_08_11_car_hire_listings.sql) — same
+        // fail-open treatment; a missing column here would otherwise block
+        // every booking, not just car-hire ones, since it's always present
+        // (if undefined) on the insert payload.
+        const missingRentalEndDateColumn =
+          reason.includes("rental_end_date") && (reason.includes("column") || reason.includes("unknown") || reason.includes("undefined"));
+
+        if (missingFareColumn) delete (bookingPayload as Record<string, unknown>).fare;
+        if (missingRouteColumns) {
+          delete (bookingPayload as Record<string, unknown>).route_id;
+          delete (bookingPayload as Record<string, unknown>).university_id;
+        }
+        if (missingOperatorColumns) {
+          delete (bookingPayload as Record<string, unknown>).operator_id;
+          delete (bookingPayload as Record<string, unknown>).service_type;
+        }
+        if (missingRentalEndDateColumn) delete (bookingPayload as Record<string, unknown>).rental_end_date;
+
+        if (missingFareColumn || missingRouteColumns || missingOperatorColumns || missingRentalEndDateColumn) {
+          const retry = await supabase.from("bookings").insert([bookingPayload]).select().single();
+          data = retry.data as Record<string, unknown> | null;
+          error = retry.error;
+        }
       }
     }
 
@@ -653,16 +778,7 @@ export async function POST(req: Request) {
         code: typeof error.code === "string" ? error.code : "unknown",
       });
 
-      // Otherwise the dedupe claim taken above would hold this key for the
-      // rest of the window with no booking_id — a legitimate retry (or
-      // anyone else with the same natural key) would get a false
-      // "already received" response instead of being allowed to actually
-      // book.
-      try {
-        await supabase.rpc("release_booking_dedupe_claim", { p_key: dedupeKey });
-      } catch (releaseError) {
-        logWarn("Failed to release booking dedupe claim after insert failure", { error: releaseError instanceof Error ? releaseError.message : String(releaseError) });
-      }
+      await releaseDedupeClaim();
 
       return NextResponse.json(
         { success: false, error: "Booking could not be saved right now. Please try again." },
@@ -689,7 +805,7 @@ export async function POST(req: Request) {
             customer_name: name,
             customer_phone: phone,
             route: destination,
-            route_id: resolvedUniversityId ? requestedRouteId : undefined,
+            route_id: resolvedRouteId,
             university_id: resolvedUniversityId ?? ambassadorUniversityId,
             travel_date: travelDate,
             commission_amount: commissionAmount,

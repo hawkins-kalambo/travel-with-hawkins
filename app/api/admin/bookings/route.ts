@@ -200,6 +200,14 @@ export async function PATCH(request: NextRequest) {
     if (body.status !== undefined && !requestedStatus) {
       return jsonError("Unsupported journey status", 400);
     }
+    // "Expired" is system-only (see expire_overdue_bookings() in
+    // db/migrations/2026_08_19_web_capacity_and_booking_expiry.sql) — an
+    // admin's manual equivalent is already "Cancelled", so this is
+    // deliberately excluded from the manual transition set even though
+    // canTransitionJourneyStatus would otherwise permit it.
+    if (requestedStatus === "Expired") {
+      return jsonError("Expired is a system-only status and cannot be set manually", 400);
+    }
     if (body.travelDate !== undefined && !requestedTravelDate) {
       return jsonError("Travel date must be a valid date that is not in the past", 400);
     }

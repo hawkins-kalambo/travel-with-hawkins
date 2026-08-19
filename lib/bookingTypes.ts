@@ -9,6 +9,7 @@ export type JourneyStatus =
   | "Arrived"
   | "Completed"
   | "Cancelled"
+  | "Expired"
   | string;
 
 // Legacy single payment field. New code should prefer bookingFeeStatus /

@@ -37,3 +37,33 @@ test("toSupabaseBookingPayload has no operator_id when none was resolved, rather
 
   assert.equal(payload.operator_id, undefined);
 });
+
+test("normalizeBookingRecord round-trips departure_id from a DB row", () => {
+  const normalized = normalizeBookingRecord({
+    booking_id: "BK-1",
+    departure_id: "dep-123",
+  });
+
+  assert.equal(normalized.departureId, "dep-123");
+});
+
+test("normalizeBookingRecord round-trips departure_id from a camelCase payload", () => {
+  const normalized = normalizeBookingRecord({
+    bookingId: "BK-1",
+    departureId: "dep-123",
+  });
+
+  assert.equal(normalized.departureId, "dep-123");
+});
+
+test("toSupabaseBookingPayload carries departureId through to departure_id", () => {
+  const payload = toSupabaseBookingPayload({ departureId: "dep-123" }, "BK-1", "TRIP-1");
+
+  assert.equal(payload.departure_id, "dep-123");
+});
+
+test("toSupabaseBookingPayload has no departure_id when none was resolved", () => {
+  const payload = toSupabaseBookingPayload({}, "BK-1", "TRIP-1");
+
+  assert.equal(payload.departure_id, undefined);
+});

@@ -1,14 +1,25 @@
 import { JOURNEY_STATUS_VALUES, normalizeJourneyStatus } from "./statusUtils.ts";
 import type { JourneyStatus } from "./bookingTypes.ts";
 
+// Expired is reachable only from Booked/Confirmed (an unpaid hold that
+// lapsed) — never from Boarding onward, since travel has already started by
+// then. This mirrors expire_overdue_bookings()'s own `status IN
+// ('Booked','Confirmed')` guard in
+// db/migrations/2026_08_19_web_capacity_and_booking_expiry.sql; keep the two
+// in lockstep if either changes. Expired is also deliberately excluded from
+// the admin-facing manual transition set — see the explicit rejection in
+// app/api/admin/bookings/route.ts, since "Cancelled" is already the correct
+// manual action and "Expired" specifically means the system detected an
+// abandoned hold.
 const ALLOWED_TRANSITIONS: Record<string, readonly JourneyStatus[]> = {
-  Booked: ["Confirmed", "Cancelled"],
-  Confirmed: ["Boarding", "Cancelled"],
+  Booked: ["Confirmed", "Cancelled", "Expired"],
+  Confirmed: ["Boarding", "Cancelled", "Expired"],
   Boarding: ["Departed", "Cancelled"],
   Departed: ["Arrived"],
   Arrived: ["Completed"],
   Completed: [],
   Cancelled: [],
+  Expired: [],
 };
 
 export function parseJourneyStatus(value: unknown): JourneyStatus | null {
