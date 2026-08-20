@@ -11,7 +11,7 @@ import EmptyState from "@/app/components/ui/EmptyState";
 import { LoadingState } from "@/app/components/ui/Spinner";
 import { commissionStatusTone } from "@/lib/statusTones";
 import { generateManifestPdfBlob, type ManifestRow } from "@/lib/manifestGenerator";
-import { IconDownload, IconPrinter, IconShare, IconUsers } from "@/app/components/Icon";
+import { IconDownload, IconPrinter, IconUsers } from "@/app/components/Icon";
 
 export default function AmbassadorDashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -19,6 +19,7 @@ export default function AmbassadorDashboardPage() {
   const [referrals, setReferrals] = useState<Array<Record<string, unknown>>>([]);
   const [stats, setStats] = useState({ totalReferrals: 0, confirmedBookings: 0, cancelledBookings: 0, totalEarnings: 0, pendingCommissions: 0, paidCommissions: 0, upcomingTrips: 0 });
   const [manifestMessage, setManifestMessage] = useState<string | null>(null);
+  const [copiedReferral, setCopiedReferral] = useState<"code" | "link" | null>(null);
   const referralLink = profile?.referral_code ? `${typeof window !== "undefined" ? window.location.origin : ""}/book?ref=${encodeURIComponent(String(profile.referral_code))}` : "—";
 
   useEffect(() => {
@@ -89,6 +90,17 @@ export default function AmbassadorDashboardPage() {
     printWindow?.addEventListener("load", () => printWindow.print());
   };
 
+  const copyReferralValue = async (value: string, kind: "code" | "link") => {
+    if (!value || value === "—") return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedReferral(kind);
+      window.setTimeout(() => setCopiedReferral((current) => (current === kind ? null : current)), 2000);
+    } catch {
+      setManifestMessage(`Unable to copy the referral ${kind}. Please select and copy it manually.`);
+    }
+  };
+
   const handleShareManifest = async () => {
     setManifestMessage(null);
     try {
@@ -130,12 +142,40 @@ export default function AmbassadorDashboardPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-primary-700">Welcome back</p>
               <h1 className="text-xl font-black text-gray-800">{ambassadorName}</h1>
-              <p className="text-sm text-gray-500">{referralCode}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <p className="text-sm text-gray-500">{referralCode}</p>
+                <button
+                  type="button"
+                  onClick={() => void copyReferralValue(referralCode, "code")}
+                  disabled={!profile?.referral_code}
+                  className="rounded-lg border border-primary-200 bg-white px-2 py-0.5 text-xs font-semibold text-primary-800 transition hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {copiedReferral === "code" ? "Copied" : "Copy code"}
+                </button>
+              </div>
             </div>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-gray-100 p-3 text-sm text-gray-600">
             <p className="font-semibold text-gray-800">Referral link</p>
             <p className="mt-1 break-all">{referralLink}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void copyReferralValue(referralLink, "link")}
+                disabled={!profile?.referral_code}
+                className="whitespace-nowrap rounded-xl bg-primary-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {copiedReferral === "link" ? "Link copied" : "Copy link"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleShareManifest()}
+                disabled={!profile?.referral_code}
+                className="whitespace-nowrap rounded-xl border border-primary-200 bg-white px-3 py-2 text-xs font-semibold text-primary-800 transition hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Share
+              </button>
+            </div>
           </div>
         </div>
       </Card>
@@ -214,16 +254,13 @@ export default function AmbassadorDashboardPage() {
 
           <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-gray-100 p-4">
             <p className="text-sm font-semibold text-gray-800">Passenger manifest</p>
-            <p className="mt-1 text-sm text-gray-500">Download or share a manifest of every passenger referred through your code.</p>
+            <p className="mt-1 text-sm text-gray-500">Download or print a manifest of every passenger referred through your code.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="secondary" onClick={handlePrintManifest}>
                 <IconPrinter className="h-4 w-4" /> Print manifest
               </Button>
               <Button variant="secondary" onClick={handleDownloadManifest}>
                 <IconDownload className="h-4 w-4" /> Download PDF
-              </Button>
-              <Button variant="secondary" onClick={() => void handleShareManifest()}>
-                <IconShare className="h-4 w-4" /> Share
               </Button>
             </div>
             {manifestMessage && <p className="mt-2 text-xs font-medium text-gray-600">{manifestMessage}</p>}
