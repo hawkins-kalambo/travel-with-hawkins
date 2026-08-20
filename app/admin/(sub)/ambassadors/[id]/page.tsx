@@ -66,7 +66,7 @@ export default function AdminAmbassadorProfilePage() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [form, setForm] = useState({ phone: "", email: "", university: "", program: "", faculty: "", whatsapp_number: "" });
+  const [form, setForm] = useState({ full_name: "", phone: "", email: "", university: "", program: "", faculty: "", whatsapp_number: "" });
   const [profileImageBase64, setProfileImageBase64] = useState<string | null>(null);
   const [pendingPasswordAction, setPendingPasswordAction] = useState<"send-reset" | "temporary-password" | null>(null);
   const [pendingStatusAction, setPendingStatusAction] = useState<"suspended" | "active" | null>(null);
@@ -90,6 +90,7 @@ export default function AdminAmbassadorProfilePage() {
       setAmbassador(data.ambassador || null);
       setStats(data.stats || null);
       setForm({
+        full_name: data.ambassador?.full_name || "",
         phone: data.ambassador?.phone || "",
         email: data.ambassador?.email || "",
         university: data.ambassador?.university || "",
@@ -189,6 +190,7 @@ export default function AdminAmbassadorProfilePage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          full_name: form.full_name,
           phone: form.phone,
           email: form.email,
           university: form.university,
@@ -473,6 +475,7 @@ export default function AdminAmbassadorProfilePage() {
             {!readOnly && <form onSubmit={saveProfile} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-black text-gray-800">Edit profile</h2>
               <div className="mt-4 grid gap-3">
+                <input value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} placeholder="Full name" className="input-field" />
                 <input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone" className="input-field" />
                 <input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email" className="input-field" />
                 <input value={form.whatsapp_number} onChange={(event) => setForm((current) => ({ ...current, whatsapp_number: event.target.value }))} placeholder="WhatsApp number" className="input-field" />

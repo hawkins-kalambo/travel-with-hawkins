@@ -130,6 +130,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       updated_at: new Date().toISOString(),
     };
 
+    const fullName = getColumnName(typeof body.full_name === "string" ? body.full_name : undefined);
     const phone = getColumnName(typeof body.phone === "string" ? body.phone : undefined);
     const email = getColumnName(typeof body.email === "string" ? body.email : undefined)?.toLowerCase();
     const university = getColumnName(typeof body.university === "string" ? body.university : undefined);
@@ -148,6 +149,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       resolvedImageUrl = (await uploadProfileImage(profileImageBase64)) ?? resolvedImageUrl;
     }
 
+    if (fullName) updatePayload.full_name = fullName;
     if (phone) updatePayload.phone = phone;
     if (email) updatePayload.email = email;
     if (university) updatePayload.university = university;
