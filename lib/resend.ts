@@ -76,6 +76,59 @@ export async function sendEmail({
   }
 }
 
+// Fires once per referral booking (see app/api/bookings/route.ts) -- the
+// ambassador's own copy of "someone just booked using your link", distinct
+// from the customer's own booking confirmation email above. Tone matches
+// the ambassador-facing application approval/rejection emails in
+// app/api/applications/review/route.ts.
+export async function sendAmbassadorReferralEmail({
+  to,
+  ambassadorName,
+  customerName,
+  destination,
+  travelDate,
+  commissionAmount,
+  bookingId,
+}: {
+  to: string;
+  ambassadorName: string;
+  customerName: string;
+  destination: string;
+  travelDate: string;
+  commissionAmount: number;
+  bookingId: string;
+}) {
+  return sendEmail({
+    from: DEFAULT_FROM_ADDRESS,
+    to,
+    subject: "New referral booking - Travel with Hawkins",
+    html: `
+      <div style="font-family:Arial,sans-serif;padding:18px;">
+        <h2 style="color:#0A4D8C;">You've got a new referral! 🎉</h2>
+
+        <p>Hi <strong>${ambassadorName}</strong>,</p>
+
+        <p><strong>${customerName}</strong> just booked a trip using your referral link.</p>
+
+        <ul>
+          <li><b>Destination:</b> ${destination}</li>
+          <li><b>Travel Date:</b> ${travelDate}</li>
+          <li><b>Booking ID:</b> ${bookingId}</li>
+          <li><b>Your commission:</b> ${commissionAmount > 0 ? `MWK ${commissionAmount.toLocaleString("en-MW")} (pending approval)` : "Pending"}</li>
+        </ul>
+
+        <p>You can track this and all your referrals from your ambassador dashboard.</p>
+
+        <hr />
+
+        <p style="font-size:12px;color:gray;">
+          Travel with Hawkins - Safe and Reliable Transport
+        </p>
+      </div>
+    `,
+  });
+}
+
 export async function sendBookingEmail({
   to,
   name,
