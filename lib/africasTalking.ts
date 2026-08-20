@@ -265,6 +265,48 @@ export async function sendAdminBookingAlertSms({
   });
 }
 
+// Fires once per referral booking, to the ambassador's own phone -- not
+// ADMIN_NOTIFICATION_PHONE, since each ambassador has a different number.
+// Re-normalizes defensively rather than trusting the DB already has it in
+// +265 form, same caution lib/selfReferral.ts already takes before
+// comparing ambassador phones.
+export async function sendAmbassadorReferralAlertSms({
+  phone,
+  ambassadorName,
+  customerName,
+  destination,
+  commissionAmount,
+  bookingId,
+}: {
+  phone: string | null | undefined;
+  ambassadorName?: string | null;
+  customerName: string;
+  destination: string;
+  commissionAmount: number;
+  bookingId: string;
+}): Promise<SmsNotificationResult> {
+  const normalized = normalizeMalawiPhone(phone ?? undefined);
+  if (!normalized) {
+    logWarn("Ambassador referral alert SMS skipped because the ambassador has no valid phone number on file", {
+      bookingId,
+      destination: phone ? maskPhoneNumber(phone) : "none",
+    });
+    return { attempted: false, success: false, outcome: "skipped", status: "not_configured" };
+  }
+
+  const firstName = ambassadorName ? sanitizeCustomerName(ambassadorName) : "there";
+  const customerFirstName = sanitizeCustomerName(customerName);
+  const commissionText = commissionAmount > 0 ? ` You earned MWK ${commissionAmount.toLocaleString("en-MW")}.` : "";
+  const message = `Hi ${firstName}, ${customerFirstName} just booked ${destination} using your referral link.${commissionText} Booking ID: ${bookingId}.`;
+
+  return deliverSms({
+    phone: normalized,
+    message,
+    logLabel: "Ambassador referral alert SMS",
+    logContext: { bookingId },
+  });
+}
+
 export async function sendOtpSms({
   phone,
   otp,
