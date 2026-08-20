@@ -175,11 +175,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (updateError) throw updateError;
 
-    if (fullName && (data?.user_id || data?.profile_id)) {
+    const linkedProfileIds = Array.from(new Set([data?.user_id, data?.profile_id].filter(Boolean))) as string[];
+    if (fullName && linkedProfileIds.length > 0) {
       const { error: profileSyncError } = await supabaseAdmin
         .from("profiles")
         .update({ full_name: fullName })
-        .eq("id", data.user_id || data.profile_id);
+        .in("id", linkedProfileIds);
       if (profileSyncError) console.warn("Failed to sync full_name to profiles table", profileSyncError.message);
     }
 
