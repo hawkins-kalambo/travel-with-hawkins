@@ -112,7 +112,13 @@ export async function GET(req: NextRequest) {
         console.warn("/api/profile: ambassador fallback email lookup succeeded", { userId: user.id, email: normalizedEmail, ambassadorId: emailAmbassador.id });
         ambassadorData = emailAmbassador as Record<string, unknown>;
 
-        if (!emailAmbassador.user_id) {
+        // Sync whenever user_id is missing OR stale (pointing at some other,
+        // no-longer-current auth id for this same verified email) — not just
+        // when it's empty. A stale link previously left the account
+        // permanently unhealed: the primary user_id/profile_id lookup above
+        // kept missing it, and this fallback only corrected a genuinely
+        // empty user_id, never overwrote a wrong one.
+        if (emailAmbassador.user_id !== user.id) {
           await supabaseAdmin
             .from("ambassadors")
             .update({ user_id: user.id })
