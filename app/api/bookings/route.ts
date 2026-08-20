@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { DELETE as deleteAdminBooking, GET as getAdminBookings, PATCH as patchAdminBookings } from "@/app/api/admin/bookings/route";
-import { sendBookingEmail, sendEmail } from "@/lib/resend";
+import { sendBookingEmail, sendEmail, sendAmbassadorReferralEmail } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { resolveRouteFareIfAvailable } from "@/lib/routePricing";
-import { sendBookingConfirmationSms, sendAdminBookingAlertSms } from "@/lib/africasTalking";
+import { sendBookingConfirmationSms, sendAdminBookingAlertSms, sendAmbassadorReferralAlertSms } from "@/lib/africasTalking";
 import { validateBookingInput } from "@/lib/bookingValidation";
 import { isSelfReferral } from "@/lib/selfReferral";
 import { buildJourneyName, getJourneyEndpoints, getJourneyPickupLabel, isJourneyDirection } from "@/lib/journeyDirection";
@@ -451,11 +451,19 @@ export async function POST(req: Request) {
     let referralSource: string | undefined;
     let commissionAmount = 0;
     let selfReferralBlocked = false;
+    // Hoisted out of the `if (referralCode)` block below so the referral
+    // notification (fired after the booking + referrals row are actually
+    // persisted, further down) still has the ambassador's contact info to
+    // send to -- ambassadorData itself goes out of scope at the end of that
+    // block.
+    let ambassadorPhone: string | null | undefined;
+    let ambassadorEmail: string | null | undefined;
+    let ambassadorName: string | null | undefined;
 
     if (referralCode) {
       const { data: ambassadorData, error: ambassadorError } = await supabase
         .from("ambassadors")
-        .select("id, referral_code, status, phone, email, university_id")
+        .select("id, referral_code, status, phone, email, full_name, university_id")
         .eq("referral_code", referralCode.toUpperCase())
         .maybeSingle();
 
@@ -478,6 +486,9 @@ export async function POST(req: Request) {
         ambassadorId = ambassadorData.id;
         ambassadorUniversityId = ambassadorData.university_id || undefined;
         referralSource = `referral:${ambassadorData.referral_code}`;
+        ambassadorPhone = ambassadorData.phone;
+        ambassadorEmail = ambassadorData.email;
+        ambassadorName = ambassadorData.full_name;
         // A resolved structured route is authoritative for commission too —
         // it's fully self-describing (fare + commission on the one row an
         // admin edits). Only falls back to the string-keyed commission_rules
@@ -590,6 +601,9 @@ export async function POST(req: Request) {
       logWarn("Failed to finalize booking dedupe claim", { error: finishError instanceof Error ? finishError.message : String(finishError) });
     }
 
+    let ambassadorEmailStatus: NotificationStatus = "skipped";
+    let ambassadorSmsResult: Awaited<ReturnType<typeof sendAmbassadorReferralAlertSms>> | undefined;
+
     if (referralCode && ambassadorId) {
       try {
         await supabase.from("referrals").insert([
@@ -608,6 +622,46 @@ export async function POST(req: Request) {
         ]);
       } catch (referralError) {
         logWarn("Referral record creation failed", { error: referralError instanceof Error ? referralError.message : String(referralError) });
+      }
+
+      // Best-effort, same as every other notification in this route — never
+      // blocks the booking response if the ambassador has no email/phone on
+      // file or a provider call fails.
+      if (ambassadorEmail) {
+        try {
+          const result = await sendAmbassadorReferralEmail({
+            to: ambassadorEmail,
+            ambassadorName: ambassadorName || "there",
+            customerName: name,
+            destination,
+            travelDate,
+            commissionAmount,
+            bookingId,
+          });
+          ambassadorEmailStatus = result.success ? "sent" : "failed";
+          if (!result.success) logError("Ambassador referral email failed", { error: result.error, bookingId });
+        } catch (error) {
+          logError("Ambassador referral email execution failed", {
+            error: error instanceof Error ? error.message : "Unknown email error",
+            bookingId,
+          });
+        }
+      }
+
+      try {
+        ambassadorSmsResult = await sendAmbassadorReferralAlertSms({
+          phone: ambassadorPhone,
+          ambassadorName,
+          customerName: name,
+          destination,
+          commissionAmount,
+          bookingId,
+        });
+      } catch (error) {
+        logError("Ambassador referral alert SMS execution failed", {
+          error: error instanceof Error ? error.message : "Unknown SMS error",
+          bookingId,
+        });
       }
     }
 
@@ -662,6 +716,8 @@ export async function POST(req: Request) {
         sms: smsResult.outcome,
         smsProviderStatus: smsResult.status,
         adminSms: adminSmsResult?.outcome ?? "failed",
+        ambassadorEmail: ambassadorEmailStatus,
+        ambassadorSms: ambassadorSmsResult?.outcome ?? "skipped",
       },
     });
   } catch (error) {

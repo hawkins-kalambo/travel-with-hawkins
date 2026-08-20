@@ -5,7 +5,7 @@ import { authFetch } from "@/lib/auth";
 import PageHeader from "@/app/components/ui/PageHeader";
 import Badge from "@/app/components/ui/Badge";
 import DataTable, { type DataTableColumn } from "@/app/components/ui/DataTable";
-import { commissionStatusTone } from "@/lib/statusTones";
+import { commissionStatusTone, bookingPaymentStatus, type BookingPaymentSummary } from "@/lib/statusTones";
 
 type CustomerRow = Record<string, unknown>;
 
@@ -37,10 +37,23 @@ export default function AmbassadorCustomersPage() {
     { key: "travelDate", label: "Travel date", render: (row) => String(row.travel_date || "—") },
     {
       key: "status",
-      label: "Booking status",
+      label: "Commission status",
       render: (row) => {
         const status = String(row.commission_status || row.status || "pending");
         return <Badge tone={commissionStatusTone(status)}>{status}</Badge>;
+      },
+    },
+    {
+      key: "payment",
+      label: "Payment status",
+      render: (row) => {
+        // Whether the STUDENT has paid Travel with Hawkins -- separate from
+        // (and shown alongside) your own commission payout status above.
+        // Reflects admin-confirmed cash fare payments too, not just online
+        // ones (see lib/bookingPaymentStatus.ts / fare_status).
+        const summary = row.booking_payment_status as BookingPaymentSummary | null | undefined;
+        const { label, tone } = bookingPaymentStatus(summary);
+        return <Badge tone={tone}>{label}</Badge>;
       },
     },
     { key: "commission", label: "Commission", render: (row) => `MWK ${Number(row.commission_amount || 0).toLocaleString()}` },
