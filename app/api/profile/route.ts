@@ -6,6 +6,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeAdminRole } from "@/lib/adminAuth";
 import { jsonError } from "@/lib/apiResponse";
 
+export const dynamic = "force-dynamic";
+
 async function logAmbassadorActivityFallback({ profileId }: { profileId?: string | null }) {
   if (!profileId) return null;
 
@@ -161,7 +163,7 @@ export async function GET(req: NextRequest) {
     ...(ambassadorData || {}),
   };
 
-  return NextResponse.json({ success: true, profile: mergedProfile });
+  return NextResponse.json({ success: true, profile: mergedProfile }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(req: NextRequest) {
