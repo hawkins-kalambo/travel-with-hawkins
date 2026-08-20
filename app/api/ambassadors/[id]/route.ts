@@ -175,6 +175,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (updateError) throw updateError;
 
+    if (fullName && (data?.user_id || data?.profile_id)) {
+      const { error: profileSyncError } = await supabaseAdmin
+        .from("profiles")
+        .update({ full_name: fullName })
+        .eq("id", data.user_id || data.profile_id);
+      if (profileSyncError) console.warn("Failed to sync full_name to profiles table", profileSyncError.message);
+    }
+
     await logAmbassadorActivity({
       ambassadorId: id,
       activityType: isVerified !== undefined ? "verification_changed" : status ? "status_changed" : "profile_updated",
