@@ -603,10 +603,11 @@ export async function POST(req: Request) {
 
     let ambassadorEmailStatus: NotificationStatus = "skipped";
     let ambassadorSmsResult: Awaited<ReturnType<typeof sendAmbassadorReferralAlertSms>> | undefined;
+    let referralRecordStatus: "created" | "failed" | "skipped" = "skipped";
 
     if (referralCode && ambassadorId) {
       try {
-        await supabase.from("referrals").insert([
+        const { error: referralInsertError } = await supabase.from("referrals").insert([
           {
             ambassador_id: ambassadorId,
             booking_id: bookingId,
@@ -620,8 +621,20 @@ export async function POST(req: Request) {
             commission_status: "pending",
           },
         ]);
+        if (referralInsertError) throw referralInsertError;
+        referralRecordStatus = "created";
       } catch (referralError) {
-        logWarn("Referral record creation failed", { error: referralError instanceof Error ? referralError.message : String(referralError) });
+        referralRecordStatus = "failed";
+        // This booking still succeeds either way (the referral record is
+        // secondary to the booking itself) — but a failure here means the
+        // ambassador's commission/referral tracking silently loses this
+        // booking, so it needs to be loud in logs, not just a warning that
+        // scrolls by.
+        logError("Referral record creation failed — booking succeeded but won't appear in referral/commission tracking", {
+          error: referralError instanceof Error ? referralError.message : String(referralError),
+          bookingId,
+          ambassadorId,
+        });
       }
 
       // Best-effort, same as every other notification in this route — never
@@ -718,6 +731,7 @@ export async function POST(req: Request) {
         adminSms: adminSmsResult?.outcome ?? "failed",
         ambassadorEmail: ambassadorEmailStatus,
         ambassadorSms: ambassadorSmsResult?.outcome ?? "skipped",
+        referralRecord: referralRecordStatus,
       },
     });
   } catch (error) {
