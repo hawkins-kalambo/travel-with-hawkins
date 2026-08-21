@@ -374,8 +374,18 @@ function AdminPageContent() {
     () => (isScopedOrReadOnlyAdmin ? TABS.filter((tab) => isViewerAllowedTab(tab.key)) : TABS),
     [isScopedOrReadOnlyAdmin]
   );
-  const hasAdminAccess = userRole === "super_admin" || userRole === "admin" || isUniversityAdmin || isViewer;
-  const accessDenied = searchParams.get("accessDenied") === "1" || (!loading && !hasAdminAccess);
+  // proxy.ts already fully gates /admin server-side before this page ever
+  // renders (canAccessAdminRoute, using the same authoritative
+  // resolveAdminRole() the API routes use) and redirects here with
+  // ?accessDenied=1 for anyone it actually blocks. This client-side
+  // `!loading && !hasAdminAccess` fallback was a redundant re-check of the
+  // same thing using a separately-fetched, less reliable role value — a
+  // real super_admin hit a transient/incorrect resolution here and got a
+  // false "Access denied" banner despite the server already having let
+  // them through. Trusting only the server-verified query param removes
+  // the false-positive without weakening anything proxy.ts already
+  // enforces.
+  const accessDenied = searchParams.get("accessDenied") === "1";
   const effectiveActiveTab = isScopedOrReadOnlyAdmin && !isViewerAllowedTab(activeTab) ? "overview" : activeTab;
 
   const loadReferralsData = useCallback(async () => {
