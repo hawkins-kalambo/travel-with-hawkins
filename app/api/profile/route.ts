@@ -81,16 +81,20 @@ export async function GET(req: NextRequest) {
 
   const resolvedAdminRole = await resolveAdminRole(user);
 
+  // `ambassadors.profile_id` does not exist on the live table — only
+  // `user_id` (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql:
+  // the table was originally designed with profile_id, but every real
+  // deployment only ever got user_id, and other migrations already guard
+  // for that). A `.select()`/`.or()` referencing profile_id errors outright
+  // (not just "no rows"), which silently broke this whole lookup — and its
+  // email fallback below — for every ambassador in production.
   let ambassadorData: Record<string, unknown> | null = null;
-  const lookupDebug: Record<string, unknown> = {};
   const { data: ambassadorRow, error: ambassadorError } = await supabaseAdmin
     .from("ambassadors")
-    .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
-    .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+    .select("id, user_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
+    .eq("user_id", user.id)
     .limit(1)
     .maybeSingle();
-
-  lookupDebug.primary = { error: ambassadorError?.message ?? null, found: !!ambassadorRow };
 
   if (ambassadorError) {
     console.warn("/api/profile: ambassador lookup failed", { userId: user.id, error: ambassadorError });
@@ -106,12 +110,10 @@ export async function GET(req: NextRequest) {
       // DIFFERENT ambassador's row.
       const { data: emailAmbassador, error: emailAmbassadorError } = await supabaseAdmin
         .from("ambassadors")
-        .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
+        .select("id, user_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
         .ilike("email", escapeLikePattern(normalizedEmail))
         .limit(1)
         .maybeSingle();
-
-      lookupDebug.emailFallback = { normalizedEmail, error: emailAmbassadorError?.message ?? null, found: !!emailAmbassador };
 
       if (!emailAmbassadorError && emailAmbassador) {
         console.warn("/api/profile: ambassador fallback email lookup succeeded", { userId: user.id, email: normalizedEmail, ambassadorId: emailAmbassador.id });
@@ -120,16 +122,16 @@ export async function GET(req: NextRequest) {
         // Sync whenever user_id is missing OR stale (pointing at some other,
         // no-longer-current auth id for this same verified email) — not just
         // when it's empty. A stale link previously left the account
-        // permanently unhealed: the primary user_id/profile_id lookup above
-        // kept missing it, and this fallback only corrected a genuinely
-        // empty user_id, never overwrote a wrong one.
+        // permanently unhealed: the primary user_id lookup above kept
+        // missing it, and this fallback only corrected a genuinely empty
+        // user_id, never overwrote a wrong one.
         if (emailAmbassador.user_id !== user.id) {
           const { error: syncError } = await supabaseAdmin
             .from("ambassadors")
             .update({ user_id: user.id })
             .eq("id", emailAmbassador.id)
             .limit(1);
-          lookupDebug.userIdSync = { attempted: true, error: syncError?.message ?? null };
+          if (syncError) console.warn("/api/profile: failed to sync stale ambassador user_id", { ambassadorId: emailAmbassador.id, error: syncError });
         }
       } else if (emailAmbassadorError) {
         console.warn("/api/profile: ambassador fallback email lookup failed", { userId: user.id, email: normalizedEmail, error: emailAmbassadorError });
@@ -175,13 +177,7 @@ export async function GET(req: NextRequest) {
     ...(ambassadorData || {}),
   };
 
-  // Temporary: surfaced only when someone whose profiles.role is literally
-  // "ambassador" still failed to resolve an ambassadors row, so the failure
-  // mode (which lookup missed, and why) is visible from the response itself
-  // without needing direct database access to diagnose.
-  const debugPayload = !ambassadorData && data?.role === "ambassador" ? { _ambassadorLookupDebug: lookupDebug } : {};
-
-  return NextResponse.json({ success: true, profile: { ...mergedProfile, ...debugPayload } }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ success: true, profile: mergedProfile }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(req: NextRequest) {

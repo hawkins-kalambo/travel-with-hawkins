@@ -93,12 +93,17 @@ export async function PATCH(req: NextRequest) {
       const ambassadorId = String(referral.ambassador_id);
       const commissionAmount = Number(referral.commission_amount ?? 0);
 
+      // ambassadors.profile_id does not exist on the live table — only
+      // user_id (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+      // Selecting it here would error the query outright, silently
+      // discarded by the destructure below, leaving every ambassador
+      // un-notified of their own commission approvals/payouts.
       const { data: ambassadorRow } = await supabaseAdmin
         .from("ambassadors")
-        .select("user_id, profile_id")
+        .select("user_id")
         .eq("id", ambassadorId)
         .maybeSingle();
-      const ambassadorProfileId = ambassadorRow?.user_id ?? ambassadorRow?.profile_id ?? undefined;
+      const ambassadorProfileId = ambassadorRow?.user_id ?? undefined;
 
       if (commissionStatus === "approved") {
         await publishCommunicationEvent({

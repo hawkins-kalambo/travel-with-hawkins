@@ -11,7 +11,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const [{ data: ambassadors }, { data: referrals }, { data: bookings }] = await Promise.all([
-      supabaseAdmin.from("ambassadors").select("id, profile_id, full_name, referral_code, status"),
+      // ambassadors.profile_id does not exist on the live table — only
+      // user_id (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+      // Selecting it here errored the whole query, silently returning 0
+      // ambassadors from this diagnostic instead of the real count.
+      supabaseAdmin.from("ambassadors").select("id, user_id, full_name, referral_code, status"),
       supabaseAdmin
         .from("referrals")
         .select("id, booking_id, ambassador_id, customer_name, customer_phone, commission_amount, commission_status, created_at"),
