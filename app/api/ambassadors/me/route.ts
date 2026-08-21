@@ -20,10 +20,13 @@ import { jsonError } from "@/lib/apiResponse";
 // PATCH /api/ambassadors/[id].
 
 async function resolveOwnAmbassador(userId: string) {
+  // ambassadors.profile_id does not exist on the live table — only user_id
+  // (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+  // Referencing it here would error the query outright, not just miss.
   const { data, error } = await supabaseAdmin
     .from("ambassadors")
     .select("*")
-    .or(`user_id.eq.${userId},profile_id.eq.${userId}`)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) throw error;
