@@ -66,10 +66,13 @@ export async function GET(req: NextRequest) {
     // could otherwise have their referral lists cross-resolved.
     let ambassadorId: string | undefined;
 
+    // ambassadors.profile_id does not exist on the live table — only
+    // user_id (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+    // Referencing it here would error the query outright, not just miss.
     const { data: ambassadorByUserId } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+      .eq("user_id", user.id)
       .maybeSingle();
     ambassadorId = ambassadorByUserId?.id;
 
