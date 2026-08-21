@@ -100,10 +100,16 @@ async function getAmbassadorRoleFromDatabase(user: { id: string; email?: string 
   }
 
   try {
+    // ambassadors.profile_id does not exist on the live table — only
+    // user_id (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+    // Referencing it here errored this query on every call (silently
+    // falling through to the email lookup below, which still worked, but
+    // at the cost of a guaranteed failed round-trip on every single
+    // non-admin authenticated request site-wide).
     const { data, error } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+      .eq("user_id", user.id)
       .limit(1)
       .maybeSingle();
 
