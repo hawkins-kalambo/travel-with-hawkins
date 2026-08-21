@@ -33,3 +33,13 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # Report-only, not blocking: a baseline audit on 2026-08-20 already
+      # showed 8 high-severity findings (Next.js/PostCSS/sharp, all
+      # transitive through next), fixable only via a Next.js major-version
+      # bump — a real, separate decision, not something a CI check should
+      # force by turning every future push/PR red. Revisit as blocking once
+      # that upgrade happens or the baseline is otherwise clean.
+      - name: Dependency audit (report only)
+        run: npm audit --audit-level=high
+        continue-on-error: true
