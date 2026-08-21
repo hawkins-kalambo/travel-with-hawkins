@@ -82,12 +82,15 @@ export async function GET(req: NextRequest) {
   const resolvedAdminRole = await resolveAdminRole(user);
 
   let ambassadorData: Record<string, unknown> | null = null;
+  const lookupDebug: Record<string, unknown> = {};
   const { data: ambassadorRow, error: ambassadorError } = await supabaseAdmin
     .from("ambassadors")
     .select("id, user_id, profile_id, full_name, student_id, email, phone, whatsapp_number, university, faculty, program, year_of_study, profile_image_url, referral_code, status, is_verified, created_at, last_login")
     .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
     .limit(1)
     .maybeSingle();
+
+  lookupDebug.primary = { error: ambassadorError?.message ?? null, found: !!ambassadorRow };
 
   if (ambassadorError) {
     console.warn("/api/profile: ambassador lookup failed", { userId: user.id, error: ambassadorError });
@@ -108,6 +111,8 @@ export async function GET(req: NextRequest) {
         .limit(1)
         .maybeSingle();
 
+      lookupDebug.emailFallback = { normalizedEmail, error: emailAmbassadorError?.message ?? null, found: !!emailAmbassador };
+
       if (!emailAmbassadorError && emailAmbassador) {
         console.warn("/api/profile: ambassador fallback email lookup succeeded", { userId: user.id, email: normalizedEmail, ambassadorId: emailAmbassador.id });
         ambassadorData = emailAmbassador as Record<string, unknown>;
@@ -119,11 +124,12 @@ export async function GET(req: NextRequest) {
         // kept missing it, and this fallback only corrected a genuinely
         // empty user_id, never overwrote a wrong one.
         if (emailAmbassador.user_id !== user.id) {
-          await supabaseAdmin
+          const { error: syncError } = await supabaseAdmin
             .from("ambassadors")
             .update({ user_id: user.id })
             .eq("id", emailAmbassador.id)
             .limit(1);
+          lookupDebug.userIdSync = { attempted: true, error: syncError?.message ?? null };
         }
       } else if (emailAmbassadorError) {
         console.warn("/api/profile: ambassador fallback email lookup failed", { userId: user.id, email: normalizedEmail, error: emailAmbassadorError });
@@ -169,7 +175,13 @@ export async function GET(req: NextRequest) {
     ...(ambassadorData || {}),
   };
 
-  return NextResponse.json({ success: true, profile: mergedProfile }, { headers: { "Cache-Control": "no-store" } });
+  // Temporary: surfaced only when someone whose profiles.role is literally
+  // "ambassador" still failed to resolve an ambassadors row, so the failure
+  // mode (which lookup missed, and why) is visible from the response itself
+  // without needing direct database access to diagnose.
+  const debugPayload = !ambassadorData && data?.role === "ambassador" ? { _ambassadorLookupDebug: lookupDebug } : {};
+
+  return NextResponse.json({ success: true, profile: { ...mergedProfile, ...debugPayload } }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(req: NextRequest) {
