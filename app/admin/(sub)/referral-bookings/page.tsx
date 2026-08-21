@@ -79,8 +79,16 @@ export default function AdminReferralBookingsPage() {
     { key: "phone", label: "Phone", render: (row) => String(row.customer_phone || "—") },
     { key: "route", label: "Route", render: (row) => String(row.route || "—") },
     { key: "date", label: "Date", render: (row) => String(row.travel_date || row.created_at || "—") },
-    { key: "referralCode", label: "Referral code", render: (row) => String(row.referral_code || "—") },
-    { key: "ambassador", label: "Ambassador", render: (row) => String(row.ambassador_name || "—") },
+    {
+      key: "referralCode",
+      label: "Referral code",
+      render: (row) => String((row.ambassadors as { referral_code?: string } | null)?.referral_code || "—"),
+    },
+    {
+      key: "ambassador",
+      label: "Ambassador",
+      render: (row) => String((row.ambassadors as { full_name?: string } | null)?.full_name || "—"),
+    },
     { key: "commission", label: "Commission", render: (row) => `MWK ${Number(row.commission_amount || 0).toLocaleString()}` },
     {
       key: "status",

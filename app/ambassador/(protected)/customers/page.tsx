@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { authFetch } from "@/lib/auth";
 import PageHeader from "@/app/components/ui/PageHeader";
 import Badge from "@/app/components/ui/Badge";
@@ -12,6 +12,7 @@ type CustomerRow = Record<string, unknown>;
 export default function AmbassadorCustomersPage() {
   const [rows, setRows] = useState<CustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -29,6 +30,17 @@ export default function AmbassadorCustomersPage() {
 
     void load();
   }, []);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const customerName = String(row.customer_name || "").toLowerCase();
+      const phone = String(row.customer_phone || "").toLowerCase();
+      const route = String(row.route || "").toLowerCase();
+      return customerName.includes(q) || phone.includes(q) || route.includes(q);
+    });
+  }, [rows, search]);
 
   const columns: DataTableColumn<CustomerRow>[] = [
     { key: "student", label: "Student", render: (row) => <span className="font-semibold text-gray-800">{String(row.customer_name || "—")}</span> },
@@ -62,9 +74,15 @@ export default function AmbassadorCustomersPage() {
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="My customers" title="Customers linked to your referral code" />
+      <input
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search by student name, phone or route"
+        className="input-field"
+      />
       <DataTable
         columns={columns}
-        rows={rows}
+        rows={filteredRows}
         getRowKey={(row) => String(row.id)}
         loading={loading}
         loadingLabel="Loading your customers…"
