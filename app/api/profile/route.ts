@@ -12,10 +12,12 @@ async function logAmbassadorActivityFallback({ profileId }: { profileId?: string
   if (!profileId) return null;
 
   try {
+    // ambassadors.profile_id does not exist on the live table — only
+    // user_id (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
     const { data, error } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .or(`user_id.eq.${profileId},profile_id.eq.${profileId}`)
+      .eq("user_id", profileId)
       .maybeSingle();
 
     if (error || !data?.id) return null;
@@ -237,10 +239,15 @@ export async function PATCH(req: NextRequest) {
       if (profileError) throw profileError;
     }
 
+    // ambassadors.profile_id does not exist on the live table — only
+    // user_id (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+    // Referencing it here errored this lookup on every call, which was
+    // rethrown below — meaning PATCH /api/profile 500'd for every
+    // ambassador, every time.
     const { data: ambassadorRow, error: ambassadorLookupError } = await supabaseAdmin
       .from("ambassadors")
       .select("id")
-      .or(`user_id.eq.${user.id},profile_id.eq.${user.id}`)
+      .eq("user_id", user.id)
       .maybeSingle();
 
     if (ambassadorLookupError) throw ambassadorLookupError;

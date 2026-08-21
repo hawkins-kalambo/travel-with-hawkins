@@ -14,28 +14,16 @@ export async function GET(req: NextRequest) {
 
   const emailLower = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
 
-  let profileData = null as { id: string; role?: string } | null;
-  const { data, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("id, role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    const isMissingProfilesTable =
-      typeof profileError.message === "string" &&
-      profileError.message.includes("Could not find the table 'public.profiles' in the schema cache");
-
-    if (!isMissingProfilesTable) {
-      return jsonError(profileError.message || "Unable to load profile", 500);
-    }
-  } else {
-    profileData = data;
-  }
-
-  // Resolved server-side from the admins/ambassadors/profiles tables — never
-  // from user.user_metadata, which the token owner can set themselves.
-  const normalizedRole = normalizeAppRole(profileData?.role ?? (await resolveAdminRole(user)));
+  // Resolved via the same authoritative path every other admin-gated route
+  // uses (see lib/universityAdminAuth.ts's requireUniversityOperationsUser)
+  // — resolveAdminRole() checks the admins table first, only letting
+  // profiles.role win for the university_admin special case. This used to
+  // read profiles.role directly and let it override resolveAdminRole()
+  // whenever non-null, so a real admin whose profiles.role had drifted from
+  // their admins-table entry (e.g. a stale/default value) silently fell
+  // through every branch below and got an empty referrals list back with a
+  // 200, not an error — indistinguishable from "no data" client-side.
+  const normalizedRole = normalizeAppRole(await resolveAdminRole(user));
   const isAdmin = hasPermission(normalizedRole, "manageReferrals");
 
   const query = supabaseAdmin.from("referrals").select("*, ambassadors(id, full_name, referral_code)").order("created_at", { ascending: false });
@@ -56,7 +44,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, referrals: withPaymentStatus });
   }
 
-  if (profileData?.role === "ambassador") {
+  if (normalizedRole === "ambassador") {
     // Fixes AMB-013 from docs/ambassador-system-audit.md: resolve the
     // caller's own ambassador row from their verified session id first
     // (the same reliable pattern lib/supabaseServer.ts already uses for
@@ -103,29 +91,9 @@ export async function DELETE(req: NextRequest) {
   const { user, error } = await requireAuthenticatedUser(req, response);
   if (error || !user) return jsonError("Unauthorized", 401);
 
-  // Check if user is admin
-  let profileData = null as { id: string; role?: string } | null;
-  const { data, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("id, role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    const isMissingProfilesTable =
-      typeof profileError.message === "string" &&
-      profileError.message.includes("Could not find the table 'public.profiles' in the schema cache");
-
-    if (!isMissingProfilesTable) {
-      return jsonError(profileError.message || "Unable to load profile", 500);
-    }
-  } else {
-    profileData = data;
-  }
-
-  // Resolved server-side from the admins/ambassadors/profiles tables — never
-  // from user.user_metadata, which the token owner can set themselves.
-  const normalizedRole = normalizeAppRole(profileData?.role ?? (await resolveAdminRole(user)));
+  // Resolved via the same authoritative path every other admin-gated route
+  // uses — see the matching fix/comment on the GET handler above.
+  const normalizedRole = normalizeAppRole(await resolveAdminRole(user));
   const isAdmin = hasPermission(normalizedRole, "manageReferrals");
 
   if (!isAdmin) {

@@ -179,12 +179,15 @@ export async function publishCommunicationEvent(event: CommunicationEvent): Prom
       // of repeating the bug.
       let profileId = String(event.payload.profile_id || "");
       if (!profileId && event.payload.ambassador_id) {
+        // ambassadors.profile_id does not exist on the live table — only
+        // user_id (see
+        // db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
         const { data: ambassadorRow } = await supabaseAdmin
           .from("ambassadors")
-          .select("user_id, profile_id")
+          .select("user_id")
           .eq("id", String(event.payload.ambassador_id))
           .maybeSingle();
-        profileId = String(ambassadorRow?.user_id || ambassadorRow?.profile_id || "");
+        profileId = String(ambassadorRow?.user_id || "");
       }
       const amount = Number(event.payload.commission_amount ?? 0);
       const bookingId = String(event.payload.booking_id || event.payload.bookingId || "");

@@ -93,10 +93,15 @@ export async function handleAmbassadorLogin(req: NextRequest): Promise<NextRespo
     return NextResponse.json({ success: false, error: "This login is not assigned to an ambassador account." }, { status: 403 });
   }
 
+  // ambassadors.profile_id does not exist on the live table — only user_id
+  // (see db/migrations/2026_08_01_declare_ambassadors_user_id.sql).
+  // Referencing it here errored this query on every login, and the status
+  // check below silently defaulted to "active" on a failed lookup — meaning
+  // a suspended ambassador could still log in.
   const { data: ambassadorRow } = await supabaseAdmin
     .from("ambassadors")
     .select("status")
-    .or(`user_id.eq.${data.user.id},profile_id.eq.${data.user.id}`)
+    .eq("user_id", data.user.id)
     .limit(1)
     .maybeSingle();
 
