@@ -89,7 +89,7 @@ The earlier report's stage table is confirmed structurally correct (nine stages,
 
 ## Category D — Operator platform
 
-**Correction from the 19 Aug report:** the gap here is substantially larger than "Trips/Bookings/Manifests missing." Of 24 requirements, 11 are Not implemented — essentially everything downstream of "manage your own fleet/documents" (trips, departures, bookings, manifests, status actions, support, incidents, settlement, subscriptions, analytics, ratings) does not exist for operators yet, only for taxi/car-hire (which are self-contained listing types, not schedule-based).
+**Correction from the 19 Aug report:** the gap here is substantially larger than "Trips/Bookings/Manifests missing." Of 24 requirements, 11 were Not implemented at Step 0 audit time — essentially everything downstream of "manage your own fleet/documents" (trips, departures, bookings, manifests, status actions, support, incidents, settlement, subscriptions, analytics, ratings) did not exist for operators yet, only for taxi/car-hire (which are self-contained listing types, not schedule-based). **Step 3 slice 1 closed D14** (see below) — 10 of 24 remain Not implemented.
 
 | Requirement | Purpose | Status | Evidence | Missing work | Business dependency | Risk | Acceptance criteria | Step |
 |---|---|---|---|---|---|---|---|---|
@@ -106,7 +106,7 @@ The earlier report's stage table is confirmed structurally correct (nine stages,
 | D11 Taxi fares management | Operator manages own taxi listings | Implemented | `app/operator/_components/TaxiPanel.tsx`, `app/api/operators/taxi-fares/route.ts` + `[id]` | — | — | — | — | — |
 | D12 Car-hire listings management | Operator manages own car-hire listings | Implemented | `app/operator/_components/CarHirePanel.tsx`, `app/api/operators/car-hire-listings/route.ts` + `[id]` | — | — | — | — | — |
 | D13 Trip management (operator-facing) | Operator sees own trips | Not implemented | Covered by the "coming soon" banner | — | — | — | — | S3 |
-| D14 Operator bookings view | Operator sees bookings against their own routes/listings | Not implemented | No `app/api/operators/bookings` endpoint exists at all (confirmed via directory listing) | New endpoint + UI, scoped to `operator_id` | — | High if delayed — operators currently have no way to see who booked their service without going through admin | Operator sees only their own bookings, never another operator's | S3 |
+| D14 Operator bookings view | Operator sees bookings against their own routes/listings | Implemented | `app/api/operators/bookings/route.ts` (new) — GET, gated by new `viewBookings` permission via `requireOperatorUser`, `.eq("operator_id", auth.operatorId)`, `normalizeBookingRecord()` per row, mirroring `app/api/admin/bookings/route.ts`'s own shape. New `app/operator/_components/BookingsPanel.tsx`, wired into `app/operator/page.tsx` alongside the other permission-gated panels. `bookings.operator_id` confirmed set on every insert path (car-hire/taxi/intercity resolve it from their own row; the free-text/legacy path falls back to `resolveDefaultOperatorId()`) — no service-type gap, unlike A11's `university_id` case | — | — | Low (was High) | Operator sees only their own bookings, never another operator's | S3 (Step 3 slice 1) — done, read-only |
 | D15 Passenger manifest | Boarding-day passenger list | Not implemented | Same absence as D14 | Manifest view + print/export | — | Medium — needed for real pilot operations | — | S3 |
 | D16 Boarding/journey-status actions (operator-facing) | Operator marks Boarding/Departed/Arrived | Not implemented | Status transitions currently admin-only (`app/admin/(sub)/trips/page.tsx`) | Operator-scoped status-transition UI | — | — | — | S3 |
 | D17 Booking changes/cancellations (operator-facing) | Operator manages own bookings | Not implemented | No operator-facing booking endpoints exist | — | — | — | — | S3 |
@@ -309,3 +309,21 @@ Re-reading both files in full for this slice found slice 5's deferral reasoning 
 Test count: 212 → 219 (7 new tests), all passing. `npm run typecheck`/`lint`/`build` all clean. No `package.json` change needed (extended existing test files, no new ones).
 
 **Explicitly deferred**: the remaining 65 untested route files, `app/api/bookings/route.ts`'s booking-creation success path.
+
+## Step 3 slice 1 completion record (S2: operator bookings view, D14)
+
+After six S6 hardening slices, moved to Category D (operator platform) — 11 of 24 requirements Not implemented at Step 0 audit time. Picked **D14 (operator bookings view)**, the single item flagged High risk if delayed: *"operators currently have no way to see who booked their service without going through admin."*
+
+A research pass confirmed the foundation was already solid, so this needed no database migration: `bookings.operator_id` (`db/migrations/2026_08_10_bookings_operator_service_type.sql`) is set on every insert path in `app/api/bookings/route.ts` — car-hire/taxi/intercity resolve it from their own listing/fare/route row, and the free-text/legacy path falls back to `resolveDefaultOperatorId()`. No service-type gap like A11's `university_id`-on-taxi/car-hire case — a strict `operator_id` filter works uniformly across all three service types.
+
+**Built, read-only, mirroring existing patterns throughout:**
+- New `viewBookings` permission key (`lib/operatorPermissions.ts`), granted to owner/manager/dispatcher/booking_agent — the roles that plausibly need to know who booked, not driver/finance_officer (who have `viewManifests`/`manageFinance` for their own concerns already).
+- New `app/api/operators/bookings/route.ts` GET — `requireOperatorUser(request, response, "viewBookings")`, `.eq("operator_id", auth.operatorId)`, `normalizeBookingRecord()` per row — the same shape `app/api/admin/bookings/route.ts`'s own GET already uses, so a future richer operator UI can reuse admin-side display components without a second normalization path.
+- New `app/operator/_components/BookingsPanel.tsx`, mirroring `FleetPanel.tsx`'s exact client-component structure, wired into `app/operator/page.tsx` alongside the other permission-gated panels.
+- 3 new tests (401, 403, and an isolation-style test asserting the query is actually filtered by the caller's own `operatorId` — the real mechanism D14's safety requirement depends on, not just an assumption about the handler's intent), plus a new test locking in `viewBookings`'s exact role grants in `lib/operatorPermissions.test.ts`.
+
+Test count: 219 → 223 (4 new tests), all passing. `npm run typecheck`/`lint`/`build` all clean. Live-verified the route is correctly wired and returns 401 unauthenticated against a real dev server.
+
+**Known limitation, stated honestly**: the fully-authenticated path (a real operator staff member seeing their own bookings) was not tested end-to-end in a browser — no operator test credentials were available this session. Confidence instead comes from the isolation-filter unit test (which exercises the actual scoping mechanism directly) and from `requireOperatorUser` being the identical, already-live-proven gate every other operator route uses.
+
+**Explicitly not in this slice** (D14 is read-only visibility only): D15 (passenger manifest/print), D16 (boarding/status actions), D17 (booking changes/cancellations), D18 (customer-support comms), any write capability on bookings from the operator side. 10 of 24 Category D requirements remain Not implemented.

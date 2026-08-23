@@ -14,6 +14,7 @@ export type OperatorPermissionKey =
   | "manageStaff"
   | "manageRoutes"
   | "manageTrips"
+  | "viewBookings"
   | "manageBookings"
   | "manageFinance"
   | "manageDocuments"
@@ -29,6 +30,7 @@ const OPERATOR_ROLE_PERMISSIONS: Record<OperatorStaffRole, OperatorPermissionKey
     "manageStaff",
     "manageRoutes",
     "manageTrips",
+    "viewBookings",
     "manageBookings",
     "manageFinance",
     "manageDocuments",
@@ -43,14 +45,15 @@ const OPERATOR_ROLE_PERMISSIONS: Record<OperatorStaffRole, OperatorPermissionKey
     "manageStaff",
     "manageRoutes",
     "manageTrips",
+    "viewBookings",
     "manageDocuments",
     "viewManifests",
     "reportIncidents",
     "manageOwnProfile",
   ],
-  dispatcher: ["viewDashboard", "manageTrips", "viewManifests", "reportIncidents", "manageOwnProfile"],
+  dispatcher: ["viewDashboard", "manageTrips", "viewBookings", "viewManifests", "reportIncidents", "manageOwnProfile"],
   finance_officer: ["viewDashboard", "manageFinance", "manageOwnProfile"],
-  booking_agent: ["viewDashboard", "manageBookings", "manageOwnProfile"],
+  booking_agent: ["viewDashboard", "viewBookings", "manageBookings", "manageOwnProfile"],
   driver: ["viewDashboard", "viewManifests", "reportIncidents", "manageOwnProfile"],
 };
 

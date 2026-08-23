@@ -66,6 +66,15 @@ test("an unrecognized role has zero permissions rather than throwing", () => {
   assert.equal(hasOperatorPermission("not_a_real_role", "viewDashboard"), false);
 });
 
+test("viewBookings is granted to owner, manager, dispatcher and booking_agent, not finance_officer or driver", () => {
+  assert.equal(hasOperatorPermission("owner", "viewBookings"), true);
+  assert.equal(hasOperatorPermission("manager", "viewBookings"), true);
+  assert.equal(hasOperatorPermission("dispatcher", "viewBookings"), true);
+  assert.equal(hasOperatorPermission("booking_agent", "viewBookings"), true);
+  assert.equal(hasOperatorPermission("finance_officer", "viewBookings"), false);
+  assert.equal(hasOperatorPermission("driver", "viewBookings"), false);
+});
+
 test("every staff role can view the dashboard and manage their own profile", () => {
   for (const role of ["owner", "manager", "dispatcher", "finance_officer", "booking_agent", "driver"]) {
     assert.equal(hasOperatorPermission(role, "viewDashboard"), true, `${role} should see the dashboard`);
