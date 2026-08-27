@@ -317,8 +317,6 @@ function AdminPageContent() {
 
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<"super_admin" | "admin" | "university_admin" | "viewer" | "ambassador" | "customer" | "unknown">("unknown");
-  // Temporary, alongside the debug line below — see there for why.
-  const [debugProfile, setDebugProfile] = useState<{ email?: string; id?: string; full_name?: string } | null>(null);
   const [bookings, setBookings] = useState<EnrichedBooking[]>([]);
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [search, setSearch] = useState("");
@@ -519,14 +517,6 @@ function AdminPageContent() {
         if (profileRes.ok) {
           const profilePayload = await profileRes.json();
           resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
-          // Temporary — see debug line below. Shows which account this
-          // browser session is actually authenticated as, since userRole
-          // alone doesn't say WHOSE role it is.
-          setDebugProfile({
-            email: profilePayload?.profile?.email,
-            id: profilePayload?.profile?.id,
-            full_name: profilePayload?.profile?.full_name,
-          });
           break;
         }
         if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250));
@@ -1407,14 +1397,6 @@ const universityById = useMemo(() => {
                 {visibleTabs.find((t) => t.key === activeTab)?.icon} {currentTabLabel}
               </h2>
               <p className="text-sm text-slate-500 mt-1">{formatDate(new Date())}</p>
-              {/* Temporary diagnostic — remove once the delete-button
-                  visibility issue is confirmed fixed. Shows exactly what
-                  this component's own role state resolved to, since a
-                  separate /api/profile check in DevTools doesn't
-                  necessarily reflect this component's internal state. */}
-              <p className="text-xs font-mono text-amber-600 mt-1">
-                debug: userRole={String(userRole)} loading={String(loading)} email={debugProfile?.email ?? "—"} name={debugProfile?.full_name ?? "—"} id={debugProfile?.id ?? "—"}
-              </p>
             </div>
             <div className="flex gap-2 items-center">
               <div className="relative w-full sm:w-64">
