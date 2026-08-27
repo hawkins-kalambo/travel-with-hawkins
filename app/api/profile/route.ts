@@ -149,7 +149,10 @@ export async function GET(req: NextRequest) {
     if (isMissingProfilesTable) {
       // Resolved server-side (admins/ambassadors tables) — never from
       // user.user_metadata, which the token owner can set themselves.
-      const fallbackRole = ambassadorData ? "ambassador" : resolvedAdminRole || "customer";
+      // Admin-tier roles win over an incidentally-matching ambassador row
+      // — see the same fix/comment on the main resolution path below.
+      const isElevatedAdminRoleFallback = resolvedAdminRole === "super_admin" || resolvedAdminRole === "admin" || resolvedAdminRole === "university_admin";
+      const fallbackRole = isElevatedAdminRoleFallback ? resolvedAdminRole : ambassadorData ? "ambassador" : resolvedAdminRole || "customer";
       return NextResponse.json({
         success: true,
         profile: {
@@ -157,8 +160,8 @@ export async function GET(req: NextRequest) {
           email: user.email,
           full_name: user.user_metadata?.full_name ?? null,
           phone: user.user_metadata?.phone ?? null,
+          ...(isElevatedAdminRoleFallback ? {} : ambassadorData || {}),
           role: fallbackRole,
-          ...(ambassadorData || {}),
         },
       });
     }
@@ -170,13 +173,25 @@ export async function GET(req: NextRequest) {
 
   console.debug("/api/profile: role resolution", { resolvedAdminRole, profileRow: data, resolvedRole, ambassadorDataExists: !!ambassadorData });
 
+  // One person can legitimately be both a super_admin/admin AND have an
+  // ambassador record under the same email (e.g. an admin who also
+  // tested/used the referral program with their own address). Previously
+  // this unconditionally forced role to "ambassador" the moment any
+  // ambassador row matched, completely overriding an already-correct
+  // admin/super_admin/university_admin resolution from resolvedRole above
+  // — silently demoting a real super admin to "ambassador" (and hiding
+  // every admin-only control) purely because they also had an ambassador
+  // row on file. Admin-tier roles now win regardless of ambassador match.
+  const isElevatedAdminRole = resolvedRole === "super_admin" || resolvedRole === "admin" || resolvedRole === "university_admin";
+  const role = isElevatedAdminRole ? resolvedRole : ambassadorData ? "ambassador" : resolvedRole;
+
   const mergedProfile = {
     id: data?.id ?? user.id,
     email: data?.email ?? user.email,
-    full_name: data?.full_name ?? ambassadorData?.full_name ?? user.user_metadata?.full_name ?? null,
-    phone: data?.phone ?? ambassadorData?.phone ?? user.user_metadata?.phone ?? null,
-    role: ambassadorData ? "ambassador" : resolvedRole,
-    ...(ambassadorData || {}),
+    full_name: data?.full_name ?? (isElevatedAdminRole ? null : ambassadorData?.full_name) ?? user.user_metadata?.full_name ?? null,
+    phone: data?.phone ?? (isElevatedAdminRole ? null : ambassadorData?.phone) ?? user.user_metadata?.phone ?? null,
+    ...(isElevatedAdminRole ? {} : ambassadorData || {}),
+    role,
   };
 
   return NextResponse.json({ success: true, profile: mergedProfile }, { headers: { "Cache-Control": "no-store" } });
