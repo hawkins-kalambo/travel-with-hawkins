@@ -1397,6 +1397,12 @@ const universityById = useMemo(() => {
                 {visibleTabs.find((t) => t.key === activeTab)?.icon} {currentTabLabel}
               </h2>
               <p className="text-sm text-slate-500 mt-1">{formatDate(new Date())}</p>
+              {/* Temporary diagnostic — remove once the delete-button
+                  visibility issue is confirmed fixed. Shows exactly what
+                  this component's own role state resolved to, since a
+                  separate /api/profile check in DevTools doesn't
+                  necessarily reflect this component's internal state. */}
+              <p className="text-xs font-mono text-amber-600 mt-1">debug: userRole={String(userRole)} loading={String(loading)}</p>
             </div>
             <div className="flex gap-2 items-center">
               <div className="relative w-full sm:w-64">
