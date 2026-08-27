@@ -504,15 +504,24 @@ function AdminPageContent() {
         }
       }
 
-      const profileRes = await authFetch("/api/profile", { method: "GET" });
+      // Retried the same way as the getSession() loop above and for the
+      // same reason: this can land while the browser's auth state is still
+      // mid-hydration right after a fresh login navigation. A single failed
+      // attempt here previously stuck userRole at "unknown" for the rest of
+      // the page's life (nothing ever retries it again), which silently
+      // hid every super_admin-only control — including the permanent-
+      // delete button on cancelled bookings — from a real super admin.
       let resolvedRole = normalizeAdminRole("unknown");
-      if (profileRes.ok) {
-        const profilePayload = await profileRes.json();
-        resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
-        setUserRole(resolvedRole);
-      } else {
-        setUserRole("unknown");
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const profileRes = await authFetch("/api/profile", { method: "GET" });
+        if (profileRes.ok) {
+          const profilePayload = await profileRes.json();
+          resolvedRole = normalizeAdminRole(profilePayload?.profile?.role ?? profilePayload?.role);
+          break;
+        }
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250));
       }
+      setUserRole(resolvedRole);
 
       const isGlobalAdmin = resolvedRole === "super_admin" || resolvedRole === "admin";
       await Promise.all([
