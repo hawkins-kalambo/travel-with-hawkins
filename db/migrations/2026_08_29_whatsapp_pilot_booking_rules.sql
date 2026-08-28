@@ -161,16 +161,18 @@ GRANT EXECUTE ON FUNCTION public.create_capacity_checked_booking(
   TEXT, TEXT, TEXT, UUID, TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, UUID, TEXT)
   TO service_role;
 
+-- Releases the seat by moving Booked -> Cancelled (a valid journey
+-- transition; capacity is computed and excludes cancelled). `bookings` has
+-- no cancellation_reason / updated_at column, so only `status` is touched;
+-- an auto-expired WhatsApp reservation is identifiable by
+-- source = 'whatsapp' + status = 'Cancelled' + fee unpaid + past deadline.
 CREATE OR REPLACE FUNCTION public.expire_whatsapp_reservations()
 RETURNS TABLE(booking_id TEXT)
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
 BEGIN
   RETURN QUERY
   UPDATE public.bookings b
-     SET status = 'Cancelled',
-         cancellation_reason = COALESCE(b.cancellation_reason,
-           'Auto-cancelled: booking fee not paid before the deadline'),
-         updated_at = now()
+     SET status = 'Cancelled'
    WHERE b.booking_source = 'whatsapp'
      AND b.booking_fee_status = 'unpaid'
      AND lower(COALESCE(b.status, 'booked')) = 'booked'

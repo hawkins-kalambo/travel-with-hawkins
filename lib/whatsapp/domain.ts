@@ -184,11 +184,11 @@ export async function cancelWhatsAppBooking(bookingId: string, contactId: string
   if (current.data.booking_fee_status === "paid" || status !== "booked" || current.data.ambassador_id) {
     return { outcome: "needs_agent" };
   }
-  const updated = await supabaseAdmin.from("bookings").update({
-    status: "Cancelled",
-    cancellation_reason: "Cancelled by customer via WhatsApp",
-    updated_at: new Date().toISOString(),
-  }).eq("booking_id", bookingId).eq("whatsapp_contact_id", contactId).eq("status", "Booked")
+  // `bookings` has no cancellation_reason / updated_at column here — set only
+  // status; the whatsapp_contact_id + Booked guard keeps this to the bot's
+  // own not-yet-departed reservations.
+  const updated = await supabaseAdmin.from("bookings").update({ status: "Cancelled" })
+    .eq("booking_id", bookingId).eq("whatsapp_contact_id", contactId).eq("status", "Booked")
     .select("booking_id").maybeSingle();
   if (updated.error || !updated.data) return { outcome: "needs_agent" };
   return { outcome: "cancelled" };
