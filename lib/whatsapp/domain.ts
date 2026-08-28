@@ -5,12 +5,23 @@ import { contactMatchesBooking, loadBookingById } from "@/lib/bookingAccess";
 import { generateBookingId, generateTripId } from "@/lib/bookingServerUtils";
 import { initiatePayChanguPayment } from "@/lib/payments/payment-service";
 import { verifyAndFinalizePayment } from "@/lib/payments/finalize-flow";
+import { FINAL_CUTOFF_HOURS, WHATSAPP_POLICY_VERSION, departureEpochMs } from "@/lib/whatsapp/booking-rules";
 import type { BookingDraft, WhatsAppConversationState } from "@/lib/whatsapp/types";
 
 export type AvailableDeparture = {
   id: string; routeId: string; routeLabel: string; travelDate: string;
   departureTime?: string; fare: number; pickup: string; availableSeats: number;
 };
+
+// Booking fee is a single configured amount (settings.booking_fee, MWK).
+// Read the same way create_capacity_checked_booking() reads it, for the
+// pre-confirmation preview only — the RPC re-reads it at creation time.
+export async function getBookingFeeAmount(): Promise<number> {
+  const result = await supabaseAdmin.from("settings").select("booking_fee")
+    .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+  if (result.error || !result.data) return 0;
+  return Number(result.data.booking_fee) || 0;
+}
 
 function related(value: unknown): Record<string, unknown> | undefined {
   if (Array.isArray(value)) return value[0] as Record<string, unknown> | undefined;
@@ -57,11 +68,14 @@ export async function findAvailableDepartures(origin?: string, departureId?: str
     reserved.set(booking.departure_id, (reserved.get(booking.departure_id) || 0) + (Number(booking.seats) || 1));
   }
   const routeMap = new Map(routes.map((route) => [route.id, route]));
+  const cutoffMs = Date.now() + FINAL_CUTOFF_HOURS * 3_600_000;
   return departures.flatMap((departure): AvailableDeparture[] => {
     const route = routeMap.get(departure.route_id);
     if (!route) return [];
     const availableSeats = Number(departure.capacity) - (reserved.get(departure.id) || 0);
     if (availableSeats <= 0) return [];
+    // D02: never offer a departure within the final 24h cutoff.
+    if (departureEpochMs(departure.travel_date, departure.departure_time) <= cutoffMs) return [];
     const university = related(route.university);
     const campus = related(route.pickupPoint);
     const district = related(route.districtPickupPoint);
@@ -81,13 +95,15 @@ export async function loadDeparture(departureId: string): Promise<AvailableDepar
 }
 
 export type CreateWhatsAppBookingResult =
-  | { outcome: "created" | "existing"; bookingId: string }
+  | { outcome: "created" | "existing"; bookingId: string; expiresAt: string | null; fare: number; bookingFee: number; shortNotice: boolean }
   | { outcome: "rejected"; reason: string };
 
 export async function createWhatsAppBooking(
   conversation: WhatsAppConversationState, draft: BookingDraft, operationKey: string
 ): Promise<CreateWhatsAppBookingResult> {
-  if (!draft.departureId || !draft.name || !draft.seats) return { outcome: "rejected", reason: "incomplete_booking" };
+  if (!draft.departureId || !draft.name) return { outcome: "rejected", reason: "incomplete_booking" };
+  // Recheck the departure at confirm time (price/capacity/24h cutoff) — the
+  // RPC is the final authority, this is a fast pre-check.
   const departure = await loadDeparture(draft.departureId);
   if (!departure) return { outcome: "rejected", reason: "departure_unavailable" };
   const bookingId = generateBookingId();
@@ -95,9 +111,11 @@ export async function createWhatsAppBooking(
   const result = await supabaseAdmin.rpc("create_capacity_checked_booking", {
     p_operation_key: operationKey, p_booking_id: bookingId, p_trip_id: tripId,
     p_departure_id: departure.id, p_name: draft.name, p_phone: conversation.waId,
-    p_email: draft.email || "", p_student_id: draft.studentId || "", p_seats: draft.seats,
+    p_email: draft.email || "", p_student_id: draft.studentId || "", p_seats: 1,
     p_destination: departure.routeLabel, p_pickup: departure.pickup, p_location: departure.pickup,
     p_booking_type: "WhatsApp",
+    p_whatsapp_contact_id: conversation.contactId,
+    p_policy_version: WHATSAPP_POLICY_VERSION,
   });
   if (result.error) throw result.error;
   const row = Array.isArray(result.data) ? result.data[0] : result.data;
@@ -106,7 +124,74 @@ export async function createWhatsAppBooking(
     operation_key: operationKey, conversation_id: conversation.conversationId,
     booking_id: row.booking_id, status: "completed", updated_at: new Date().toISOString(),
   }, { onConflict: "operation_key" });
-  return { outcome: row.outcome, bookingId: row.booking_id };
+  const expiresAt: string | null = row.expires_at ?? null;
+  const shortNotice = expiresAt ? Date.parse(expiresAt) - Date.now() < 30 * 60 * 1000 : false;
+  return {
+    outcome: row.outcome, bookingId: row.booking_id, expiresAt,
+    fare: Number(row.fare) || departure.fare, bookingFee: Number(row.booking_fee) || 0, shortNotice,
+  };
+}
+
+export type WhatsAppBookingSummary = {
+  bookingId: string; routeLabel: string; travelDate: string; status: string;
+  bookingFeeStatus: string; fareStatus: string; expiresAt: string | null;
+};
+
+// Bookings securely linked to this WhatsApp contact (set only by the RPC).
+export async function listWhatsAppBookings(contactId: string): Promise<WhatsAppBookingSummary[]> {
+  const result = await supabaseAdmin.from("bookings")
+    .select("booking_id,destination,travel_date,status,booking_fee_status,fare_status,booking_expires_at")
+    .eq("whatsapp_contact_id", contactId)
+    .order("created_at", { ascending: false }).limit(15);
+  if (result.error) throw result.error;
+  return (result.data ?? []).map((row) => ({
+    bookingId: String(row.booking_id),
+    routeLabel: String(row.destination || "Trip"),
+    travelDate: String(row.travel_date || ""),
+    status: String(row.status || "Booked"),
+    bookingFeeStatus: String(row.booking_fee_status || "unpaid"),
+    fareStatus: String(row.fare_status || "unpaid"),
+    expiresAt: row.booking_expires_at ?? null,
+  }));
+}
+
+export async function loadWhatsAppBooking(bookingId: string, contactId: string): Promise<WhatsAppBookingSummary | null> {
+  const result = await supabaseAdmin.from("bookings")
+    .select("booking_id,destination,travel_date,status,booking_fee_status,fare_status,booking_expires_at")
+    .eq("booking_id", bookingId).eq("whatsapp_contact_id", contactId).maybeSingle();
+  if (result.error || !result.data) return null;
+  const row = result.data;
+  return {
+    bookingId: String(row.booking_id), routeLabel: String(row.destination || "Trip"),
+    travelDate: String(row.travel_date || ""), status: String(row.status || "Booked"),
+    bookingFeeStatus: String(row.booking_fee_status || "unpaid"), fareStatus: String(row.fare_status || "unpaid"),
+    expiresAt: row.booking_expires_at ?? null,
+  };
+}
+
+export type CancelWhatsAppBookingResult = { outcome: "cancelled" | "needs_agent" | "not_found" };
+
+// Pilot scope: the bot only cancels its own unpaid, not-yet-departed
+// reservations (Booked). Anything paid, further along, or ambassador-linked
+// goes to an agent — the existing admin cancellation path (commission
+// reversal, refunds) is not reimplemented here.
+export async function cancelWhatsAppBooking(bookingId: string, contactId: string): Promise<CancelWhatsAppBookingResult> {
+  const current = await supabaseAdmin.from("bookings")
+    .select("booking_id,status,booking_fee_status,ambassador_id")
+    .eq("booking_id", bookingId).eq("whatsapp_contact_id", contactId).maybeSingle();
+  if (current.error || !current.data) return { outcome: "not_found" };
+  const status = String(current.data.status || "Booked").toLowerCase();
+  if (current.data.booking_fee_status === "paid" || status !== "booked" || current.data.ambassador_id) {
+    return { outcome: "needs_agent" };
+  }
+  const updated = await supabaseAdmin.from("bookings").update({
+    status: "Cancelled",
+    cancellation_reason: "Cancelled by customer via WhatsApp",
+    updated_at: new Date().toISOString(),
+  }).eq("booking_id", bookingId).eq("whatsapp_contact_id", contactId).eq("status", "Booked")
+    .select("booking_id").maybeSingle();
+  if (updated.error || !updated.data) return { outcome: "needs_agent" };
+  return { outcome: "cancelled" };
 }
 
 export type BookingTrackingView = {

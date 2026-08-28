@@ -2,12 +2,12 @@ import type { WhatsAppActionId, WhatsAppLanguage } from "@/lib/whatsapp/types";
 
 export type DeterministicIntent =
   | "menu" | "back" | "cancel" | "restart" | "agent" | "opt_out" | "opt_in"
-  | "routes" | "booking" | "payment" | "tracking" | "question" | "language" | "unknown";
+  | "routes" | "booking" | "payment" | "tracking" | "mybookings" | "question" | "language" | "unknown";
 
 const ACTION_INTENTS: Partial<Record<WhatsAppActionId, DeterministicIntent>> = {
   menu_routes: "routes", menu_booking: "booking", menu_payment: "payment",
-  menu_tracking: "tracking", menu_question: "question", menu_agent: "agent",
-  menu_language: "language", flow_cancel: "cancel", flow_back: "back",
+  menu_tracking: "tracking", menu_mybookings: "mybookings", menu_question: "question",
+  menu_agent: "agent", menu_language: "language", flow_cancel: "cancel", flow_back: "back",
 };
 
 export function detectIntent(rawText: string, actionId?: string): DeterministicIntent {
@@ -24,6 +24,9 @@ export function detectIntent(rawText: string, actionId?: string): DeterministicI
   if (["restart", "reset", "start over", "yambiraninso"].includes(value)) return "restart";
   if (/agent|human|someone|munthu|wothandiza|lankhulani/.test(value)) return "agent";
   if (/track|status.*booking|booking.*status|tsatir|onani.*booking/.test(value)) return "tracking";
+  // "my bookings" (list) — checked after tracking so "track my booking" stays
+  // tracking, and before the generic /book/ rule below.
+  if (/my bookings?|mybookings?|ma ?booking anga|mabuku anga/.test(value)) return "mybookings";
   if (/pay|payment|booking fee|lipir/.test(value)) return "payment";
   if (/book|booking|pangani booking|kupanga booking/.test(value)) return "booking";
   if (/route|fare|how much|travel from|travel to|ulendo|ndikufuna kupita|mtengo/.test(value)) return "routes";

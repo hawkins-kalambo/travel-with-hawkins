@@ -16,6 +16,7 @@ export function mainMenuMessage(language: WhatsAppLanguage): WhatsAppOutboundMes
     { id: "menu_booking", title: t(language, "menuBooking") },
     { id: "menu_payment", title: t(language, "menuPayment") },
     { id: "menu_tracking", title: t(language, "menuTracking") },
+    { id: "menu_mybookings", title: t(language, "menuMyBookings") },
     { id: "menu_question", title: t(language, "menuQuestion") },
     { id: "menu_agent", title: t(language, "menuAgent") },
     { id: "menu_language", title: t(language, "menuLanguage") },
@@ -31,6 +32,52 @@ export function confirmationMessage(language: WhatsAppLanguage, summary: string)
     type: "buttons", body: `${t(language, "confirmBooking")}\n${summary}`,
     buttons: [{ id: "flow_confirm", title: t(language, "confirmed") }, { id: "flow_cancel", title: t(language, "cancel") }],
     fallback: `${t(language, "confirmBooking")}\n${summary}\n1. ${t(language, "confirmed")}\n2. ${t(language, "cancel")}`,
+  };
+}
+
+// A Confirm / Cancel prompt whose body is supplied in full (no fixed prefix).
+export function confirmPromptMessage(language: WhatsAppLanguage, body: string): WhatsAppOutboundMessage {
+  return {
+    type: "buttons", body,
+    buttons: [{ id: "flow_confirm", title: t(language, "confirmed") }, { id: "flow_cancel", title: t(language, "cancel") }],
+    fallback: `${body}\n1. ${t(language, "confirmed")}\n2. ${t(language, "cancel")}`,
+  };
+}
+
+export function passengerForMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  return {
+    type: "buttons", body: t(language, "askPassengerFor"),
+    buttons: [
+      { id: "booking_self", title: t(language, "passengerSelf") },
+      { id: "booking_other", title: t(language, "passengerOther") },
+    ],
+    fallback: `${t(language, "askPassengerFor")}\n1. ${t(language, "passengerSelf")}\n2. ${t(language, "passengerOther")}`,
+  };
+}
+
+export type BookingListItem = { bookingId: string; routeLabel: string; travelDate: string; statusLabel: string };
+
+export function bookingsListMessage(language: WhatsAppLanguage, items: BookingListItem[]): WhatsAppOutboundMessage {
+  const rows = items.slice(0, 10).map((item) => ({
+    id: `bk:${item.bookingId}`,
+    title: item.routeLabel.slice(0, 24),
+    description: `${item.travelDate} • ${item.statusLabel}`.slice(0, 72),
+  }));
+  const body = t(language, "myBookingsHeader");
+  return {
+    type: "list", body, button: t(language, "myBookingsButton"), rows,
+    fallback: `${body}\n${items.map((item, index) => `${index + 1}. ${item.routeLabel}, ${item.travelDate} (${item.statusLabel})`).join("\n")}`,
+  };
+}
+
+export function bookingActionMessage(language: WhatsAppLanguage, body: string): WhatsAppOutboundMessage {
+  return {
+    type: "buttons", body,
+    buttons: [
+      { id: "bk_pay", title: t(language, "payFee") },
+      { id: "bk_cancel", title: t(language, "cancelBooking") },
+    ],
+    fallback: `${body}\n1. ${t(language, "payFee")}\n2. ${t(language, "cancelBooking")}\n(menu to go back)`,
   };
 }
 

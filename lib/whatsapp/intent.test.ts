@@ -29,7 +29,8 @@ test("uses stable action ids independent of language", () => {
 
 test("menu, back, restart, cancel and handoff are deterministic", () => {
   assert.deepEqual(reduceGlobalCommand("booking_email", "back"), { kind: "back", nextStep: "booking_name" });
-  assert.deepEqual(reduceGlobalCommand("booking_confirm", "cancel"), { kind: "cancel", nextStep: "menu" });
+  assert.deepEqual(reduceGlobalCommand("booking_review", "cancel"), { kind: "cancel", nextStep: "menu" });
+  assert.deepEqual(reduceGlobalCommand("booking_review", "back"), { kind: "back", nextStep: "booking_student_id" });
   assert.deepEqual(reduceGlobalCommand("question", "restart"), { kind: "restart", nextStep: "menu" });
   assert.deepEqual(reduceGlobalCommand("menu", "agent"), { kind: "handoff", nextStep: "agent_waiting" });
 });

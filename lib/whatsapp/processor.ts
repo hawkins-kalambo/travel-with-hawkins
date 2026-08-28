@@ -6,11 +6,12 @@ import { isRateLimited } from "@/lib/rateLimit";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { markWhatsAppMessageRead } from "@/lib/whatsapp/client";
 import { getWhatsAppAiProvider } from "@/lib/whatsapp/ai-provider";
-import { createWhatsAppBooking, findAvailableDepartures, getOrCreateBookingFeeCheckout, loadDeparture, trackBookingForWhatsApp, type AvailableDeparture } from "@/lib/whatsapp/domain";
+import { cancelWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listWhatsAppBookings, loadDeparture, loadWhatsAppBooking, trackBookingForWhatsApp, type AvailableDeparture } from "@/lib/whatsapp/domain";
+import { UNPAID_RESERVATION_LIMIT, formatMalawiDateTime } from "@/lib/whatsapp/booking-rules";
 import { answerFromApprovedKnowledge } from "@/lib/whatsapp/knowledge";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
-import { confirmationMessage, languageMessage, mainMenuMessage } from "@/lib/whatsapp/messages";
+import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, languageMessage, mainMenuMessage, passengerForMessage } from "@/lib/whatsapp/messages";
 import { claimWebhookEvent, deliverAndRecord, ensureConversation, failWebhookEvent, finishWebhookEvent, recordInbound, requestHuman, setLanguage, setOptOut, transitionState, updateDeliveryStatus } from "@/lib/whatsapp/repository";
 import { reduceGlobalCommand } from "@/lib/whatsapp/state-machine";
 import type { BookingDraft, WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppOutboundMessage } from "@/lib/whatsapp/types";
@@ -23,12 +24,25 @@ function validEmail(value: string): boolean { return /^[^\s@]+@[^\s@]+\.[^\s@]+$
 
 function promptForStep(conversation: WhatsAppConversationState): string {
   const keys = {
-    route_origin: "askOrigin", booking_departure: "askDestination", booking_name: "askName",
-    booking_email: "askEmail", booking_student_id: "askStudentId", booking_seats: "askSeats",
+    route_origin: "askOrigin", booking_departure: "askDestination",
+    booking_passenger_for: "askPassengerFor", booking_name: "askName",
+    booking_email: "askEmail", booking_student_id: "askStudentId",
     payment_booking_id: "askBookingIdPayment", tracking_booking_id: "askBookingIdTracking", question: "askQuestion",
   } as const;
   const key = keys[conversation.step as keyof typeof keys];
   return key ? t(conversation.language, key) : t(conversation.language, "mainMenu");
+}
+
+function isAffirmative(message: WhatsAppInboundMessage): boolean {
+  return message.actionId === "flow_confirm"
+    || ["confirm", "yes", "tsimikizani", "eya", "inde", "1"].includes(message.text.trim().toLowerCase());
+}
+
+function bookingRejectionKey(reason: string): "unpaidLimitReached" | "departureTooSoon" | "seatsUnavailable" | "bookingFailed" {
+  if (reason === "unpaid_limit_reached") return "unpaidLimitReached";
+  if (reason === "departure_too_soon") return "departureTooSoon";
+  if (reason === "insufficient_seats" || reason === "departure_unavailable" || reason === "route_unavailable") return "seatsUnavailable";
+  return "bookingFailed";
 }
 
 async function send(conversation: WhatsAppConversationState, message: WhatsAppOutboundMessage): Promise<void> {
@@ -137,8 +151,8 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
 
   if (conversation.step === "menu") {
     const numeric = message.text.trim();
-    const selected = /^[1-7]$/.test(numeric)
-      ? ["routes", "booking", "payment", "tracking", "question", "agent", "language"][Number(numeric) - 1]
+    const selected = /^[1-8]$/.test(numeric)
+      ? ["routes", "booking", "payment", "tracking", "mybookings", "question", "agent", "language"][Number(numeric) - 1]
       : intent;
     if (selected === "routes") { await startRouteSearch(conversation, false); return; }
     if (selected === "booking") { await startRouteSearch(conversation, true); return; }
@@ -149,6 +163,17 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     if (selected === "tracking") {
       const next = await transitionState(conversation, "tracking_booking_id", {});
       await send(next, textMessage(t(next.language, "askBookingIdTracking"))); return;
+    }
+    if (selected === "mybookings") {
+      const lookup = await tryRouteLookup(conversation, () => listWhatsAppBookings(conversation.contactId));
+      if (!lookup.ok) { await send(conversation, textMessage(t(conversation.language, "systemError"))); return; }
+      if (!lookup.value.length) { await send(conversation, textMessage(t(conversation.language, "myBookingsEmpty"))); return; }
+      const next = await transitionState(conversation, "my_bookings", {});
+      await send(next, bookingsListMessage(next.language, lookup.value.map((b) => ({
+        bookingId: b.bookingId, routeLabel: b.routeLabel, travelDate: b.travelDate,
+        statusLabel: b.bookingFeeStatus === "paid" ? b.status : `${b.status} · fee unpaid`,
+      }))));
+      return;
     }
     if (selected === "question") {
       const next = await transitionState(conversation, "question", {});
@@ -190,8 +215,22 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
     const departure = lookup.value;
     if (!departure) { await send(conversation, textMessage(t(conversation.language, "invalidInput"))); return; }
-    const booking: BookingDraft = { departureId, routeId: departure.routeId, routeLabel: departure.routeLabel, travelDate: departure.travelDate, pickup: departure.pickup };
-    const next = await transitionState(conversation, "booking_name", { ...conversation.data, booking });
+    const booking: BookingDraft = {
+      departureId, routeId: departure.routeId, routeLabel: departure.routeLabel,
+      travelDate: departure.travelDate, departureTime: departure.departureTime, pickup: departure.pickup, fare: departure.fare,
+    };
+    const next = await transitionState(conversation, "booking_passenger_for", { ...conversation.data, booking });
+    await send(next, passengerForMessage(next.language)); return;
+  }
+
+  if (conversation.step === "booking_passenger_for") {
+    const value = message.text.trim().toLowerCase();
+    const isSelf = message.actionId === "booking_self" || ["me", "myself", "self", "for me", "yanga", "ndi yanga", "1"].includes(value);
+    const isOther = message.actionId === "booking_other" || ["someone else", "other", "wina", "munthu wina", "2"].includes(value);
+    if (!isSelf && !isOther) { await send(conversation, passengerForMessage(conversation.language)); return; }
+    const next = await transitionState(conversation, "booking_name", {
+      ...conversation.data, booking: { ...conversation.data.booking, passengerIsSelf: isSelf },
+    });
     await send(next, textMessage(t(next.language, "askName"))); return;
   }
 
@@ -211,28 +250,41 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
   if (conversation.step === "booking_student_id") {
     const raw = clean(message.text, 50);
     const skipped = ["skip", "none", "palibe"].includes(raw.toLowerCase());
-    const next = await transitionState(conversation, "booking_seats", { ...conversation.data, booking: { ...conversation.data.booking, studentId: skipped ? undefined : raw } });
-    await send(next, textMessage(t(next.language, "askSeats"))); return;
+    const booking = { ...conversation.data.booking, studentId: skipped ? undefined : raw };
+    const next = await transitionState(conversation, "booking_review", { ...conversation.data, booking });
+    const fare = Number(booking.fare) || 0;
+    const fee = await getBookingFeeAmount();
+    const mwk = (n: number) => n.toLocaleString("en-MW");
+    const summary = t(next.language, "reviewSummary", {
+      name: booking.name ?? "", route: booking.routeLabel ?? "", date: booking.travelDate ?? "",
+      pickup: booking.pickup ?? "", fare: mwk(fare), fee: mwk(fee), total: mwk(fare + fee), balance: mwk(fare),
+    });
+    await send(next, confirmPromptMessage(next.language, summary)); return;
   }
-  if (conversation.step === "booking_seats") {
-    const seats = Number(message.text.trim());
-    if (!Number.isInteger(seats) || seats < 1 || seats > 10) { await send(conversation, textMessage(t(conversation.language, "invalidSeats"))); return; }
-    const booking = { ...conversation.data.booking, seats };
-    const next = await transitionState(conversation, "booking_confirm", { ...conversation.data, booking });
-    const summary = `${booking.routeLabel}\n${booking.travelDate}\n${booking.name}\n${seats} passenger${seats === 1 ? "" : "s"}\nPhone: ${conversation.waId}`;
-    await send(next, confirmationMessage(next.language, summary)); return;
-  }
-  if (conversation.step === "booking_confirm") {
-    const confirmed = message.actionId === "flow_confirm" || ["confirm", "yes", "tsimikizani", "1"].includes(message.text.trim().toLowerCase());
-    if (!confirmed) { await send(conversation, confirmationMessage(conversation.language, t(conversation.language, "confirmBooking"))); return; }
+  if (conversation.step === "booking_review") {
+    if (!isAffirmative(message)) { await goToMenu(conversation, t(conversation.language, "cancelled")); return; }
     const result = await createWhatsAppBooking(conversation, conversation.data.booking || {}, `meta:${message.id}`);
     if (result.outcome === "rejected") {
-      const key = result.reason === "insufficient_seats" || result.reason === "departure_unavailable" ? "seatsUnavailable" : "bookingFailed";
-      await send(conversation, textMessage(t(conversation.language, key))); return;
+      await goToMenu(conversation, t(conversation.language, bookingRejectionKey(result.reason), { limit: UNPAID_RESERVATION_LIMIT }));
+      return;
     }
-    let response = t(conversation.language, result.outcome === "existing" ? "bookingDuplicate" : "bookingCreated", { bookingId: result.bookingId });
     const payment = await getOrCreateBookingFeeCheckout(result.bookingId, conversation.waId);
-    if (payment.outcome === "checkout") response += `\n\n${t(conversation.language, "paymentLink", { url: payment.url })}`;
+    const link = payment.outcome === "checkout" ? payment.url : "";
+    const fee = result.bookingFee.toLocaleString("en-MW");
+    let response: string;
+    if (result.shortNotice) {
+      response = t(conversation.language, "bookingHeldShort", { bookingId: result.bookingId, fee, link });
+    } else if (link) {
+      response = t(conversation.language, "bookingHeldStandard", {
+        bookingId: result.bookingId, fee,
+        deadline: result.expiresAt ? formatMalawiDateTime(Date.parse(result.expiresAt)) : "the stated deadline", link,
+      });
+    } else {
+      response = t(conversation.language, "bookingHeldNoLink", {
+        bookingId: result.bookingId, fee,
+        deadline: result.expiresAt ? formatMalawiDateTime(Date.parse(result.expiresAt)) : "the stated deadline",
+      });
+    }
     await goToMenu(conversation, response); return;
   }
 
@@ -257,6 +309,50 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
       bookingId: view.bookingId, route: view.route, date: view.travelDate,
       journey: view.journeyStatus, payment: view.paymentStatus, pickup: view.pickup,
     })); return;
+  }
+
+  if (conversation.step === "my_bookings") {
+    const bookingId = message.actionId?.startsWith("bk:") ? message.actionId.slice(3) : "";
+    const detail = bookingId ? await loadWhatsAppBooking(bookingId, conversation.contactId) : null;
+    if (!detail) { await send(conversation, textMessage(t(conversation.language, "selectBooking"))); return; }
+    const next = await transitionState(conversation, "booking_action", { selectedBookingId: bookingId });
+    const deadline = detail.bookingFeeStatus !== "paid" && detail.expiresAt
+      ? t(next.language, "bookingDeadlineLine", { deadline: formatMalawiDateTime(Date.parse(detail.expiresAt)) })
+      : "";
+    const body = t(next.language, "bookingDetail", {
+      bookingId: detail.bookingId, route: detail.routeLabel, date: detail.travelDate,
+      status: detail.status, feeStatus: detail.bookingFeeStatus, fareStatus: detail.fareStatus, deadline,
+    });
+    await send(next, bookingActionMessage(next.language, body)); return;
+  }
+
+  if (conversation.step === "booking_action") {
+    const bookingId = conversation.data.selectedBookingId || "";
+    if (!bookingId) { await goToMenu(conversation); return; }
+    if (message.actionId === "bk_pay") {
+      const result = await getOrCreateBookingFeeCheckout(bookingId, conversation.waId);
+      const response = result.outcome === "paid" ? t(conversation.language, "paymentPaid", { bookingId })
+        : result.outcome === "checkout" ? t(conversation.language, "paymentLink", { url: result.url })
+        : t(conversation.language, "paymentFailed");
+      await goToMenu(conversation, response); return;
+    }
+    if (message.actionId === "bk_cancel") {
+      const next = await transitionState(conversation, "cancel_confirm", { selectedBookingId: bookingId });
+      await send(next, confirmPromptMessage(next.language, t(next.language, "cancelConfirmPrompt", { bookingId }))); return;
+    }
+    await send(conversation, textMessage(t(conversation.language, "selectBooking"))); return;
+  }
+
+  if (conversation.step === "cancel_confirm") {
+    const bookingId = conversation.data.selectedBookingId || "";
+    if (!isAffirmative(message)) { await goToMenu(conversation); return; }
+    const result = await cancelWhatsAppBooking(bookingId, conversation.contactId);
+    if (result.outcome === "cancelled") { await goToMenu(conversation, t(conversation.language, "cancelDone", { bookingId })); return; }
+    if (result.outcome === "needs_agent") {
+      conversation = await requestHuman(conversation);
+      await send(conversation, textMessage(t(conversation.language, "cancelNeedsAgent"))); return;
+    }
+    await goToMenu(conversation, t(conversation.language, "cancelNotFound")); return;
   }
 
   if (conversation.step === "question") { await answerQuestion(conversation, message.text); return; }

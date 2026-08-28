@@ -20,6 +20,8 @@ const state = {
   loadDepartureCalls: 0,
   bookingCalls: 0,
   paymentCalls: 0,
+  listCalls: 0,
+  cancelCalls: 0,
 };
 
 // Per-test knobs
@@ -27,6 +29,11 @@ let claimResult: unknown;
 let conversationRow: Record<string, unknown>;
 let departuresImpl: (origin?: string) => Promise<unknown[]>;
 let loadDepartureImpl: (id: string) => Promise<unknown>;
+let createBookingImpl: (...a: unknown[]) => Promise<unknown>;
+let paymentImpl: () => unknown;
+let listImpl: () => unknown[];
+let loadBookingImpl: (id: string) => unknown;
+let cancelImpl: (...a: unknown[]) => unknown;
 let transitionThrows: string | null;
 
 function baseConversation(overrides: Record<string, unknown> = {}) {
@@ -46,8 +53,12 @@ mock.module("@/lib/whatsapp/domain", {
   exports: {
     findAvailableDepartures: async (origin?: string) => { state.departuresCalls += 1; return departuresImpl(origin); },
     loadDeparture: async (id: string) => { state.loadDepartureCalls += 1; return loadDepartureImpl(id); },
-    createWhatsAppBooking: async () => { state.bookingCalls += 1; return { outcome: "rejected", reason: "test" }; },
-    getOrCreateBookingFeeCheckout: async () => { state.paymentCalls += 1; return { outcome: "rejected", reason: "test" }; },
+    createWhatsAppBooking: async (...a: unknown[]) => { state.bookingCalls += 1; return createBookingImpl(...a); },
+    getBookingFeeAmount: async () => 5000,
+    getOrCreateBookingFeeCheckout: async () => { state.paymentCalls += 1; return paymentImpl(); },
+    listWhatsAppBookings: async () => { state.listCalls += 1; return listImpl(); },
+    loadWhatsAppBooking: async (id: string) => loadBookingImpl(id),
+    cancelWhatsAppBooking: async (...a: unknown[]) => { state.cancelCalls += 1; return cancelImpl(...a); },
     trackBookingForWhatsApp: async () => null,
   },
 });
@@ -85,10 +96,16 @@ function steps() { return state.transitions.map((t) => t.step); }
 beforeEach(() => {
   state.delivered = []; state.transitions = []; state.finished = 0; state.failed = [];
   state.departuresCalls = 0; state.loadDepartureCalls = 0; state.bookingCalls = 0; state.paymentCalls = 0;
+  state.listCalls = 0; state.cancelCalls = 0;
   claimResult = null;
   conversationRow = baseConversation();
   departuresImpl = async () => [];
   loadDepartureImpl = async () => null;
+  createBookingImpl = async () => ({ outcome: "rejected", reason: "test" });
+  paymentImpl = () => ({ outcome: "rejected", reason: "test" });
+  listImpl = () => [];
+  loadBookingImpl = () => null;
+  cancelImpl = () => ({ outcome: "not_found" });
   transitionThrows = null;
 });
 
@@ -267,3 +284,187 @@ test("agent-managed conversations are never taken over by the bot", async () => 
   assert.equal(state.departuresCalls, 0);
   assert.equal(state.finished, 1, "event still acknowledged");
 });
+
+// ===========================================================================
+// P2 pilot booking rules
+// ===========================================================================
+
+const draft = {
+  departureId: "dep-1", routeId: "route-1", routeLabel: "Lilongwe - Mzuzu University",
+  travelDate: "2026-09-01", departureTime: "07:00:00", pickup: "Lilongwe Main",
+  fare: 12000, passengerIsSelf: true, name: "Jane Banda",
+};
+
+test("booking flow: choosing a departure asks self/other, never a seat count", async () => {
+  conversationRow = baseConversation({ step: "booking_departure", data: { booking: {} } });
+  loadDepartureImpl = async () => oneDeparture[0];
+  inbound("pick", { actionId: "departure:dep-1" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"]);
+  assert.equal(state.delivered.at(-1)?.type, "buttons");
+  assert.match(texts().join("\n"), /for you, or for someone else/i);
+});
+
+test("booking flow: the passenger name is always asked, even for self", async () => {
+  conversationRow = baseConversation({ step: "booking_passenger_for", data: { booking: { ...draft, name: undefined } } });
+  inbound("me", { actionId: "booking_self" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_name"]);
+  assert.match(texts().join("\n"), /full name/i);
+});
+
+test("booking flow: the review shows fare, booking fee and total before confirming", async () => {
+  conversationRow = baseConversation({ step: "booking_student_id", data: { booking: draft } });
+  inbound("skip");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_review"]);
+  const body = texts().join("\n");
+  assert.match(body, /Fare: MWK 12,000/);
+  assert.match(body, /Booking fee \(pay now\): MWK 5,000/);
+  assert.match(body, /Total: MWK 17,000/);
+});
+
+test("booking review + confirm: standard-deadline booking returns ID, deadline and pay link", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  createBookingImpl = async () => ({
+    outcome: "created", bookingId: "BK-9", expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    fare: 12000, bookingFee: 5000, shortNotice: false,
+  });
+  paymentImpl = () => ({ outcome: "checkout", url: "https://pay.example/abc", amount: 5000 });
+  inbound("confirm", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.bookingCalls, 1);
+  const body = texts().join("\n");
+  assert.match(body, /BK-9/);
+  assert.match(body, /Malawi time/);
+  assert.match(body, /https:\/\/pay\.example\/abc/);
+  assert.equal(steps().at(-1), "menu");
+  assert.equal(state.finished, 1);
+});
+
+test("booking review + confirm: a short-notice booking says 15 minutes", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  createBookingImpl = async () => ({
+    outcome: "created", bookingId: "BK-10", expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    fare: 12000, bookingFee: 5000, shortNotice: true,
+  });
+  paymentImpl = () => ({ outcome: "checkout", url: "https://pay.example/x", amount: 5000 });
+  inbound("yes");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /15 minutes/);
+});
+
+test("booking review + confirm: unpaid-limit rejection is explained, no loop, back to menu", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  createBookingImpl = async () => ({ outcome: "rejected", reason: "unpaid_limit_reached" });
+  inbound("confirm");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /3 unpaid reservations/i);
+  assert.equal(steps().at(-1), "menu");
+  assert.equal(state.paymentCalls, 0, "no payment attempted on a rejected booking");
+  assert.equal(state.finished, 1);
+});
+
+test("booking review + confirm: departure-too-soon rejection points to an agent", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  createBookingImpl = async () => ({ outcome: "rejected", reason: "departure_too_soon" });
+  inbound("confirm");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /within 24 hours/i);
+});
+
+test("booking review: declining creates no booking and takes no payment", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  inbound("no");
+  await processWhatsAppEvent("evt");
+  assert.equal(state.bookingCalls, 0);
+  assert.equal(state.paymentCalls, 0);
+  assert.deepEqual(steps(), ["menu"]);
+});
+
+test("My Bookings: an empty list replies helpfully and stays at the menu", async () => {
+  conversationRow = baseConversation({ step: "menu" });
+  listImpl = () => [];
+  inbound("my bookings");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /no bookings linked/i);
+  assert.deepEqual(steps(), []);
+});
+
+test("My Bookings: lists bookings, then an explicit selection opens that booking's actions", async () => {
+  conversationRow = baseConversation({ step: "menu" });
+  listImpl = () => [
+    { bookingId: "BK-1", routeLabel: "Lilongwe - MZUNI", travelDate: "2026-09-01", status: "Booked", bookingFeeStatus: "unpaid", fareStatus: "unpaid", expiresAt: new Date(Date.now() + 6 * 86_400_000).toISOString() },
+    { bookingId: "BK-2", routeLabel: "Zomba - MZUNI", travelDate: "2026-09-05", status: "Booked", bookingFeeStatus: "paid", fareStatus: "unpaid", expiresAt: null },
+  ];
+  inbound("my bookings");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["my_bookings"]);
+  assert.equal(state.delivered.at(-1)?.type, "list");
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "my_bookings" });
+  loadBookingImpl = (id) => id === "BK-1"
+    ? { bookingId: "BK-1", routeLabel: "Lilongwe - MZUNI", travelDate: "2026-09-01", status: "Booked", bookingFeeStatus: "unpaid", fareStatus: "unpaid", expiresAt: new Date(Date.now() + 6 * 86_400_000).toISOString() }
+    : null;
+  inbound("open", { actionId: "bk:BK-1" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_action"]);
+  assert.deepEqual(state.transitions[0].data, { selectedBookingId: "BK-1" });
+  assert.match(texts().join("\n"), /BK-1/);
+});
+
+test("Booking actions: Pay fee uses the fee checkout for the selected booking", async () => {
+  conversationRow = baseConversation({ step: "booking_action", data: { selectedBookingId: "BK-1" } });
+  paymentImpl = () => ({ outcome: "checkout", url: "https://pay.example/BK-1", amount: 5000 });
+  inbound("pay", { actionId: "bk_pay" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.paymentCalls, 1);
+  assert.match(texts().join("\n"), /pay\.example\/BK-1/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("Booking actions: Cancel then confirm cancels the reservation", async () => {
+  conversationRow = baseConversation({ step: "booking_action", data: { selectedBookingId: "BK-1" } });
+  inbound("Cancel booking", { actionId: "bk_cancel" }); // real button title; bare "cancel" is a global command
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["cancel_confirm"]);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "cancel_confirm", data: { selectedBookingId: "BK-1" } });
+  cancelImpl = () => ({ outcome: "cancelled" });
+  inbound("confirm", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.cancelCalls, 1);
+  assert.match(texts().join("\n"), /cancelled/i);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("Booking actions: a booking the bot can't cancel is handed to an agent", async () => {
+  conversationRow = baseConversation({ step: "cancel_confirm", data: { selectedBookingId: "BK-1" } });
+  cancelImpl = () => ({ outcome: "needs_agent" });
+  inbound("confirm");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /agent/i);
+  assert.deepEqual(steps(), [], "handoff via requestHuman, not a state transition");
+});
+
+test("cancel_confirm: declining keeps the booking (no cancel call)", async () => {
+  conversationRow = baseConversation({ step: "cancel_confirm", data: { selectedBookingId: "BK-1" } });
+  inbound("no");
+  await processWhatsAppEvent("evt");
+  assert.equal(state.cancelCalls, 0);
+  assert.deepEqual(steps(), ["menu"]);
+});
+
+for (const step of ["booking_review", "my_bookings", "booking_action", "cancel_confirm"]) {
+  test(`"menu" from ${step} returns to the menu with no booking/payment/cancel side effects`, async () => {
+    conversationRow = baseConversation({ step, data: { booking: draft, selectedBookingId: "BK-1" } });
+    inbound("menu");
+    await processWhatsAppEvent("evt");
+    assert.deepEqual(steps(), ["menu"]);
+    assert.equal(state.bookingCalls, 0);
+    assert.equal(state.paymentCalls, 0);
+    assert.equal(state.cancelCalls, 0);
+  });
+}
