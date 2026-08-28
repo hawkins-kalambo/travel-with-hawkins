@@ -9,12 +9,17 @@ export type WhatsAppActionId =
   | "menu_booking"
   | "menu_payment"
   | "menu_tracking"
+  | "menu_mybookings"
   | "menu_question"
   | "menu_agent"
   | "menu_language"
   | "flow_confirm"
   | "flow_cancel"
-  | "flow_back";
+  | "flow_back"
+  | "booking_self"
+  | "booking_other"
+  | "bk_pay"
+  | "bk_cancel";
 
 // `accountId` (the WhatsApp Business Account ID, from `entry[].id`) and
 // `phoneNumberId` (the business phone number ID, from `value.metadata`) are
@@ -63,13 +68,16 @@ export type WhatsAppConversationStep =
   | "route_origin"
   | "route_destination"
   | "booking_departure"
+  | "booking_passenger_for"
   | "booking_name"
   | "booking_email"
   | "booking_student_id"
-  | "booking_seats"
-  | "booking_confirm"
+  | "booking_review"
   | "payment_booking_id"
   | "tracking_booking_id"
+  | "my_bookings"
+  | "booking_action"
+  | "cancel_confirm"
   | "question"
   | "agent_waiting";
 
@@ -78,17 +86,20 @@ export type BookingDraft = {
   routeId?: string;
   routeLabel?: string;
   travelDate?: string;
+  departureTime?: string;
   pickup?: string;
+  fare?: number;
+  passengerIsSelf?: boolean;
   name?: string;
   email?: string;
   studentId?: string;
-  seats?: number;
 };
 
 export type WhatsAppStateData = {
   origin?: string;
   booking?: BookingDraft;
   trackingFailures?: number;
+  selectedBookingId?: string;
 };
 
 export type WhatsAppConversationState = {

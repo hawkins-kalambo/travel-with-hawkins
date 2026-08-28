@@ -8,6 +8,8 @@
     "lib/whatsapp/**/*.ts",
     "app/api/whatsapp/**/*.ts",
     "app/api/admin/whatsapp/**/*.ts",
+    "app/api/cron/whatsapp-expire-reservations/**/*.ts",
+    "app/api/cron/whatsapp-recover-events/**/*.ts",
     "app/admin/(sub)/communication/whatsapp-inbox.tsx",
     "app/admin/(sub)/communication/page.tsx",
     "lib/payments/finalize-flow.ts",

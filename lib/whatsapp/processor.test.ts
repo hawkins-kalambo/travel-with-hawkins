@@ -37,8 +37,12 @@ mock.module("@/lib/whatsapp/domain", {
   exports: {
     createWhatsAppBooking: async () => ({ outcome: "rejected", reason: "test" }),
     findAvailableDepartures: async () => [],
+    getBookingFeeAmount: async () => 5000,
     getOrCreateBookingFeeCheckout: async () => ({ outcome: "rejected", reason: "test" }),
     loadDeparture: async () => null,
+    listWhatsAppBookings: async () => [],
+    loadWhatsAppBooking: async () => null,
+    cancelWhatsAppBooking: async () => ({ outcome: "not_found" }),
     trackBookingForWhatsApp: async () => null,
   },
 });

@@ -11,10 +11,11 @@ export type StateMachineCommand =
 
 const BACK: Partial<Record<WhatsAppConversationStep, WhatsAppConversationStep>> = {
   route_destination: "route_origin", booking_departure: "route_origin",
-  booking_name: "booking_departure", booking_email: "booking_name",
-  booking_student_id: "booking_email", booking_seats: "booking_student_id",
-  booking_confirm: "booking_seats", payment_booking_id: "menu",
-  tracking_booking_id: "menu", question: "menu",
+  booking_passenger_for: "booking_departure", booking_name: "booking_passenger_for",
+  booking_email: "booking_name", booking_student_id: "booking_email",
+  booking_review: "booking_student_id", payment_booking_id: "menu",
+  tracking_booking_id: "menu", my_bookings: "menu", booking_action: "my_bookings",
+  cancel_confirm: "booking_action", question: "menu",
 };
 
 export function reduceGlobalCommand(step: WhatsAppConversationStep, intent: DeterministicIntent): StateMachineCommand {
