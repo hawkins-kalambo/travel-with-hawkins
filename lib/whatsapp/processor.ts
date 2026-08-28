@@ -88,19 +88,39 @@ async function startRouteSearch(conversation: WhatsAppConversationState, booking
   await send(next, textMessage(t(next.language, "askOrigin")));
 }
 
+// Only reached at step "question", so deterministic menu/button handling and
+// active booking steps have already had priority, and human-controlled
+// conversations returned earlier (mode === "human") — the AI never sees those.
+// AI output only picks which existing prompt to show; it never books, pays,
+// or changes state. Any failure falls back to a prompt, never silence.
 async function answerQuestion(conversation: WhatsAppConversationState, question: string): Promise<void> {
-  const answer = answerFromApprovedKnowledge(question);
-  if (answer.outcome === "answered") { await send(conversation, textMessage(answer.text)); return; }
-  if (answer.outcome === "unsafe" || answer.outcome === "unrelated") {
+  const known = answerFromApprovedKnowledge(question);
+  if (known.outcome === "answered") { await send(conversation, textMessage(known.text)); return; }
+  // "unsafe" (prompt injection) is a hard stop — never forwarded to the model.
+  if (known.outcome === "unsafe") {
     await send(conversation, textMessage(t(conversation.language, "unrelatedQuestion"))); return;
   }
+
+  // "unknown" or "unrelated": the keyword matcher couldn't place it — ask the
+  // model to interpret. With AI off, fall back to the blunt safe response.
   const provider = getWhatsAppAiProvider();
-  const category = provider ? await provider.classify(question) : "uncertain";
-  if (category === "route") await send(conversation, textMessage(`${t(conversation.language, "aiUnavailable")} ${t(conversation.language, "menuRoutes")}.`));
-  else if (category === "tracking") await send(conversation, textMessage(t(conversation.language, "askBookingIdTracking")));
-  else if (category === "booking") await send(conversation, textMessage(t(conversation.language, "askOrigin")));
-  else if (category === "payment") await send(conversation, textMessage(t(conversation.language, "askBookingIdPayment")));
-  else await send(conversation, textMessage(t(conversation.language, "aiUnavailable")));
+  if (!provider) {
+    await send(conversation, textMessage(t(conversation.language, known.outcome === "unrelated" ? "unrelatedQuestion" : "aiUnavailable"))); return;
+  }
+
+  const ai = await provider.interpret(question, conversation.language);
+  if (ai.answer) { await send(conversation, textMessage(ai.answer)); return; }
+  if (ai.clarify || ai.intent === "unknown" || ai.intent === "question" || ai.intent === "menu") {
+    await send(conversation, textMessage(t(conversation.language, "aiClarify"))); return;
+  }
+  if (ai.intent === "routes" || ai.intent === "booking") {
+    const where = ai.origin && ai.destination ? ` from ${ai.origin} to ${ai.destination}`
+      : ai.origin ? ` from ${ai.origin}` : "";
+    await send(conversation, textMessage(t(conversation.language, "aiRouteHint", { where }))); return;
+  }
+  if (ai.intent === "tracking") { await send(conversation, textMessage(t(conversation.language, "askBookingIdTracking"))); return; }
+  if (ai.intent === "payment") { await send(conversation, textMessage(t(conversation.language, "askBookingIdPayment"))); return; }
+  await send(conversation, textMessage(t(conversation.language, "aiUnavailable")));
 }
 
 async function handleMessage(conversationInput: WhatsAppConversationState & { optedOut: boolean }, message: WhatsAppInboundMessage): Promise<void> {

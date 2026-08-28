@@ -4,6 +4,9 @@ type WebhookConfig = { verifyToken: string; appSecret: string; enabled: boolean 
 type SendConfig = { accessToken: string; phoneNumberId: string; apiVersion: string; enabled: boolean };
 type AccountConfig = { wabaId: string; phoneNumberId: string };
 
+export type WhatsAppAiProviderName = "groq" | "compatible";
+type AiConfig = { provider: WhatsAppAiProviderName; endpoint: string; apiKey: string; model: string };
+
 export class WhatsAppConfigError extends Error {
   readonly missing: string[];
 
@@ -60,4 +63,31 @@ export function getWhatsAppAccountConfig(): AccountConfig {
 
 export function isWhatsAppBotEnabled(): boolean {
   return enabled();
+}
+
+// Accept either a base URL (…/openai/v1) or a full chat endpoint
+// (…/chat/completions) for WHATSAPP_AI_BASE_URL, and never double up the path.
+function normalizeChatEndpoint(base: string): string {
+  const trimmed = base.trim().replace(/\/+$/, "");
+  return /\/chat\/completions$/i.test(trimmed) ? trimmed : `${trimmed}/chat/completions`;
+}
+
+// Optional. Blank WHATSAPP_AI_PROVIDER => AI disabled, returns null. A set
+// provider must be "groq" or "compatible" (both use the OpenAI-compatible
+// chat-completions shape) and requires base URL, key and model — a set-but-
+// incomplete config throws so it is caught at deploy/check time; callers in
+// the conversation path degrade to the menu instead (see getWhatsAppAiProvider).
+export function getWhatsAppAiConfig(): AiConfig | null {
+  const provider = process.env.WHATSAPP_AI_PROVIDER?.trim().toLowerCase();
+  if (!provider) return null;
+  if (provider !== "groq" && provider !== "compatible") {
+    throw new WhatsAppConfigError([`WHATSAPP_AI_PROVIDER (expected "groq" or "compatible")`]);
+  }
+  const values = requireValues(["WHATSAPP_AI_BASE_URL", "WHATSAPP_AI_API_KEY", "WHATSAPP_AI_MODEL"]);
+  return {
+    provider,
+    endpoint: normalizeChatEndpoint(values.WHATSAPP_AI_BASE_URL),
+    apiKey: values.WHATSAPP_AI_API_KEY,
+    model: values.WHATSAPP_AI_MODEL,
+  };
 }

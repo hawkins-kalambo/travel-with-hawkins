@@ -41,6 +41,8 @@ export const english = {
   askQuestion: "Ask a short question about Travel With Hawkins services, routes, bookings, payments, luggage, or pickup.",
   unrelatedQuestion: "I can only help with Travel With Hawkins transport services. Choose an option from the menu or talk to an agent.",
   aiUnavailable: "I cannot answer that confidently right now. Would you like a human agent to help?",
+  aiClarify: "I'm not sure what you need. Please choose an option from the menu, or say it more specifically.",
+  aiRouteHint: "To search for routes{where}, choose Find a Route from the menu.",
   agentWaiting: "A support agent has been requested. Automated replies are now paused.",
   agentActive: "A Travel With Hawkins agent is handling this conversation.",
   returnedToBot: "Automated help is available again.",
@@ -117,6 +119,8 @@ export const chichewa: Record<TranslationKey, string> = {
   askQuestion: "Funsani funso lalifupi lokhudza Travel With Hawkins, ma route, booking, payment, katundu, kapena pickup.",
   unrelatedQuestion: "Ndingathandize pa ntchito za Travel With Hawkins zokha. Sankhani pa menu kapena lankhulani ndi agent.",
   aiUnavailable: "Sindingayankhe motsimikiza pano. Kodi mufuna agent akuthandizeni?",
+  aiClarify: "Sindikudziwa bwino zomwe mukufuna. Chonde sankhani pa menu, kapena fotokozani mwatsatanetsatane.",
+  aiRouteHint: "Kuti mupeze ma route{where}, sankhani Find a Route pa menu.",
   agentWaiting: "Tapempha support agent. Mayankho a bot ayimitsidwa.",
   agentActive: "Agent wa Travel With Hawkins akusamalira conversation iyi.",
   returnedToBot: "Thandizo la bot layambiranso.",
@@ -158,7 +162,7 @@ export const chichewaHumanReviewKeys: TranslationKey[] = [
   "routesUnavailable", "systemError",
   "reviewSummary", "bookingHeldStandard", "bookingHeldShort", "bookingHeldNoLink",
   "unpaidLimitReached", "departureTooSoon", "bookingDetail", "cancelConfirmPrompt",
-  "cancelNeedsAgent",
+  "cancelNeedsAgent", "aiClarify", "aiRouteHint",
 ];
 
 export function t(language: WhatsAppLanguage, key: TranslationKey, values: Record<string, string | number> = {}): string {
