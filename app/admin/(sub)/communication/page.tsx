@@ -8,6 +8,7 @@ import BroadcastCenterSection from "./broadcasts";
 import InboxSection from "./inbox";
 import SupportTicketsSection from "./support-tickets";
 import WebsiteChatInboxSection from "./website-chat-inbox";
+import WhatsAppInboxSection from "./whatsapp-inbox";
 import PageHeader from "@/app/components/ui/PageHeader";
 import Badge from "@/app/components/ui/Badge";
 import { LoadingState } from "@/app/components/ui/Spinner";
@@ -69,8 +70,8 @@ function getNotificationCategory(type: string) {
   return "System";
 }
 
-type TabKey = "overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website";
-const TAB_KEYS: readonly TabKey[] = ["overview", "notifications", "broadcasts", "announcements", "tickets", "conversations", "website"];
+type TabKey = "overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website" | "whatsapp";
+const TAB_KEYS: readonly TabKey[] = ["overview", "notifications", "broadcasts", "announcements", "tickets", "conversations", "website", "whatsapp"];
 
 function AdminCommunicationPageContent() {
   const searchParams = useSearchParams();
@@ -225,6 +226,7 @@ function AdminCommunicationPageContent() {
             { key: "tickets", label: "Support Desk" },
             { key: "conversations", label: "Inbox" },
             { key: "website", label: "Website Chat" },
+            { key: "whatsapp", label: "WhatsApp" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -388,6 +390,7 @@ function AdminCommunicationPageContent() {
 
           {activeTab === "conversations" && <InboxSection conversations={conversations} onRefresh={loadCommunicationCenter} />}
           {activeTab === "website" && <WebsiteChatInboxSection initialConversationId={initialConversationId} />}
+          {activeTab === "whatsapp" && <WhatsAppInboxSection />}
         </div>
       </div>
     </div>
