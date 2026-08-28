@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "lib/whatsapp/**/*.ts",
+    "app/api/whatsapp/**/*.ts",
+    "app/api/admin/whatsapp/**/*.ts",
+    "app/admin/(sub)/communication/whatsapp-inbox.tsx",
+    "app/admin/(sub)/communication/page.tsx",
+    "lib/payments/finalize-flow.ts",
+    "test/support/node-test-augment.d.ts"
+  ],
+  "exclude": ["node_modules"]
+}

@@ -5,6 +5,7 @@ import { verifyPayChanguTransaction, PayChanguClientError } from "./paychangu-cl
 import { validatePayChanguVerification } from "./verification-validator";
 import { emailReceiptForPayment } from "./receipt-service";
 import { logError } from "@/lib/logger";
+import { notifyWhatsAppPaymentConfirmed } from "@/lib/whatsapp/notifications";
 
 // Shared by the webhook route and the browser return/callback route — both
 // are just different triggers for the same "independently verify with
@@ -94,6 +95,17 @@ export async function verifyAndFinalizePayment(txRef: string, paymentEventId: st
       txRef: trimmedTxRef,
       error: error instanceof Error ? error.message : "unknown",
     });
+  }
+
+  if (outcome.outcome === "finalized") {
+    try {
+      await notifyWhatsAppPaymentConfirmed(outcome.booking_id as string, outcome.payment_type as string);
+    } catch (error) {
+      logError("Automatic WhatsApp payment confirmation failed", {
+        bookingId: outcome.booking_id,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
   }
 
   return {
