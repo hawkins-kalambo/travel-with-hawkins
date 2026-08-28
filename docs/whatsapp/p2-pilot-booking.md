@@ -49,23 +49,28 @@ it isn't).
 
 ## Vercel Cron
 
-`vercel.json` schedules:
+`vercel.json` schedules (Vercel **Hobby** allows at most one run per day per
+cron; a more frequent expression fails the deployment):
 
-| Route | Schedule | Does |
+| Route | Schedule (UTC) | Does |
 | --- | --- | --- |
-| `/api/cron/whatsapp-expire-reservations` | `*/15 * * * *` | `expire_whatsapp_reservations()` |
-| `/api/cron/whatsapp-recover-events` | `*/10 * * * *` | `recover_whatsapp_webhook_events(5,15)` then re-processes returned ids |
+| `/api/cron/whatsapp-expire-reservations` | `0 2 * * *` | `expire_whatsapp_reservations()` |
+| `/api/cron/whatsapp-recover-events` | `0 3 * * *` | `recover_whatsapp_webhook_events(5,15)` then re-processes returned ids |
 
 Both require `Authorization: Bearer $CRON_SECRET` and fail closed (401) without
-it. Set `CRON_SECRET` in Vercel Production (same value the cron uses — Vercel
-injects it automatically for its own cron invocations once set on the project).
+it. Set `CRON_SECRET` in Vercel Production (Vercel injects it automatically for
+its own cron invocations once set on the project).
 
-**Hosting-plan caveat (D11):** minute/`*/15`-level crons need **Vercel Pro**.
-Vercel Hobby allows only one run per day. If the project is on Hobby, either
-move to Pro, or drive these two endpoints from an external scheduler / Supabase
-`pg_cron` calling them with the bearer token. Expiry is also enforced inline in
-the RPC, so a slow cron only delays seat cleanup, it does not create invalid
-holds. No plan upgrade is authorised by this work.
+**Cadence (D11).** Daily is a stopgap for the pilot. It is safe: the fee
+deadline is enforced **inline** in `create_capacity_checked_booking()`, so a
+slow cleanup cron cannot create an invalid or extended hold — an expired seat
+just stays visually "held" until the next run. For tighter cleanup without a
+plan upgrade (none is authorised), point an **external scheduler** at the same
+two `CRON_SECRET`-gated URLs every 10–15 min — e.g. a GitHub Actions
+`schedule:` workflow doing
+`curl -sf -H "Authorization: Bearer $CRON_SECRET" https://www.travelwithhawkins.com/api/cron/whatsapp-expire-reservations`,
+cron-job.org, or a Supabase `pg_cron` HTTP job. Upgrading to Vercel Pro
+(per-minute crons) is the other option but is out of scope here.
 
 ## Deferred to later phases (not in this pilot)
 
