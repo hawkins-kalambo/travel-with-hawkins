@@ -15,10 +15,13 @@ export function detectIntent(rawText: string, actionId?: string): DeterministicI
   const value = rawText.toLowerCase().trim().replace(/[.!?]+$/g, "");
   if (["stop", "unsubscribe", "opt out", "lekani", "siyani"].includes(value)) return "opt_out";
   if (["start", "subscribe", "opt in", "yambani"].includes(value)) return "opt_in";
-  if (["menu", "main menu", "0"].includes(value)) return "menu";
+  // Standalone greetings and "menu" always return to the main menu. Matched
+  // on the whole trimmed message so "hello, I need help" still flows to a
+  // real intent.
+  if (["menu", "main menu", "0", "hi", "hie", "hey", "hello", "helo", "moni", "bwanji"].includes(value)) return "menu";
   if (["back", "b", "mbuyo"].includes(value)) return "back";
   if (["cancel", "exit", "letsani"].includes(value)) return "cancel";
-  if (["restart", "reset", "yambiraninso"].includes(value)) return "restart";
+  if (["restart", "reset", "start over", "yambiraninso"].includes(value)) return "restart";
   if (/agent|human|someone|munthu|wothandiza|lankhulani/.test(value)) return "agent";
   if (/track|status.*booking|booking.*status|tsatir|onani.*booking/.test(value)) return "tracking";
   if (/pay|payment|booking fee|lipir/.test(value)) return "payment";

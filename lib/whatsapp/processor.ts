@@ -42,6 +42,25 @@ async function goToMenu(conversation: WhatsAppConversationState, prefix?: string
   return next;
 }
 
+// Route/departure reads hit external tables and can fail (missing schema,
+// PostgREST relationship errors, timeouts). A failure here must never bubble
+// out of handleMessage as an unhandled throw — that would leave the customer
+// in silence and the conversation pinned to a step whose handler always
+// re-throws. On failure returns `{ ok: false }`; callers then route the
+// customer back to the menu with an explanation. `ok: true` still carries a
+// possibly-empty / null value (a legitimate "nothing found").
+async function tryRouteLookup<T>(conversation: WhatsAppConversationState, run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    logError("WhatsApp route lookup failed", {
+      conversationId: conversation.conversationId,
+      code: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+    });
+    return { ok: false };
+  }
+}
+
 function departureRows(departures: AvailableDeparture[]) {
   return departures.map((departure) => ({
     id: `departure:${departure.id}`,
@@ -85,6 +104,15 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
   }
   if (conversationInput.optedOut) return;
   if (conversation.mode === "human") return;
+
+  // Expired mid-flow session: drop the stale flow and re-read this message
+  // at the menu. Chat history, language, bookings and payments are untouched;
+  // only the transient step + state_data are cleared. Uses the version-aware
+  // transition so an older in-flight message cannot resurrect the old step.
+  const midFlow = conversation.step !== "menu" && conversation.step !== "language";
+  if (midFlow && conversation.stateExpiresAt != null && Date.parse(conversation.stateExpiresAt) < Date.now()) {
+    conversation = await transitionState(conversation, "menu", {});
+  }
 
   const globalCommand = reduceGlobalCommand(conversation.step, intent);
   if (globalCommand.kind === "handoff") {
@@ -136,7 +164,9 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
 
   if (conversation.step === "route_origin") {
     const origin = clean(message.text, 80);
-    const departures = await findAvailableDepartures(origin);
+    const lookup = await tryRouteLookup(conversation, () => findAvailableDepartures(origin));
+    if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+    const departures = lookup.value;
     if (!departures.length) { await send(conversation, textMessage(t(conversation.language, "noDepartures"))); return; }
     const booking = conversation.data.booking !== undefined;
     const next = await transitionState(conversation, booking ? "booking_departure" : "route_destination", { ...conversation.data, origin });
@@ -146,7 +176,9 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
 
   if (conversation.step === "route_destination") {
     const departureId = message.actionId?.startsWith("departure:") ? message.actionId.slice(10) : "";
-    const departure = departureId ? await loadDeparture(departureId) : null;
+    const lookup = departureId ? await tryRouteLookup(conversation, () => loadDeparture(departureId)) : { ok: true as const, value: null };
+    if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+    const departure = lookup.value;
     if (!departure) { await send(conversation, textMessage(t(conversation.language, "invalidInput"))); return; }
     await goToMenu(conversation, `${departure.routeLabel}\n${departure.travelDate}${departure.departureTime ? ` ${departure.departureTime.slice(0, 5)}` : ""}\nMWK ${departure.fare.toLocaleString("en-MW")}\n${departure.availableSeats} seats available\nPickup: ${departure.pickup}`);
     return;
@@ -154,7 +186,9 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
 
   if (conversation.step === "booking_departure") {
     const departureId = message.actionId?.startsWith("departure:") ? message.actionId.slice(10) : "";
-    const departure = departureId ? await loadDeparture(departureId) : null;
+    const lookup = departureId ? await tryRouteLookup(conversation, () => loadDeparture(departureId)) : { ok: true as const, value: null };
+    if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+    const departure = lookup.value;
     if (!departure) { await send(conversation, textMessage(t(conversation.language, "invalidInput"))); return; }
     const booking: BookingDraft = { departureId, routeId: departure.routeId, routeLabel: departure.routeLabel, travelDate: departure.travelDate, pickup: departure.pickup };
     const next = await transitionState(conversation, "booking_name", { ...conversation.data, booking });
@@ -290,6 +324,18 @@ export async function processWhatsAppEvent(eventId: string): Promise<void> {
     const code = error instanceof Error ? error.message.slice(0, 120) : "unexpected_error";
     await finishWebhookEvent(eventId);
     logError("WhatsApp event handling incomplete after persistence; not retrying", { eventId, correlationId, code });
+    // Best-effort recovery reply so the customer is never left in silence.
+    // One attempt, never retried (the event is already closed), so it cannot
+    // loop or duplicate a booking/payment. Skipped for agent-managed chats,
+    // and for stale-message conflicts where a newer message already advanced
+    // the conversation.
+    if (conversation.mode !== "human" && code !== "conversation_state_conflict") {
+      try {
+        await deliverAndRecord(conversation, { type: "text", text: t(conversation.language, "systemError") });
+      } catch {
+        /* sending is also failing — stop here, nothing more to do */
+      }
+    }
   }
 }
 

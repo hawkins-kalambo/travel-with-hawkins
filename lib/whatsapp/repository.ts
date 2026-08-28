@@ -78,6 +78,7 @@ export async function ensureConversation(message: WhatsAppInboundMessage): Promi
     language: contact.language as WhatsAppLanguage, mode: link.mode, status: link.status,
     step: link.state_step, data: (link.state_data || {}) as WhatsAppStateData,
     version: Number(link.state_version) || 0, serviceWindowExpiresAt: contact.service_window_expires_at,
+    stateExpiresAt: link.state_expires_at ?? null,
     optedOut: contact.consent_status === "opted_out",
   };
 }

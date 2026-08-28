@@ -16,6 +16,7 @@ export const english = {
   askDestination: "Choose an available destination and departure.",
   noRoutes: "No configured routes are available right now. Would you like a human agent to help?",
   noDepartures: "That route has no published travel dates right now. Would you like a human agent to help?",
+  routesUnavailable: "Sorry, I can't look up routes right now. I've brought you back to the main menu — try again shortly, or type agent for a person.",
   askName: "What is the passenger's full name?",
   askEmail: "What is the passenger's email address? Type skip if none.",
   askStudentId: "What is the student or customer ID? Type skip if none.",
@@ -48,7 +49,7 @@ export const english = {
   invalidInput: "I did not understand that. Use the menu, or type menu, back, cancel, or agent.",
   optedOut: "You have opted out of non-essential WhatsApp messages. Type START to use support again.",
   optedIn: "WhatsApp support is active again.",
-  systemError: "We could not complete that safely. Please try again or ask for an agent.",
+  systemError: "Something went wrong on our side. Type menu to start over, or agent to reach a person. Nothing was charged.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -69,6 +70,7 @@ export const chichewa: Record<TranslationKey, string> = {
   askDestination: "Sankhani komwe mukupita ndi tsiku la ulendo lomwe lilipo.",
   noRoutes: "Palibe ma route okonzedwa omwe alipo pano. Kodi mufuna agent akuthandizeni?",
   noDepartures: "Route imeneyi ilibe masiku a ulendo omwe afalitsidwa pano. Kodi mufuna agent?",
+  routesUnavailable: "Pepani, sindingathe kupeza ma route pakadali pano. Ndakubwezerani ku menu yaikulu — yesaninso posachedwa, kapena lembani agent.",
   askName: "Dzina lonse la passenger ndi ndani?",
   askEmail: "Imelo ya passenger ndi iti? Lembani skip ngati palibe.",
   askStudentId: "Student kapena customer ID ndi iti? Lembani skip ngati palibe.",
@@ -101,7 +103,7 @@ export const chichewa: Record<TranslationKey, string> = {
   invalidInput: "Sindinamvetse. Gwiritsani ntchito menu, kapena lembani menu, back, cancel, kapena agent.",
   optedOut: "Mwaletsa mauthenga osafunikira a WhatsApp. Lembani START kuti mugwiritsenso ntchito support.",
   optedIn: "Support ya WhatsApp yayambiranso.",
-  systemError: "Sitinathe kumaliza mosamala. Yesaninso kapena pemphani agent.",
+  systemError: "Pakhala vuto kumbali yathu. Lembani menu kuti muyambenso, kapena agent kuti mulankhule ndi munthu. Palibe ndalama zomwe zatengedwa.",
 };
 
 // Product/legal reviewers should review these mixed operational terms before
@@ -109,6 +111,7 @@ export const chichewa: Record<TranslationKey, string> = {
 // silently authoritative translations.
 export const chichewaHumanReviewKeys: TranslationKey[] = [
   "menuPayment", "agentWaiting", "paymentPending", "trackingResult", "askStudentId",
+  "routesUnavailable", "systemError",
 ];
 
 export function t(language: WhatsAppLanguage, key: TranslationKey, values: Record<string, string | number> = {}): string {

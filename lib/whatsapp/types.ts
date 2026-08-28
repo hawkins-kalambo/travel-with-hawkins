@@ -102,4 +102,5 @@ export type WhatsAppConversationState = {
   data: WhatsAppStateData;
   version: number;
   serviceWindowExpiresAt?: string | null;
+  stateExpiresAt?: string | null;
 };
