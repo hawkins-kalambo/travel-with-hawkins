@@ -18,8 +18,12 @@ function related(value: unknown): Record<string, unknown> | undefined {
 }
 
 export async function findAvailableDepartures(origin?: string, departureId?: string): Promise<AvailableDeparture[]> {
+  // `routes` has no `destination_label` column (it is not in any migration and
+  // no other query selects it); the destination is derived from the linked
+  // university below. Selecting a non-existent column makes PostgREST reject
+  // the whole request, which is what left customers stuck at "route_origin".
   let routeQuery = supabaseAdmin.from("routes").select(
-    "id, origin_district, destination_label, university_id, fare, status, direction, university:universities(name,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)"
+    "id, origin_district, university_id, fare, status, direction, university:universities(name,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)"
   ).eq("status", "active").gt("fare", 0).limit(50);
   if (origin?.trim()) routeQuery = routeQuery.ilike("origin_district", origin.trim());
   const routesResult = await routeQuery;
@@ -61,7 +65,7 @@ export async function findAvailableDepartures(origin?: string, departureId?: str
     const university = related(route.university);
     const campus = related(route.pickupPoint);
     const district = related(route.districtPickupPoint);
-    const destination = String(route.destination_label || university?.name || "").trim();
+    const destination = String(university?.name || "").trim();
     if (!destination) return [];
     const reverse = route.direction === "from_university";
     const routeLabel = reverse ? `${destination} - ${route.origin_district}` : `${route.origin_district} - ${destination}`;

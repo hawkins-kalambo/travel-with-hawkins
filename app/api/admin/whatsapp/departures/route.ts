@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const access = await requireWhatsAppAdmin(req);
   if (!access.authorized) return jsonError(access.error, access.status);
   const result = await supabaseAdmin.from("route_departures").select(
-    "*,route:routes(id,origin_district,destination_label,fare,status,university:universities(name))"
+    "*,route:routes(id,origin_district,fare,status,university:universities(name))"
   ).order("travel_date", { ascending: true }).limit(200);
   if (result.error) return jsonError("Unable to load departures", 500);
   return NextResponse.json({ success: true, departures: result.data ?? [] });
