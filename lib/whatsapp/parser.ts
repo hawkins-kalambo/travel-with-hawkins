@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { normalizeWhatsAppId } from "@/lib/whatsapp/phone";
-import type { WhatsAppParsedEvent } from "@/lib/whatsapp/types";
+import type { WhatsAppInboundMedia, WhatsAppParsedEvent } from "@/lib/whatsapp/types";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -37,9 +37,10 @@ export function parseWhatsAppWebhook(payload: unknown): WhatsAppParsedEvent[] {
         if (!id || !from) continue;
 
         const type = text(message?.type);
-        let inputType: "text" | "button" | "list" | "unknown" = "unknown";
+        let inputType: "text" | "button" | "list" | "document" | "image" | "unknown" = "unknown";
         let body = "";
         let actionId: string | undefined;
+        let media: WhatsAppInboundMedia | undefined;
         if (type === "text") {
           inputType = "text";
           body = text(record(message?.text)?.body);
@@ -54,12 +55,23 @@ export function parseWhatsAppWebhook(payload: unknown): WhatsAppParsedEvent[] {
           inputType = interactiveType === "button_reply" ? "button" : interactiveType === "list_reply" ? "list" : "unknown";
           body = text(reply?.title);
           actionId = text(reply?.id) || undefined;
+        } else if (type === "document" || type === "image") {
+          const node = record((message as Record<string, unknown>)?.[type]);
+          const mediaId = text(node?.id);
+          if (mediaId) {
+            const caption = text(node?.caption).slice(0, 1024) || undefined;
+            const filename = type === "document" ? (text(node?.filename).slice(0, 240) || undefined) : undefined;
+            media = { id: mediaId, mimeType: text(node?.mime_type), filename, caption, sha256: text(node?.sha256) || undefined };
+            inputType = type;
+            body = caption || (type === "document" ? `[document: ${filename || "file"}]` : "[image]");
+          }
         }
 
         events.push({
           kind: "message", id, from, timestamp: text(message?.timestamp) || undefined,
           displayName: text(profile?.name).slice(0, 120) || undefined,
           inputType, text: body, actionId, accountId, phoneNumberId,
+          ...(media ? { media } : {}),
         });
       }
 
@@ -89,7 +101,7 @@ export function webhookEventKey(event: WhatsAppParsedEvent): string {
 
 export function toStoredEventData(event: WhatsAppParsedEvent): Record<string, unknown> {
   return event.kind === "message"
-    ? { kind: event.kind, id: event.id, from: event.from, timestamp: event.timestamp, displayName: event.displayName, inputType: event.inputType, text: event.text, actionId: event.actionId }
+    ? { kind: event.kind, id: event.id, from: event.from, timestamp: event.timestamp, displayName: event.displayName, inputType: event.inputType, text: event.text, actionId: event.actionId, ...(event.media ? { media: event.media } : {}) }
     : { kind: event.kind, id: event.id, status: event.status, timestamp: event.timestamp, recipientId: event.recipientId, errorCode: event.errorCode };
 }
 

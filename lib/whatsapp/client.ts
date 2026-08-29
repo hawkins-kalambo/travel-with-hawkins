@@ -127,3 +127,62 @@ export async function uploadWhatsAppMedia(bytes: Uint8Array, mimeType: string, f
   if (typeof parsed.id !== "string" || !parsed.id) throw new MetaWhatsAppError("malformed_media_response");
   return parsed.id;
 }
+
+const MEDIA_DOWNLOAD_TIMEOUT_MS = 30_000;
+
+export type DownloadedMedia = { bytes: Uint8Array; mimeType: string; sha256?: string; fileSize?: number };
+
+// Fetch a customer-sent media object from Meta: resolve the temporary media URL
+// from the media id, then download the bytes (both calls need the bearer). The
+// `maxBytes` guard aborts before buffering a file larger than we accept.
+export async function downloadWhatsAppMedia(mediaId: string, maxBytes: number): Promise<DownloadedMedia> {
+  const config = getWhatsAppSendConfig();
+  if (!config.enabled) throw new MetaWhatsAppError("feature_disabled");
+
+  const meta = await fetchWithTimeout(
+    `https://graph.facebook.com/${config.apiVersion}/${encodeURIComponent(mediaId)}`,
+    { headers: { Authorization: `Bearer ${config.accessToken}` } },
+    "media_lookup",
+  );
+  const metaText = await meta.text();
+  let info: Record<string, unknown> = {};
+  try { info = metaText ? JSON.parse(metaText) as Record<string, unknown> : {}; } catch { /* handled below */ }
+  if (!meta.ok || typeof info.url !== "string") {
+    logWarn("Meta WhatsApp media lookup failed", { httpStatus: meta.status });
+    throw new MetaWhatsAppError("media_lookup_failed", meta.status);
+  }
+  const declaredSize = Number(info.file_size);
+  if (Number.isFinite(declaredSize) && declaredSize > maxBytes) {
+    throw new MetaWhatsAppError("media_too_large");
+  }
+
+  const file = await fetchWithTimeout(info.url, { headers: { Authorization: `Bearer ${config.accessToken}` } }, "media_download");
+  if (!file.ok) {
+    logWarn("Meta WhatsApp media download failed", { httpStatus: file.status });
+    throw new MetaWhatsAppError("media_download_failed", file.status);
+  }
+  const contentLength = Number(file.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new MetaWhatsAppError("media_too_large");
+  }
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  if (buffer.length > maxBytes) throw new MetaWhatsAppError("media_too_large");
+  return {
+    bytes: buffer,
+    mimeType: typeof info.mime_type === "string" ? info.mime_type : (file.headers.get("content-type") || ""),
+    sha256: typeof info.sha256 === "string" ? info.sha256 : undefined,
+    fileSize: Number.isFinite(declaredSize) ? declaredSize : buffer.length,
+  };
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, label: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_DOWNLOAD_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    logError("Meta WhatsApp media transfer failed", { label, reason: timedOut ? "timeout" : "network_error" });
+    throw new MetaWhatsAppError(timedOut ? "timeout" : "network_error");
+  } finally { clearTimeout(timeout); }
+}

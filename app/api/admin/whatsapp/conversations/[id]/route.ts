@@ -73,7 +73,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     supabaseAdmin.from("whatsapp_booking_operations").select("booking_id,status,created_at").eq("conversation_id", id).order("created_at", { ascending: false }).limit(10),
     supabaseAdmin.from("profiles").select("id,full_name,email,role").in("role", ["admin", "super_admin"]).order("full_name"),
     supabaseAdmin.from("whatsapp_media")
-      .select("id,message_id,kind,mime_type,file_name,byte_size,status,error_code,caption,created_at,uploaded_by")
+      .select("id,message_id,direction,kind,mime_type,file_name,byte_size,status,error_code,caption,created_at,uploaded_by,linked_booking_id,is_payment_proof,reviewed_by")
       .eq("conversation_id", id).order("created_at", { ascending: false }).limit(50),
   ]);
 
@@ -141,10 +141,13 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     receipts,
     agents: agents.data ?? [],
     media: (media.data ?? []).map((m) => ({
-      id: m.id, messageId: m.message_id, kind: m.kind, mimeType: m.mime_type,
+      id: m.id, messageId: m.message_id, direction: m.direction || "outbound",
+      kind: m.kind, mimeType: m.mime_type,
       fileName: m.file_name, byteSize: Number(m.byte_size) || 0, status: m.status,
       errorCode: m.error_code || null, caption: m.caption || null, createdAt: m.created_at,
       uploadedByName: m.uploaded_by ? agentName.get(m.uploaded_by) || null : null,
+      linkedBookingId: m.linked_booking_id || null, isPaymentProof: Boolean(m.is_payment_proof),
+      reviewedByName: m.reviewed_by ? agentName.get(m.reviewed_by) || null : null,
     })),
   });
 }
