@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { jsonError } from "@/lib/apiResponse";
 import { approvedTemplateNames, requireWhatsAppAdmin } from "@/lib/whatsapp/admin";
 import { deliverAndRecord } from "@/lib/whatsapp/repository";
+import { mainMenuMessage } from "@/lib/whatsapp/messages";
+import { t } from "@/lib/whatsapp/i18n";
 import { classifySenderKind, confirmedDeliveryStatus } from "@/lib/whatsapp/inbox";
 import type { WhatsAppConversationState, WhatsAppLanguage } from "@/lib/whatsapp/types";
 
@@ -211,6 +213,23 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     const name = holder.data?.full_name || holder.data?.email || "another agent";
     return NextResponse.json({ success: false, error: `Held by ${name}`, conflict: true, holder: row.assigned_to }, { status: 409 });
   }
+  // Tell the customer once, only inside the 24h window (a free-form message
+  // outside it would be rejected). The DB state was reset either way, so their
+  // next message triggers a fresh welcome.
+  if (action === "bot" || action === "resolve") {
+    const conversation = await loadConversation(id);
+    const insideWindow = conversation?.serviceWindowExpiresAt
+      && new Date(conversation.serviceWindowExpiresAt).getTime() > Date.now();
+    if (conversation && insideWindow) {
+      try {
+        await deliverAndRecord(conversation,
+          { type: "text", text: t(conversation.language, action === "bot" ? "returnedToBot" : "resolvedByAgent") },
+          null, "automatic");
+        if (action === "bot") await deliverAndRecord(conversation, mainMenuMessage(conversation.language), null, "automatic");
+      } catch { /* transition already recorded; a send failure must not fail the action */ }
+    }
+  }
+
   return NextResponse.json({ success: true, conversation: { mode: row.mode, status: row.status, assignedTo: row.assigned_to } });
 }
 

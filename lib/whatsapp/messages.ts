@@ -44,6 +44,20 @@ export function confirmPromptMessage(language: WhatsAppLanguage, body: string): 
   };
 }
 
+// "You have a booking in progress — discard it?" Confirm discards; Keep going
+// resumes the draft (mapped to the flow_back action so it reads as "back").
+export function discardConfirmMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  const body = t(language, "draftDiscardPrompt");
+  return {
+    type: "buttons", body,
+    buttons: [
+      { id: "flow_confirm", title: t(language, "confirmed") },
+      { id: "flow_back", title: t(language, "keepGoing") },
+    ],
+    fallback: `${body}\n1. ${t(language, "confirmed")}\n2. ${t(language, "keepGoing")}`,
+  };
+}
+
 export function passengerForMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
   return {
     type: "buttons", body: t(language, "askPassengerFor"),
