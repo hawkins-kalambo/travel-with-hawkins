@@ -78,6 +78,12 @@ export type WhatsAppOutboundMessage =
 export type WhatsAppConversationStep =
   | "language"
   | "menu"
+  | "route_entry"
+  | "route_clarify"
+  | "route_student_direction"
+  | "route_student_university"
+  | "route_student_home"
+  | "route_request_confirm"
   | "route_origin"
   | "route_destination"
   | "route_pick"
@@ -121,6 +127,19 @@ export type WhatsAppStateData = {
   draftStep?: WhatsAppConversationStep;
   // My Bookings paging offset.
   myBookingsOffset?: number;
+  // Structured "Find a Route" discovery (student vs general travel flow).
+  // Which lane the customer is in: "general" skips university matching.
+  travellerType?: "student" | "general";
+  // One-location clarifier: the place we have, and which end it is.
+  routeKnownPlace?: string;
+  routeKnownRole?: "origin" | "destination";
+  // A corridor we could not resolve, kept for "Request this route".
+  pendingRouteOrigin?: string;
+  pendingRouteDestination?: string;
+  // Student lane selections.
+  studentDirection?: "to_university" | "from_university";
+  studentUniversityId?: string;
+  studentUniversityName?: string;
 };
 
 export type WhatsAppConversationState = {

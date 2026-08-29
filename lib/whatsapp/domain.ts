@@ -17,7 +17,7 @@ export type AvailableDeparture = {
 // route picker. `routes` has no `destination_label` column (see the note in
 // findAvailableDepartures) — the destination comes from the linked university.
 const ROUTE_SELECT =
-  "id, origin_district, university_id, fare, status, direction, university:universities(name,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)";
+  "id, origin_district, university_id, destination_district, route_type, is_popular, popular_order, fare, status, direction, university:universities(name,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)";
 
 function embedsActive(route: Record<string, unknown>): boolean {
   const university = related(route.university);
@@ -27,25 +27,45 @@ function embedsActive(route: Record<string, unknown>): boolean {
     && (!campus || campus.status === "active") && (!district || district.status === "active");
 }
 
+export type RouteType = "student" | "general" | "both";
+
 export type BookableRoute = {
   routeId: string; label: string; origin: string; destination: string;
   pickup: string; fare: number; priced: boolean;
+  routeType: RouteType; isPopular: boolean;
 };
 
-// Build the customer-facing view of a `routes` row. Returns null when the route
-// is missing its destination university (nothing safe to show).
+// Build the customer-facing view of a `routes` row. Returns null when there is
+// nothing safe to show as a destination:
+//   - a student/both route with no linked university, or
+//   - a general route with no destination_district.
 function toBookableRoute(route: Record<string, unknown>): BookableRoute | null {
+  const routeType = (["student", "general", "both"].includes(String(route.route_type))
+    ? String(route.route_type) : "student") as RouteType;
+  const isPopular = Boolean(route.is_popular);
+  const origin = String(route.origin_district || "").trim();
   const university = related(route.university);
   const campus = related(route.pickupPoint);
   const district = related(route.districtPickupPoint);
+  const fare = Number(route.fare) || 0;
+
+  // District-to-district travel with no university on either end.
+  if (route.direction === "general") {
+    const destination = String(route.destination_district || "").trim();
+    if (!origin || !destination) return null;
+    const pickup = String(district?.label || origin);
+    return {
+      routeId: String(route.id), label: `${origin} - ${destination}`,
+      origin, destination, pickup, fare, priced: fare > 0, routeType, isPopular,
+    };
+  }
+
   const destination = String(university?.name || "").trim();
   if (!destination) return null;
-  const origin = String(route.origin_district || "").trim();
   const reverse = route.direction === "from_university";
   const label = reverse ? `${destination} - ${origin}` : `${origin} - ${destination}`;
   const pickup = String((reverse ? campus?.label : district?.label) || (reverse ? destination : origin));
-  const fare = Number(route.fare) || 0;
-  return { routeId: String(route.id), label, origin, destination, pickup, fare, priced: fare > 0 };
+  return { routeId: String(route.id), label, origin, destination, pickup, fare, priced: fare > 0, routeType, isPopular };
 }
 
 // Booking fee is a single configured amount (settings.booking_fee, MWK).
@@ -298,6 +318,116 @@ export async function loadBookableRoute(routeId: string): Promise<BookableRoute 
   if (result.error || !result.data) return null;
   if (!embedsActive(result.data)) return null;
   return toBookableRoute(result.data);
+}
+
+// ---------------------------------------------------------------------------
+// Structured route discovery for the WhatsApp "Find a Route" experience
+// (master plan: "Improved Routes, Student Travel and General Travel Flow").
+// These read the same `routes` / `universities` tables the website and admin
+// use — no parallel configuration.
+// ---------------------------------------------------------------------------
+
+function eqi(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+// Admin-curated "Popular Routes", ordered by popular_order (nulls last), then
+// label. Only active routes with active embeds are shown.
+export async function listPopularRoutes(): Promise<BookableRoute[]> {
+  const result = await supabaseAdmin.from("routes").select(ROUTE_SELECT)
+    .eq("status", "active").eq("is_popular", true)
+    .order("popular_order", { ascending: true, nullsFirst: false }).limit(50);
+  if (result.error) throw result.error;
+  const views: BookableRoute[] = [];
+  for (const route of result.data ?? []) {
+    if (!embedsActive(route)) continue;
+    const view = toBookableRoute(route);
+    if (view) views.push(view);
+  }
+  return views.slice(0, 10);
+}
+
+// A district-to-district general route, matched in either orientation. When the
+// stored row runs the other way, the returned view is re-oriented to the
+// requested origin -> destination so the customer sees what they asked for.
+export async function findGeneralRoute(origin: string, destination: string): Promise<BookableRoute | null> {
+  if (!origin.trim() || !destination.trim()) return null;
+  const result = await supabaseAdmin.from("routes").select(ROUTE_SELECT)
+    .eq("status", "active").eq("direction", "general").limit(200);
+  if (result.error) throw result.error;
+  for (const route of result.data ?? []) {
+    if (!embedsActive(route)) continue;
+    const a = String(route.origin_district || "");
+    const b = String(route.destination_district || "");
+    const forward = eqi(a, origin) && eqi(b, destination);
+    const backward = eqi(a, destination) && eqi(b, origin);
+    if (!forward && !backward) continue;
+    const view = toBookableRoute(route);
+    if (!view) continue;
+    if (backward) {
+      return { ...view, label: `${b} - ${a}`, origin: b, destination: a, pickup: b };
+    }
+    return view;
+  }
+  return null;
+}
+
+// A student route (home district <-> a specific university) for one direction.
+export async function findStudentRoute(
+  homeDistrict: string, universityId: string, direction: "to_university" | "from_university",
+): Promise<BookableRoute | null> {
+  if (!homeDistrict.trim() || !universityId) return null;
+  const result = await supabaseAdmin.from("routes").select(ROUTE_SELECT)
+    .eq("status", "active").eq("university_id", universityId).eq("direction", direction)
+    .ilike("origin_district", homeDistrict.trim()).limit(10);
+  if (result.error) throw result.error;
+  const row = (result.data ?? []).find((route) => embedsActive(route));
+  return row ? toBookableRoute(row) : null;
+}
+
+export type ActiveUniversity = { id: string; name: string };
+
+// Active universities only — the student flow never offers one that is not
+// live, and never hard-codes the list.
+export async function listActiveUniversities(): Promise<ActiveUniversity[]> {
+  const result = await supabaseAdmin.from("universities").select("id, name, status")
+    .eq("status", "active").order("name", { ascending: true }).limit(50);
+  if (result.error) throw result.error;
+  return (result.data ?? []).map((row) => ({ id: String(row.id), name: String(row.name || "") }))
+    .filter((row) => row.name);
+}
+
+export type RouteRequestInput = {
+  source: "whatsapp" | "web" | "admin";
+  origin: string;
+  destination: string;
+  travellerType?: "student" | "general" | null;
+  travelDate?: string | null;
+  requestedByName?: string | null;
+  requestedByPhone?: string | null;
+  whatsappContactId?: string | null;
+  note?: string | null;
+};
+
+// Log a corridor a customer asked for that we do not run yet. Never blocks the
+// conversation — a failure here is swallowed by the caller.
+export async function createRouteRequest(input: RouteRequestInput): Promise<{ id: string } | null> {
+  const origin = input.origin.trim().slice(0, 120);
+  const destination = input.destination.trim().slice(0, 120);
+  if (!origin || !destination) return null;
+  const result = await supabaseAdmin.from("route_requests").insert({
+    source: input.source,
+    origin,
+    destination,
+    traveller_type: input.travellerType ?? null,
+    travel_date: input.travelDate ?? null,
+    requested_by_name: input.requestedByName ?? null,
+    requested_by_phone: input.requestedByPhone ?? null,
+    whatsapp_contact_id: input.whatsappContactId ?? null,
+    note: input.note ?? null,
+  }).select("id").maybeSingle();
+  if (result.error || !result.data) return null;
+  return { id: String(result.data.id) };
 }
 
 export type CreateUnassignedBookingResult =

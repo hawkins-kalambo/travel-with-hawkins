@@ -6,13 +6,14 @@ import { isRateLimited } from "@/lib/rateLimit";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { markWhatsAppMessageRead } from "@/lib/whatsapp/client";
 import { getWhatsAppAiProvider } from "@/lib/whatsapp/ai-provider";
-import { cancelWhatsAppBooking, createUnassignedWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listBookableRoutes, listWhatsAppBookings, loadBookableRoute, loadDeparture, loadWhatsAppBooking, trackBookingForWhatsApp, type AvailableDeparture } from "@/lib/whatsapp/domain";
+import { cancelWhatsAppBooking, createRouteRequest, createUnassignedWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, findGeneralRoute, findStudentRoute, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listActiveUniversities, listBookableRoutes, listPopularRoutes, listWhatsAppBookings, loadBookableRoute, loadDeparture, loadWhatsAppBooking, trackBookingForWhatsApp, type AvailableDeparture, type BookableRoute } from "@/lib/whatsapp/domain";
 import { UNPAID_RESERVATION_LIMIT, formatMalawiDateTime } from "@/lib/whatsapp/booking-rules";
 import { parseFutureTravelDate } from "@/lib/bookingLifecycle";
 import { answerFromApprovedKnowledge } from "@/lib/whatsapp/knowledge";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
-import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, reviewConfirmMessage, routesListMessage } from "@/lib/whatsapp/messages";
+import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, popularRoutesMessage, reviewConfirmMessage, routeClarifyMessage, routeEntryMessage, routeRequestMessage, routesListMessage, studentDirectionMessage, universityListMessage } from "@/lib/whatsapp/messages";
+import { matchDistrict, parseTypedRoute } from "@/lib/routeParsing";
 import { claimWebhookEvent, deliverAndRecord, ensureConversation, failWebhookEvent, finishWebhookEvent, recordInbound, requestHuman, setLanguage, setOptOut, transitionState, updateDeliveryStatus } from "@/lib/whatsapp/repository";
 import { reduceGlobalCommand } from "@/lib/whatsapp/state-machine";
 import type { BookingDraft, WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppOutboundMessage } from "@/lib/whatsapp/types";
@@ -25,6 +26,8 @@ function validEmail(value: string): boolean { return /^[^\s@]+@[^\s@]+\.[^\s@]+$
 
 function promptForStep(conversation: WhatsAppConversationState): string {
   const keys = {
+    route_entry: "routeEntryIntro", route_student_direction: "routeStudentDirectionPrompt",
+    route_student_university: "routeStudentPickUniversity",
     route_origin: "askOrigin", route_pick: "askRoute", route_date: "askTravelDate",
     booking_departure: "askDestination",
     booking_passenger_for: "askPassengerFor", booking_name: "askName",
@@ -118,6 +121,94 @@ function bookingListItem(b: { bookingId: string; routeLabel: string; travelDate:
 async function startRouteSearch(conversation: WhatsAppConversationState, booking: boolean): Promise<void> {
   const next = await transitionState(conversation, "route_origin", booking ? { booking: {} } : {});
   await send(next, textMessage(t(next.language, "askOrigin")));
+}
+
+// ---------------------------------------------------------------------------
+// "Find a Route" — structured student vs general travel discovery.
+// This is discovery only: it resolves a corridor, shows the fare and pickup,
+// and points the customer at "Make a Booking". It never creates a booking.
+// ---------------------------------------------------------------------------
+
+async function startRouteEntry(conversation: WhatsAppConversationState): Promise<void> {
+  const next = await transitionState(conversation, "route_entry", {});
+  await send(next, routeEntryMessage(next.language));
+}
+
+function fareLabelFor(language: WhatsAppConversationState["language"], route: BookableRoute): string {
+  return route.priced ? `MWK ${route.fare.toLocaleString("en-MW")}` : t(language, "farePending");
+}
+
+// Terminal step for a resolved corridor: show it and return to the menu.
+async function showResolvedRoute(conversation: WhatsAppConversationState, route: BookableRoute): Promise<void> {
+  const key = route.priced ? "routeFoundSummary" : "routeFoundNoFare";
+  await goToMenu(conversation, t(conversation.language, key, {
+    label: route.label,
+    fare: route.priced ? `MWK ${route.fare.toLocaleString("en-MW")}` : "",
+    pickup: route.pickup,
+  }));
+}
+
+async function showPopularRoutes(conversation: WhatsAppConversationState): Promise<void> {
+  const base = conversation.step === "route_entry"
+    ? conversation
+    : await transitionState(conversation, "route_entry", { ...conversation.data });
+  const lookup = await tryRouteLookup(base, () => listPopularRoutes());
+  if (!lookup.ok) { await goToMenu(base, t(base.language, "routesUnavailable")); return; }
+  if (!lookup.value.length) { await send(base, textMessage(t(base.language, "routePopularEmpty"))); return; }
+  await send(base, popularRoutesMessage(base.language, lookup.value.map((route) => ({
+    routeId: route.routeId, label: route.label, fareLabel: fareLabelFor(base.language, route),
+  }))));
+}
+
+function cleanPlaceLabel(value: string): string {
+  return clean(value, 60).replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Try to place a typed origin -> destination against the structured routes.
+// Order: student corridors (unless the customer chose the general lane), then
+// a district-to-district general route, then "request this route".
+async function resolveCorridor(
+  conversation: WhatsAppConversationState, rawOrigin: string, rawDestination: string,
+): Promise<void> {
+  const lane = conversation.data.travellerType;
+  const originDistrict = matchDistrict(rawOrigin);
+  const destDistrict = matchDistrict(rawDestination);
+
+  const unisLookup = await tryRouteLookup(conversation, () => listActiveUniversities());
+  const unis = unisLookup.ok ? unisLookup.value : [];
+  const matchUni = (value: string) => {
+    const v = clean(value, 60).toLowerCase();
+    return unis.find((u) => {
+      const name = u.name.toLowerCase();
+      return name === v || name.includes(v) || v.includes(name);
+    });
+  };
+  const destUni = matchUni(rawDestination);
+  const originUni = matchUni(rawOrigin);
+
+  if (lane !== "general") {
+    if (destUni && originDistrict) {
+      const r = await tryRouteLookup(conversation, () => findStudentRoute(originDistrict, destUni.id, "to_university"));
+      if (r.ok && r.value) { await showResolvedRoute(conversation, r.value); return; }
+    }
+    if (originUni && destDistrict) {
+      const r = await tryRouteLookup(conversation, () => findStudentRoute(destDistrict, originUni.id, "from_university"));
+      if (r.ok && r.value) { await showResolvedRoute(conversation, r.value); return; }
+    }
+  }
+
+  if (originDistrict && destDistrict) {
+    const r = await tryRouteLookup(conversation, () => findGeneralRoute(originDistrict, destDistrict));
+    if (r.ok && r.value) { await showResolvedRoute(conversation, r.value); return; }
+  }
+
+  const pendingRouteOrigin = originUni ? originUni.name : cleanPlaceLabel(rawOrigin);
+  const pendingRouteDestination = destUni ? destUni.name : cleanPlaceLabel(rawDestination);
+  const next = await transitionState(conversation, "route_request_confirm", {
+    travellerType: conversation.data.travellerType,
+    pendingRouteOrigin, pendingRouteDestination,
+  });
+  await send(next, routeRequestMessage(next.language, pendingRouteOrigin, pendingRouteDestination));
 }
 
 // Only reached at step "question", so deterministic menu/button handling and
@@ -249,7 +340,7 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     const selected = /^[1-8]$/.test(numeric)
       ? ["routes", "booking", "payment", "tracking", "mybookings", "question", "agent", "language"][Number(numeric) - 1]
       : intent;
-    if (selected === "routes") { await startRouteSearch(conversation, false); return; }
+    if (selected === "routes") { await startRouteEntry(conversation); return; }
     if (selected === "booking") { await startRouteSearch(conversation, true); return; }
     if (selected === "payment") {
       const next = await transitionState(conversation, "payment_booking_id", {});
@@ -277,6 +368,139 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     }
     if (selected === "language") { await send(conversation, languageMessage()); return; }
     await send(conversation, mainMenuMessage(conversation.language)); return;
+  }
+
+  if (conversation.step === "route_entry") {
+    const action = message.actionId || "";
+    const value = message.text.trim().toLowerCase();
+    if (action === "route_menu" || value === "main menu") { await goToMenu(conversation); return; }
+    if (action === "route_popular" || /^\s*popular/.test(value)) { await showPopularRoutes(conversation); return; }
+    if (action === "route_student" || /^\s*student/.test(value)) {
+      const next = await transitionState(conversation, "route_student_direction", {});
+      await send(next, studentDirectionMessage(next.language)); return;
+    }
+    if (action === "route_other" || /^\s*other/.test(value)) {
+      const next = await transitionState(conversation, "route_entry", { travellerType: "general" });
+      await send(next, textMessage(t(next.language, "routeOtherPrompt"))); return;
+    }
+    if (action.startsWith("route:")) {
+      const routeId = action.slice(6);
+      const lookup = await tryRouteLookup(conversation, () => loadBookableRoute(routeId));
+      if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+      if (!lookup.value) { await send(conversation, textMessage(t(conversation.language, "invalidInput"))); return; }
+      await showResolvedRoute(conversation, lookup.value); return;
+    }
+
+    const parsed = parseTypedRoute(message.text);
+    const known = conversation.data.routeKnownPlace;
+    const knownRole = conversation.data.routeKnownRole;
+    if (known && knownRole) {
+      if (parsed?.kind === "pair") { await resolveCorridor(conversation, parsed.origin, parsed.destination); return; }
+      const other = parsed?.kind === "single" ? parsed.place : "";
+      if (!other) { await send(conversation, textMessage(t(conversation.language, "routeClarifyUnclear"))); return; }
+      const origin = knownRole === "origin" ? known : other;
+      const destination = knownRole === "origin" ? other : known;
+      await resolveCorridor(conversation, origin, destination); return;
+    }
+    if (parsed?.kind === "pair") { await resolveCorridor(conversation, parsed.origin, parsed.destination); return; }
+    if (parsed?.kind === "single") {
+      const next = await transitionState(conversation, "route_clarify", {
+        ...conversation.data, routeKnownPlace: parsed.place,
+      });
+      await send(next, routeClarifyMessage(next.language, parsed.place)); return;
+    }
+    await send(conversation, textMessage(t(conversation.language, "routeClarifyUnclear"))); return;
+  }
+
+  if (conversation.step === "route_clarify") {
+    const action = message.actionId || "";
+    const place = conversation.data.routeKnownPlace || "";
+    if (action === "route_restart" || !place) { await startRouteEntry(conversation); return; }
+    if (action === "route_from" || action === "route_to") {
+      const role = action === "route_from" ? "origin" : "destination";
+      const next = await transitionState(conversation, "route_entry", {
+        ...conversation.data, routeKnownPlace: place, routeKnownRole: role,
+      });
+      await send(next, textMessage(t(next.language, role === "origin" ? "routeAskDestinationPlace" : "routeAskOriginPlace")));
+      return;
+    }
+    await send(conversation, routeClarifyMessage(conversation.language, place)); return;
+  }
+
+  if (conversation.step === "route_student_direction") {
+    const action = message.actionId || "";
+    const direction = action === "route_dir_to" ? "to_university"
+      : action === "route_dir_from" ? "from_university" : null;
+    if (!direction) { await send(conversation, studentDirectionMessage(conversation.language)); return; }
+    const lookup = await tryRouteLookup(conversation, () => listActiveUniversities());
+    if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+    if (!lookup.value.length) { await goToMenu(conversation, t(conversation.language, "routeNoUniversities")); return; }
+    const next = await transitionState(conversation, "route_student_university", { studentDirection: direction });
+    await send(next, universityListMessage(next.language, lookup.value)); return;
+  }
+
+  if (conversation.step === "route_student_university") {
+    const action = message.actionId || "";
+    const direction = conversation.data.studentDirection || "to_university";
+    if (!action.startsWith("uni:")) {
+      const lookup = await tryRouteLookup(conversation, () => listActiveUniversities());
+      if (lookup.ok && lookup.value.length) { await send(conversation, universityListMessage(conversation.language, lookup.value)); return; }
+      await goToMenu(conversation, t(conversation.language, "routeNoUniversities")); return;
+    }
+    const universityId = action.slice(4);
+    const lookup = await tryRouteLookup(conversation, () => listActiveUniversities());
+    const university = lookup.ok ? lookup.value.find((u) => u.id === universityId) : undefined;
+    if (!university) { await send(conversation, textMessage(t(conversation.language, "invalidInput"))); return; }
+    const next = await transitionState(conversation, "route_student_home", {
+      studentDirection: direction, studentUniversityId: university.id, studentUniversityName: university.name,
+    });
+    await send(next, textMessage(t(next.language, direction === "to_university" ? "routeAskHomeTo" : "routeAskHomeFrom")));
+    return;
+  }
+
+  if (conversation.step === "route_student_home") {
+    const direction = conversation.data.studentDirection || "to_university";
+    const universityId = conversation.data.studentUniversityId || "";
+    const universityName = conversation.data.studentUniversityName || "";
+    const typed = clean(message.text, 60);
+    const homeDistrict = matchDistrict(typed) || typed;
+    if (!homeDistrict || !universityId) {
+      await send(conversation, textMessage(t(conversation.language, direction === "to_university" ? "routeAskHomeTo" : "routeAskHomeFrom")));
+      return;
+    }
+    const lookup = await tryRouteLookup(conversation, () => findStudentRoute(homeDistrict, universityId, direction));
+    if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+    if (lookup.value) { await showResolvedRoute(conversation, lookup.value); return; }
+    const pendingRouteOrigin = direction === "to_university" ? cleanPlaceLabel(homeDistrict) : universityName;
+    const pendingRouteDestination = direction === "to_university" ? universityName : cleanPlaceLabel(homeDistrict);
+    const next = await transitionState(conversation, "route_request_confirm", {
+      travellerType: "student", pendingRouteOrigin, pendingRouteDestination,
+    });
+    await send(next, routeRequestMessage(next.language, pendingRouteOrigin, pendingRouteDestination)); return;
+  }
+
+  if (conversation.step === "route_request_confirm") {
+    const action = message.actionId || "";
+    const origin = conversation.data.pendingRouteOrigin || "";
+    const destination = conversation.data.pendingRouteDestination || "";
+    if (action === "route_popular") { await showPopularRoutes(conversation); return; }
+    if (action === "route_menu") { await goToMenu(conversation); return; }
+    if (action === "route_req_submit" || isAffirmative(message)) {
+      try {
+        await createRouteRequest({
+          source: "whatsapp", origin, destination,
+          travellerType: conversation.data.travellerType ?? null,
+          requestedByPhone: conversation.waId, whatsappContactId: conversation.contactId,
+        });
+      } catch (error) {
+        logWarn("WhatsApp route request not logged", {
+          conversationId: conversation.conversationId,
+          code: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+        });
+      }
+      await goToMenu(conversation, t(conversation.language, "routeRequestLogged", { origin, destination })); return;
+    }
+    await send(conversation, routeRequestMessage(conversation.language, origin, destination)); return;
   }
 
   if (conversation.step === "route_origin") {
