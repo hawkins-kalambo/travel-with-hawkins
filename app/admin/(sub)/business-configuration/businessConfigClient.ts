@@ -171,3 +171,44 @@ export async function deleteRoute(id: string): Promise<void> {
     throw new Error(data.error || `Unable to delete route (${res.status})`);
   }
 }
+
+export type RouteRequestStatus = "new" | "reviewing" | "added" | "declined";
+
+export type RouteRequest = {
+  id: string;
+  source: "whatsapp" | "web" | "admin";
+  origin: string;
+  destination: string;
+  traveller_type: "student" | "general" | null;
+  travel_date: string | null;
+  requested_by_name: string | null;
+  requested_by_phone: string | null;
+  note: string | null;
+  status: RouteRequestStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function loadRouteRequests(status?: RouteRequestStatus): Promise<RouteRequest[]> {
+  const res = await authFetch(`/api/route-requests${status ? `?status=${status}` : ""}`);
+  const data = (await res.json()) as { success?: boolean; requests?: RouteRequest[]; error?: string };
+  if (!res.ok || data.success !== true) {
+    throw new Error(data.error || `Unable to load route requests (${res.status})`);
+  }
+  return data.requests || [];
+}
+
+export async function updateRouteRequest(payload: { id: string; status: RouteRequestStatus }): Promise<RouteRequest> {
+  const res = await authFetch("/api/route-requests", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { success?: boolean; request?: RouteRequest; error?: string };
+  if (!res.ok || data.success !== true || !data.request) {
+    throw new Error(data.error || `Unable to update route request (${res.status})`);
+  }
+  return data.request;
+}

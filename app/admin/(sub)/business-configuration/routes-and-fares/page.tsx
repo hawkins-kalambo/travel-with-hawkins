@@ -13,9 +13,13 @@ import {
   loadDistrictPickupPoints,
   createDistrictPickupPoint,
   updateDistrictPickupPoint,
+  loadRouteRequests,
+  updateRouteRequest,
   type University,
   type StructuredRoute,
   type DistrictPickupPoint,
+  type RouteRequest,
+  type RouteRequestStatus,
 } from "@/app/admin/(sub)/business-configuration/businessConfigClient";
 import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
 import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
@@ -134,6 +138,9 @@ export default function RoutesAndFaresPage() {
   const [districtPickupPoints, setDistrictPickupPoints] = useState<DistrictPickupPoint[]>([]);
   const [districtPointDraft, setDistrictPointDraft] = useState({ universityId: "", district: "", label: "" });
   const [isUniversityAdmin, setIsUniversityAdmin] = useState(false);
+  const [routeRequests, setRouteRequests] = useState<RouteRequest[]>([]);
+  const [routeRequestSaving, setRouteRequestSaving] = useState<string | null>(null);
+  const [showAllRequests, setShowAllRequests] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -184,6 +191,37 @@ export default function RoutesAndFaresPage() {
   const flashStructured = (text: string) => {
     setMessage(text);
     window.setTimeout(() => setMessage(null), 3000);
+  };
+
+  const refreshRouteRequests = async () => {
+    try {
+      // Route requests are global-admin only — a scoped university_admin
+      // simply doesn't see this panel.
+      return await loadRouteRequests();
+    } catch {
+      return [] as RouteRequest[];
+    }
+  };
+
+  useEffect(() => {
+    const loadRequests = async () => {
+      setRouteRequests(await refreshRouteRequests());
+    };
+    void loadRequests();
+  }, []);
+
+  const setRequestStatus = async (id: string, status: RouteRequestStatus) => {
+    setRouteRequestSaving(id);
+    setStructuredError(null);
+    try {
+      await updateRouteRequest({ id, status });
+      setRouteRequests(await refreshRouteRequests());
+      flashStructured("Route request updated.");
+    } catch (err) {
+      setStructuredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRouteRequestSaving(null);
+    }
   };
 
   const pickupPointsFor = (universityId: string) =>
@@ -538,6 +576,64 @@ export default function RoutesAndFaresPage() {
             </button>
           </div>
         </div></>}
+
+        {!isUniversityAdmin && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">Route requests</h2>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={showAllRequests} onChange={(e) => setShowAllRequests(e.target.checked)} className="h-4 w-4" />
+                Show reviewed
+              </label>
+            </div>
+            <p className="mb-4 text-sm text-slate-500">
+              Corridors customers asked for on WhatsApp that we don&apos;t run yet. Mark one <strong>Added</strong> once
+              you&apos;ve created the route above, or <strong>Declined</strong> if it isn&apos;t viable.
+            </p>
+            {(() => {
+              const visible = showAllRequests
+                ? routeRequests
+                : routeRequests.filter((r) => r.status === "new" || r.status === "reviewing");
+              if (visible.length === 0) {
+                return <p className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">No open route requests.</p>;
+              }
+              return (
+                <div className="space-y-3">
+                  {visible.map((request) => (
+                    <div key={request.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{request.origin} → {request.destination}</p>
+                          <p className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                            <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold uppercase tracking-wide">{request.source}</span>
+                            {request.traveller_type && <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold uppercase tracking-wide">{request.traveller_type}</span>}
+                            <span className={`rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide ${request.status === "new" ? "bg-amber-100 text-amber-800" : request.status === "reviewing" ? "bg-sky-100 text-sky-800" : request.status === "added" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"}`}>{request.status}</span>
+                            {request.travel_date && <span>Wants: {request.travel_date}</span>}
+                            {request.requested_by_phone && <span>{request.requested_by_phone}</span>}
+                            <span>{new Date(request.created_at).toLocaleDateString()}</span>
+                          </p>
+                          {request.note && <p className="mt-1 text-xs text-slate-500">“{request.note}”</p>}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(["reviewing", "added", "declined"] as RouteRequestStatus[]).map((next) => (
+                            <button
+                              key={next}
+                              onClick={() => setRequestStatus(request.id, next)}
+                              disabled={routeRequestSaving === request.id || request.status === next}
+                              className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-40"
+                            >
+                              {next === "reviewing" ? "Reviewing" : next === "added" ? "Added" : "Declined"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
