@@ -13,6 +13,7 @@ import { canConfirmCashFare, canRecordManualFarePayment } from "@/lib/adminBooki
 import { parseRoutePrices, resolveRouteFareIfAvailable } from "@/lib/routePricing";
 import { calcBookingRevenue } from "@/lib/bookingRevenue";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { buildWhatsAppLink, whatsAppBotNumberDisplay } from "@/lib/whatsappLink";
 import { fetchAllUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
 import AmbassadorCreationSuccess from "@/app/admin/components/AmbassadorCreationSuccess";
 import AmbassadorCreationWizard from "@/app/admin/components/AmbassadorCreationWizard";
@@ -1051,8 +1052,8 @@ const universityById = useMemo(() => {
     }
 
     parts.push("\n━━━━━━━━━━━━━━━━━");
-    parts.push("📞 *Bookings & Inquiries:* +265989127308");
-    parts.push("💬 *WhatsApp:* https://wa.me/265989127308\n");
+    parts.push(`📞 *Bookings & Inquiries:* ${whatsAppBotNumberDisplay()}`);
+    parts.push(`💬 *WhatsApp:* ${buildWhatsAppLink("")}\n`);
     parts.push("_Safe Journeys • Trusted Service_");
 
     setWhatsappMsg(parts.join("\n"));

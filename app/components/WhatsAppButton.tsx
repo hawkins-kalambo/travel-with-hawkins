@@ -1,7 +1,10 @@
 import { IconWhatsApp } from "./Icon";
+import { buildWhatsAppLink } from "@/lib/whatsappLink";
 
-export const whatsappUrl =
-  "https://wa.me/265989127308?text=Hello%20Travel%20With%20Hawkins%2C%20I%20would%20like%20to%20book%20transport";
+// Points at the official Travel With Hawkins bot number via the canonical
+// builder. Kept as a named export so existing importers (footer, contact page)
+// stay in sync automatically.
+export const whatsappUrl = buildWhatsAppLink("Hello Travel With Hawkins, I would like to book transport");
 
 export default function WhatsAppButton() {
   return (

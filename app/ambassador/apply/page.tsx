@@ -4,6 +4,7 @@ import { DragEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
+import { buildWhatsAppLink } from "@/lib/whatsappLink";
 import { fetchAllUniversities, type ActiveUniversity } from "@/lib/universitiesClient";
 
 type ApplicationForm = {
@@ -751,7 +752,7 @@ export default function AmbassadorApplyPage() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">WhatsApp</p>
-                  <a href="https://wa.me/265989127308" target="_blank" rel="noreferrer" className="mt-1 block text-primary-700 hover:underline">Chat on WhatsApp</a>
+                  <a href={buildWhatsAppLink()} target="_blank" rel="noreferrer" className="mt-1 block text-primary-700 hover:underline">Chat on WhatsApp</a>
                 </div>
                 <Link href="/" className="inline-flex rounded-full bg-primary-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary-800">Return home</Link>
               </div>

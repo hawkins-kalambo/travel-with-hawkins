@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import StructuredData from "./components/StructuredData";
+import { buildWhatsAppLink, whatsAppBotNumberDisplay } from "@/lib/whatsappLink";
 import "./globals.css";
 
 const siteUrl = "https://travelwithhawkins.com";
@@ -65,11 +66,11 @@ const organizationSchema = {
     },
     {
       "@type": "ContactPoint",
-      telephone: "+265989127308",
+      telephone: whatsAppBotNumberDisplay(),
       contactType: "customer service",
       areaServed: "MW",
       availableLanguage: "English",
-      url: "https://wa.me/265989127308",
+      url: buildWhatsAppLink(""),
     },
   ],
   areaServed: {
