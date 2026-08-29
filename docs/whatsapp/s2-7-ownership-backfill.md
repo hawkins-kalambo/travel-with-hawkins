@@ -1,9 +1,28 @@
-# WhatsApp — historical booking-ownership backfill (Phase A)
+# WhatsApp — booking ownership: backfill + authoritative admin view (Phase A / §4.4)
 
-Fixes the reported inconsistency: a WhatsApp customer's **My Bookings** returned
-"You have no bookings linked to this WhatsApp number yet." while the admin
-Communication Center showed their bookings (e.g. `BK-MTE1ALHH-IVK0`,
-`BK-MSCQEGNZ-KI9V`).
+Two parts:
+1. **Backfill** historical WhatsApp-created bookings onto the canonical owner
+   link so **My Bookings** shows them.
+2. **Tighten the admin conversation view** to that same canonical link so the
+   two sides agree and neither surfaces bookings that aren't verifiably owned
+   by the contact.
+
+## What the reported IDs actually were
+
+Diagnostics on `BK-MTE1ALHH-IVK0` / `BK-MSCQEGNZ-KI9V`:
+
+```
+booking_source = 'web', booking_type = 'route', source_operation_key = NULL,
+phone = '+265989127308'  (the business's OWN number / old website CTA number)
+```
+
+They are **website** bookings placed against the business's own phone number
+(test data), not customer WhatsApp bookings. The admin inbox showed them only
+because it did a loose `bookings.phone = <conversation number>` match — which is
+exactly the leak §4.4 warns about ("never leak the existence of another
+customer's booking"). The backfill correctly does **not** touch web bookings;
+the admin-view change below is what stops them being presented as the WhatsApp
+account's bookings.
 
 ## Root cause
 
@@ -48,15 +67,28 @@ Apply order: after `2026_08_29`. Safe to run against production during normal
 operation. Rollback = restore `whatsapp_contact_id` to `NULL` for the specific
 `booking_id`s the dry-run listed (never blanket-null the column).
 
+## Admin conversation view — now authoritative (code, no migration)
+
+`app/api/admin/whatsapp/conversations/[id]/route.ts` and `.../conversations/route.ts`:
+
+- **`bookings`** (the panel, and the list-row chip) now come from
+  `bookings.whatsapp_contact_id = <contact>` **plus** anything this
+  conversation's flow created (`whatsapp_booking_operations`) — the same
+  authority the bot's My Bookings uses. They can no longer disagree for
+  WhatsApp bookings.
+- Loose phone-string matches are still fetched but returned **separately** as
+  `phoneMatchBookings` and shown in the details pane under a collapsed, muted
+  *"N other bookings on this phone number — not verified as this WhatsApp
+  account"* — agents keep the context without it being presented as the
+  customer's bookings.
+
 ## Not in this change
 
-- A shared `getBookingsForWhatsAppContact` service used by both the bot and the
-  admin (brief §4.4). After this backfill the two agree for WhatsApp-created
-  bookings; the admin keeps its broader `phone`-match view on purpose so agents
-  see everything for a number.
+- A single extracted `getBookingsForWhatsAppContact` module shared by both call
+  sites (brief §4.4) — both now use the same query shape; extracting it is a
+  tidy-up, not a behaviour change.
 - Pagination / "More" in My Bookings when a contact owns many bookings
-  (brief §5.4) — the list currently fetches 15 and the interactive list shows
-  10. A follow-up.
+  (brief §5.4) — the list fetches 15, the interactive list shows 10. Follow-up.
 
 ## Verify after applying
 

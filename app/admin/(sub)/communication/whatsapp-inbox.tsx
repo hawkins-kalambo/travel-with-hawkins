@@ -48,8 +48,8 @@ type Detail = {
     serviceWindowExpiresAt: string | null; unreadCount: number;
     viewerId: string; viewerRole?: string;
   };
-  messages: Message[]; notes: Note[]; bookings: BookingCard[]; payments: Payment[];
-  receipts: ReceiptRow[]; agents: Agent[]; media: MediaRow[];
+  messages: Message[]; notes: Note[]; bookings: BookingCard[]; phoneMatchBookings: BookingCard[];
+  payments: Payment[]; receipts: ReceiptRow[]; agents: Agent[]; media: MediaRow[];
 };
 
 const ACCEPTED_FILE_TYPES = "application/pdf,image/jpeg,image/png";
@@ -514,7 +514,7 @@ export default function WhatsAppInboxSection({ initialConversationId }: { initia
 
               <div>
                 <h3 className="text-sm font-semibold text-gray-800">Bookings</h3>
-                {!detail.bookings.length ? <p className="text-xs text-gray-400">No bookings for this number.</p> : detail.bookings.map((b) => (
+                {!detail.bookings.length ? <p className="text-xs text-gray-400">No bookings owned by this WhatsApp account.</p> : detail.bookings.map((b) => (
                   <div key={b.bookingId} className="mt-2 rounded-xl border border-gray-200 p-3 text-xs">
                     <p className="font-semibold text-gray-900">{b.bookingId} <span className="font-normal text-gray-500">· {b.status}</span></p>
                     <p className="text-gray-600">{b.route} · requested {b.requestedDate || "—"}</p>
@@ -529,6 +529,18 @@ export default function WhatsAppInboxSection({ initialConversationId }: { initia
                     {b.deadline ? <p className="text-amber-700">Fee deadline: {when(b.deadline)}</p> : null}
                   </div>
                 ))}
+                {detail.phoneMatchBookings.length ? (
+                  <details className="mt-2 rounded-xl border border-dashed border-gray-300 p-2 text-xs">
+                    <summary className="cursor-pointer text-gray-500">
+                      {detail.phoneMatchBookings.length} other booking{detail.phoneMatchBookings.length === 1 ? "" : "s"} on this phone number — not verified as this WhatsApp account
+                    </summary>
+                    {detail.phoneMatchBookings.map((b) => (
+                      <p key={b.bookingId} className="mt-1 text-gray-500">
+                        {b.bookingId} · {b.route} · {b.requestedDate || "—"} · {b.status} · {b.source}
+                      </p>
+                    ))}
+                  </details>
+                ) : null}
               </div>
 
               <div>

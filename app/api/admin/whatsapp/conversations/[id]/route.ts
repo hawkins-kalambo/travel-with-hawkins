@@ -78,12 +78,36 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   ]);
 
   const agentName = new Map((agents.data ?? []).map((a) => [a.id, a.full_name || a.email || a.id]));
-  const linkedBookingIds = (operations.data ?? []).map((row) => row.booking_id).filter(Boolean);
-  const contactBookings = await supabaseAdmin.from("bookings")
-    .select("booking_id,name,phone,email,destination,travel_date,status,booking_source,departure_id,assigned_at,booking_fee_status,booking_fee_amount,fare_status,fare,booking_expires_at")
+  const linkedBookingIds = (operations.data ?? []).map((row) => row.booking_id).filter(Boolean) as string[];
+
+  const BOOKING_COLS = "booking_id,name,phone,email,destination,travel_date,status,booking_source,departure_id,assigned_at,booking_fee_status,booking_fee_amount,fare_status,fare,booking_expires_at,whatsapp_contact_id";
+
+  // Authoritative: bookings whose canonical owner IS this WhatsApp contact,
+  // plus any this conversation's flow created (whatsapp_booking_operations).
+  const [ownedRes, linkedRes] = await Promise.all([
+    supabaseAdmin.from("bookings").select(BOOKING_COLS)
+      .eq("whatsapp_contact_id", conversation.contactId).order("created_at", { ascending: false }).limit(25),
+    linkedBookingIds.length
+      ? supabaseAdmin.from("bookings").select(BOOKING_COLS).in("booking_id", linkedBookingIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+  ]);
+  const ownedRows = new Map<string, Record<string, unknown>>();
+  for (const row of [...(ownedRes.data ?? []), ...(linkedRes.data ?? [])]) ownedRows.set(String(row.booking_id), row);
+  const bookings = Array.from(ownedRows.values()).map(bookingCard);
+
+  // Advisory only: bookings that merely share this phone number but are NOT
+  // owner-linked to this contact (e.g. a website booking the customer typed the
+  // number into, or a shared handset). Shown to agents as "not verified", never
+  // presented as this WhatsApp account's bookings.
+  const phoneMatchRes = await supabaseAdmin.from("bookings").select(BOOKING_COLS)
     .eq("phone", conversation.waId).order("created_at", { ascending: false }).limit(10);
-  const bookings = (contactBookings.data ?? []).map(bookingCard);
-  const bookingIds = Array.from(new Set([...linkedBookingIds, ...bookings.map((b) => b.bookingId)])).filter(Boolean);
+  const phoneMatchBookings = (phoneMatchRes.data ?? [])
+    .filter((row) => !ownedRows.has(String(row.booking_id)))
+    .map(bookingCard);
+
+  const bookingIds = Array.from(new Set([
+    ...bookings.map((b) => b.bookingId), ...phoneMatchBookings.map((b) => b.bookingId),
+  ])).filter(Boolean);
   const payments = bookingIds.length
     ? await supabaseAdmin.from("payments").select("id,booking_id,payment_type,status,expected_amount,currency,paid_at,internal_reference").in("booking_id", bookingIds).order("created_at", { ascending: false })
     : { data: [] as Array<Record<string, unknown>> };
@@ -137,6 +161,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     messages: transcript,
     notes: (notes.data ?? []).map((n) => ({ ...n, authorName: agentName.get(n.author_id) || null })),
     bookings,
+    phoneMatchBookings,
     payments: payments.data ?? [],
     receipts,
     agents: agents.data ?? [],
