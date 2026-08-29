@@ -12,7 +12,7 @@ import { parseFutureTravelDate } from "@/lib/bookingLifecycle";
 import { answerFromApprovedKnowledge } from "@/lib/whatsapp/knowledge";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
-import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, routesListMessage } from "@/lib/whatsapp/messages";
+import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, reviewConfirmMessage, routesListMessage } from "@/lib/whatsapp/messages";
 import { claimWebhookEvent, deliverAndRecord, ensureConversation, failWebhookEvent, finishWebhookEvent, recordInbound, requestHuman, setLanguage, setOptOut, transitionState, updateDeliveryStatus } from "@/lib/whatsapp/repository";
 import { reduceGlobalCommand } from "@/lib/whatsapp/state-machine";
 import type { BookingDraft, WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppOutboundMessage } from "@/lib/whatsapp/types";
@@ -108,6 +108,13 @@ function departureRows(departures: AvailableDeparture[]) {
   }));
 }
 
+function bookingListItem(b: { bookingId: string; routeLabel: string; travelDate: string; status: string; bookingFeeStatus: string }) {
+  return {
+    bookingId: b.bookingId, routeLabel: b.routeLabel, travelDate: b.travelDate,
+    statusLabel: b.bookingFeeStatus === "paid" ? b.status : `${b.status} · fee unpaid`,
+  };
+}
+
 async function startRouteSearch(conversation: WhatsAppConversationState, booking: boolean): Promise<void> {
   const next = await transitionState(conversation, "route_origin", booking ? { booking: {} } : {});
   await send(next, textMessage(t(next.language, "askOrigin")));
@@ -180,12 +187,13 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
 
   const globalCommand = reduceGlobalCommand(conversation.step, intent);
 
-  // Mid-draft "menu" / "cancel" / "restart": confirm before throwing captured
-  // details away. Asking for an agent still goes straight through.
-  if (["menu", "cancel", "restart"].includes(globalCommand.kind) && hasDraftInProgress(conversation)) {
+  // Mid-draft "menu" / "restart" (often accidental — "hi", "hello", "menu"):
+  // confirm before throwing captured details away. An explicit "cancel", "back"
+  // or agent request still goes straight through.
+  if (["menu", "restart"].includes(globalCommand.kind) && hasDraftInProgress(conversation)) {
     const next = await transitionState(conversation, "discard_confirm", {
       ...conversation.data,
-      pendingExit: globalCommand.kind as "menu" | "cancel" | "restart",
+      pendingExit: globalCommand.kind as "menu" | "restart",
       draftStep: conversation.step,
     });
     await send(next, discardConfirmMessage(next.language)); return;
@@ -255,11 +263,8 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
       const lookup = await tryRouteLookup(conversation, () => listWhatsAppBookings(conversation.contactId));
       if (!lookup.ok) { await send(conversation, textMessage(t(conversation.language, "systemError"))); return; }
       if (!lookup.value.length) { await send(conversation, textMessage(t(conversation.language, "myBookingsEmpty"))); return; }
-      const next = await transitionState(conversation, "my_bookings", {});
-      await send(next, bookingsListMessage(next.language, lookup.value.map((b) => ({
-        bookingId: b.bookingId, routeLabel: b.routeLabel, travelDate: b.travelDate,
-        statusLabel: b.bookingFeeStatus === "paid" ? b.status : `${b.status} · fee unpaid`,
-      }))));
+      const next = await transitionState(conversation, "my_bookings", { myBookingsOffset: 0 });
+      await send(next, bookingsListMessage(next.language, lookup.value.map(bookingListItem), 0));
       return;
     }
     if (selected === "question") {
@@ -400,9 +405,11 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
           fare: mwk(fare), fee: mwk(fee), total: mwk(fare + fee), balance: mwk(fare),
           note: t(next.language, "unassignedNote"),
         });
-    await send(next, confirmPromptMessage(next.language, summary)); return;
+    await send(next, reviewConfirmMessage(next.language, summary)); return;
   }
   if (conversation.step === "booking_review") {
+    // "Edit" (flow_back) is handled by the global back command above — it steps
+    // back to the last question. Anything else non-affirmative cancels.
     if (!isAffirmative(message)) { await goToMenu(conversation, t(conversation.language, "cancelled")); return; }
     const draft = conversation.data.booking || {};
     const unassigned = !draft.departureId;
@@ -457,6 +464,13 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
 
   if (conversation.step === "my_bookings") {
     const bookingId = message.actionId?.startsWith("bk:") ? message.actionId.slice(3) : "";
+    if (bookingId === "more") {
+      const lookup = await tryRouteLookup(conversation, () => listWhatsAppBookings(conversation.contactId));
+      if (!lookup.ok || !lookup.value.length) { await send(conversation, textMessage(t(conversation.language, "selectBooking"))); return; }
+      const offset = (conversation.data.myBookingsOffset ?? 0) + 9;
+      const next = await transitionState(conversation, "my_bookings", { myBookingsOffset: offset });
+      await send(next, bookingsListMessage(next.language, lookup.value.map(bookingListItem), offset)); return;
+    }
     const detail = bookingId ? await loadWhatsAppBooking(bookingId, conversation.contactId) : null;
     if (!detail) { await send(conversation, textMessage(t(conversation.language, "selectBooking"))); return; }
     const next = await transitionState(conversation, "booking_action", { selectedBookingId: bookingId });

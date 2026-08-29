@@ -177,7 +177,7 @@ export async function listWhatsAppBookings(contactId: string): Promise<WhatsAppB
   const result = await supabaseAdmin.from("bookings")
     .select("booking_id,destination,travel_date,status,booking_fee_status,fare_status,booking_expires_at")
     .eq("whatsapp_contact_id", contactId)
-    .order("created_at", { ascending: false }).limit(15);
+    .order("created_at", { ascending: false }).limit(30);
   if (result.error) throw result.error;
   return (result.data ?? []).map((row) => ({
     bookingId: String(row.booking_id),

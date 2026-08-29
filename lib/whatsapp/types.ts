@@ -119,6 +119,8 @@ export type WhatsAppStateData = {
   // Set while a "discard your booking in progress?" prompt is showing.
   pendingExit?: "menu" | "cancel" | "restart";
   draftStep?: WhatsAppConversationStep;
+  // My Bookings paging offset.
+  myBookingsOffset?: number;
 };
 
 export type WhatsAppConversationState = {
