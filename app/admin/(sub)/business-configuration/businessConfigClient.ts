@@ -71,10 +71,17 @@ export async function updateUniversity(payload: Record<string, unknown>): Promis
   return data.university;
 }
 
+export type RouteType = "student" | "general" | "both";
+export type RouteDirection = JourneyDirection | "general";
+
 export type StructuredRoute = {
   id: string;
   origin_district: string;
-  university_id: string;
+  university_id: string | null;
+  destination_district: string | null;
+  route_type: RouteType;
+  is_popular: boolean;
+  popular_order: number | null;
   pickup_point_id: string | null;
   district_pickup_point_id: string | null;
   fare: number;
@@ -83,8 +90,8 @@ export type StructuredRoute = {
   capacity: number | null;
   commission_amount: number;
   commission_type: "fixed" | "percentage";
-  direction: JourneyDirection;
-  university?: { id: string; name: string; short_code: string; status: string };
+  direction: RouteDirection;
+  university?: { id: string; name: string; short_code: string; status: string } | null;
   pickupPoint?: { id: string; label: string; status: string } | null;
   districtPickupPoint?: { id: string; district: string; label: string; status: string } | null;
 };
@@ -163,4 +170,45 @@ export async function deleteRoute(id: string): Promise<void> {
   if (!res.ok || data.success !== true) {
     throw new Error(data.error || `Unable to delete route (${res.status})`);
   }
+}
+
+export type RouteRequestStatus = "new" | "reviewing" | "added" | "declined";
+
+export type RouteRequest = {
+  id: string;
+  source: "whatsapp" | "web" | "admin";
+  origin: string;
+  destination: string;
+  traveller_type: "student" | "general" | null;
+  travel_date: string | null;
+  requested_by_name: string | null;
+  requested_by_phone: string | null;
+  note: string | null;
+  status: RouteRequestStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function loadRouteRequests(status?: RouteRequestStatus): Promise<RouteRequest[]> {
+  const res = await authFetch(`/api/route-requests${status ? `?status=${status}` : ""}`);
+  const data = (await res.json()) as { success?: boolean; requests?: RouteRequest[]; error?: string };
+  if (!res.ok || data.success !== true) {
+    throw new Error(data.error || `Unable to load route requests (${res.status})`);
+  }
+  return data.requests || [];
+}
+
+export async function updateRouteRequest(payload: { id: string; status: RouteRequestStatus }): Promise<RouteRequest> {
+  const res = await authFetch("/api/route-requests", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { success?: boolean; request?: RouteRequest; error?: string };
+  if (!res.ok || data.success !== true || !data.request) {
+    throw new Error(data.error || `Unable to update route request (${res.status})`);
+  }
+  return data.request;
 }
