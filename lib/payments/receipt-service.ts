@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeBookingRecord } from "@/lib/bookingServerUtils";
 import { generateReceiptPdfBase64, type PaymentReceiptRecord } from "@/lib/receiptGenerator";
+import { normalizeWhatsAppId } from "@/lib/whatsapp/phone";
 import { sendEmail } from "@/lib/resend";
 import { logError } from "@/lib/logger";
 
@@ -99,6 +100,25 @@ export async function loadLatestReceipt(bookingId: string, paymentType: ReceiptP
   if (!data) return null;
   const receipt = await buildReceipt(data as PaymentRow);
   return receipt ? { paymentId: data.id as string, receipt } : null;
+}
+
+// Durably record, as part of finalisation, that a receipt is owed on each
+// channel that has a recipient. Idempotent. Making this a committed row before
+// any send is what lets a crash before delivery be recovered by the re-drive.
+export async function enqueueReceiptDeliveries(txRef: string): Promise<void> {
+  const { data: payment } = await supabaseAdmin
+    .from("payments").select("id, booking_id").eq("internal_reference", txRef.trim()).eq("status", "paid").maybeSingle();
+  if (!payment) return;
+  const { data: booking } = await supabaseAdmin
+    .from("bookings").select("email, phone").eq("booking_id", payment.booking_id).maybeSingle();
+  const email = (booking?.email || "").trim();
+  const waId = normalizeWhatsAppId(booking?.phone) || "";
+  if (email.includes("@")) {
+    await supabaseAdmin.rpc("enqueue_payment_receipt_delivery", { p_payment_id: payment.id, p_channel: "email", p_recipient: email });
+  }
+  if (waId) {
+    await supabaseAdmin.rpc("enqueue_payment_receipt_delivery", { p_payment_id: payment.id, p_channel: "whatsapp", p_recipient: waId });
+  }
 }
 
 export async function emailReceiptForPayment(txRef: string): Promise<"sent" | "already_sent" | "skipped" | "failed"> {

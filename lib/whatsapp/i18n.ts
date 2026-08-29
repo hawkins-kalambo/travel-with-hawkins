@@ -74,6 +74,17 @@ export const english = {
   cancelDone: "Booking {bookingId} is cancelled and the seat released.",
   cancelNeedsAgent: "This booking cannot be cancelled automatically. Connecting you to an agent.",
   cancelNotFound: "I could not find that booking on this number.",
+  askRoute: "There are no scheduled trips for now. Choose your route and I'll take your preferred travel date:",
+  askTravelDate: "What date would you like to travel? Reply as YYYY-MM-DD, for example 2026-09-20.",
+  invalidTravelDate: "Please reply with a real future date in the form YYYY-MM-DD (year-month-day).",
+  routeUnpriced: "That route is supported, but its fare has not been set yet. I've flagged it for an agent to follow up — no booking was created.",
+  unassignedNote: "Transport for this date is assigned later. This reserves your place under the payment deadline — not a specific seat, vehicle or pickup time.",
+  reviewSummaryUnassigned: "Please review:\n\nPassenger: {name}\nRoute: {route}\nRequested date: {date}\n\nFare: MWK {fare}\nBooking fee (pay now): MWK {fee}\nTotal: MWK {total}\nBalance after fee: MWK {balance}\n\n{note}\n\nReply Confirm.",
+  bookingHeldUnassignedStandard: "Place reserved — booking {bookingId}. Transport for {date} will be assigned later. Pay the MWK {fee} booking fee by {deadline} to keep it.\n\n{link}",
+  bookingHeldUnassignedShort: "Place held for 15 minutes — booking {bookingId}. Transport is assigned later. Pay the MWK {fee} booking fee now, or the place is released.\n\n{link}",
+  bookingHeldUnassignedNoLink: "Place reserved — booking {bookingId}. Transport for {date} will be assigned later. Pay the MWK {fee} booking fee by {deadline}. Open My Bookings for the payment link.",
+  routesButton: "Routes",
+  farePending: "Fare confirmed by an agent",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -152,6 +163,17 @@ export const chichewa: Record<TranslationKey, string> = {
   cancelDone: "Booking {bookingId} yachotsedwa ndipo mpando wamasulidwa.",
   cancelNeedsAgent: "Booking iyi singachotsedwe mwa okha. Tikukulumikizani ndi agent.",
   cancelNotFound: "Sindinapeze booking imeneyo pa nambala iyi.",
+  askRoute: "Palibe maulendo okonzedwa pakadali pano. Sankhani route yanu ndipo ndikutengerani tsiku la ulendo lomwe mukufuna:",
+  askTravelDate: "Mukufuna kuyenda tsiku liti? Yankhani ngati YYYY-MM-DD, mwachitsanzo 2026-09-20.",
+  invalidTravelDate: "Chonde yankhani ndi tsiku lenileni la mtsogolo ngati YYYY-MM-DD (chaka-mwezi-tsiku).",
+  routeUnpriced: "Route imeneyi imapezeka, koma mtengo wake sunakhazikitsidwebe. Ndauza agent kuti atsatire — palibe booking yopangidwa.",
+  unassignedNote: "Transport ya tsiku ili idzaperekedwa mtsogolo. Izi zikusungira malo anu pansi pa nthawi yolipira — osati mpando, galimoto kapena nthawi yotenga inayake.",
+  reviewSummaryUnassigned: "Onani booking yanu:\n\nPassenger: {name}\nRoute: {route}\nTsiku lofunidwa: {date}\n\nMtengo (fare): MWK {fare}\nBooking fee (lipirani tsopano): MWK {fee}\nZonse: MWK {total}\nOtsala pambuyo pa fee: MWK {balance}\n\n{note}\n\nLembani Confirm.",
+  bookingHeldUnassignedStandard: "Malo asungidwa — booking {bookingId}. Transport ya {date} idzaperekedwa mtsogolo. Lipirani booking fee ya MWK {fee} pofika {deadline} kuti musunge.\n\n{link}",
+  bookingHeldUnassignedShort: "Malo asungidwa kwa mphindi 15 — booking {bookingId}. Transport idzaperekedwa mtsogolo. Lipirani booking fee ya MWK {fee} tsopano, apo ayi malo adzamasulidwa.\n\n{link}",
+  bookingHeldUnassignedNoLink: "Malo asungidwa — booking {bookingId}. Transport ya {date} idzaperekedwa mtsogolo. Lipirani booking fee ya MWK {fee} pofika {deadline}. Tsegulani My Bookings kuti mupeze link ya kulipira.",
+  routesButton: "Ma Route",
+  farePending: "Mtengo utsimikizidwa ndi agent",
 };
 
 // Product/legal reviewers should review these mixed operational terms before
@@ -163,6 +185,9 @@ export const chichewaHumanReviewKeys: TranslationKey[] = [
   "reviewSummary", "bookingHeldStandard", "bookingHeldShort", "bookingHeldNoLink",
   "unpaidLimitReached", "departureTooSoon", "bookingDetail", "cancelConfirmPrompt",
   "cancelNeedsAgent", "aiClarify", "aiRouteHint",
+  "askRoute", "askTravelDate", "invalidTravelDate", "routeUnpriced", "unassignedNote",
+  "reviewSummaryUnassigned",
+  "bookingHeldUnassignedStandard", "bookingHeldUnassignedShort", "bookingHeldUnassignedNoLink",
 ];
 
 export function t(language: WhatsAppLanguage, key: TranslationKey, values: Record<string, string | number> = {}): string {

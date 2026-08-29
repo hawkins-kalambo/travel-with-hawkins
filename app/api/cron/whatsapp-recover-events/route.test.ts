@@ -13,6 +13,10 @@ mock.module("@/lib/supabaseAdmin", {
 mock.module("@/lib/whatsapp/processor", {
   exports: { processWhatsAppEvent: async (id: string) => { processed.push(id); } },
 });
+let redriveResult = { candidates: 0, delivered: 0 };
+mock.module("@/lib/payments/receipt-redrive", {
+  exports: { redriveReceiptDeliveries: async () => redriveResult },
+});
 
 const expire = await import("./../whatsapp-expire-reservations/route.ts");
 const recover = await import("./route.ts");
@@ -44,9 +48,10 @@ test("expire: authorised request returns the released count", async () => {
 
 test("recover: reprocesses the ids the recovery function returns", async () => {
   processed.length = 0;
+  redriveResult = { candidates: 1, delivered: 1 };
   rpcResult = { data: [{ event_id: "e1" }, { event_id: "e2" }], error: null };
   const res = await recover.GET(req("Bearer cron-test-secret"));
-  assert.deepEqual(await res.json(), { ok: true, candidates: 2, processed: 2 });
+  assert.deepEqual(await res.json(), { ok: true, candidates: 2, processed: 2, receipts: { candidates: 1, delivered: 1 } });
   assert.deepEqual(processed, ["e1", "e2"]);
 });
 

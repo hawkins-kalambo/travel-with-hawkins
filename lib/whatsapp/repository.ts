@@ -91,24 +91,74 @@ export async function recordInbound(conversation: WhatsAppConversationState, mes
     provider_message_id: message.id, provider_status: "received", provider_metadata: {},
   });
   if (result.error && result.error.code !== "23505") throw result.error;
-  await supabaseAdmin.from("whatsapp_conversations").update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("conversation_id", conversation.conversationId);
+  // Bump the list-view preview + unread badge in one guarded RPC (unread only
+  // accrues while a human is involved — see the migration).
+  await supabaseAdmin.rpc("bump_whatsapp_unread", {
+    p_conversation_id: conversation.conversationId,
+    p_preview: message.text || `[${message.inputType}]`,
+  });
 }
 
-export async function deliverAndRecord(conversation: WhatsAppConversationState, message: WhatsAppOutboundMessage, senderId: string | null = null): Promise<string> {
+// `origin` attributes the transcript line: "agent" (a human sent it),
+// "bot" (the automated flow), or "automatic" (an unattended system message
+// such as a payment receipt). Defaults from whether a senderId was given.
+export type WhatsAppSendOrigin = "agent" | "bot" | "automatic";
+
+export async function deliverAndRecord(
+  conversation: WhatsAppConversationState, message: WhatsAppOutboundMessage,
+  senderId: string | null = null, origin?: WhatsAppSendOrigin,
+): Promise<string> {
+  const resolvedOrigin: WhatsAppSendOrigin = origin ?? (senderId ? "agent" : "bot");
+  const preview = messageText(message);
   const pending = await supabaseAdmin.from("communication_messages").insert({
-    conversation_id: conversation.conversationId, sender_id: senderId, body: messageText(message), html: null,
+    conversation_id: conversation.conversationId, sender_id: senderId, body: preview, html: null,
     attachments: [], channel: "whatsapp", direction: "outbound", visibility: "customer",
     message_kind: message.type, provider_status: "sending",
-    template_name: message.type === "template" ? message.name : null, provider_metadata: {},
+    template_name: message.type === "template" ? message.name : null,
+    provider_metadata: { origin: resolvedOrigin },
   }).select("id").single();
   if (pending.error || !pending.data) throw pending.error || new Error("outbound_record_failed");
   try {
     const providerId = await sendWhatsAppMessage(conversation.waId, message);
     await supabaseAdmin.from("communication_messages").update({ provider_message_id: providerId, provider_status: "sent" }).eq("id", pending.data.id);
+    await supabaseAdmin.rpc("touch_whatsapp_last_message", {
+      p_conversation_id: conversation.conversationId, p_preview: preview,
+    });
     return providerId;
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "send_failed";
     await supabaseAdmin.from("communication_messages").update({ provider_status: "failed", provider_error_code: code.slice(0, 80) }).eq("id", pending.data.id);
+    throw error;
+  }
+}
+
+// Media send. Distinct from deliverAndRecord because the caller needs the
+// transcript message id (to link a whatsapp_media / receipt-delivery row) and
+// the message carries an `attachments` descriptor the inbox renders as a card.
+// `origin` defaults to "agent" (attachments come from a human) but an
+// automatic receipt passes "automatic" with a null senderId.
+export async function deliverAttachmentAndRecord(
+  conversation: WhatsAppConversationState,
+  message: Extract<WhatsAppOutboundMessage, { type: "document" | "image" }>,
+  senderId: string | null, attachments: unknown[], origin: WhatsAppSendOrigin = "agent",
+): Promise<{ providerMessageId: string; messageId: string }> {
+  const preview = messageText(message);
+  const pending = await supabaseAdmin.from("communication_messages").insert({
+    conversation_id: conversation.conversationId, sender_id: senderId, body: preview, html: null,
+    attachments, channel: "whatsapp", direction: "outbound", visibility: "customer",
+    message_kind: message.type, provider_status: "sending",
+    provider_metadata: { origin },
+  }).select("id").single();
+  if (pending.error || !pending.data) throw pending.error || new Error("outbound_record_failed");
+  const messageId = pending.data.id as string;
+  try {
+    const providerMessageId = await sendWhatsAppMessage(conversation.waId, message);
+    await supabaseAdmin.from("communication_messages").update({ provider_message_id: providerMessageId, provider_status: "sent" }).eq("id", messageId);
+    await supabaseAdmin.rpc("touch_whatsapp_last_message", { p_conversation_id: conversation.conversationId, p_preview: preview });
+    return { providerMessageId, messageId };
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "send_failed";
+    await supabaseAdmin.from("communication_messages").update({ provider_status: "failed", provider_error_code: code.slice(0, 80) }).eq("id", messageId);
     throw error;
   }
 }

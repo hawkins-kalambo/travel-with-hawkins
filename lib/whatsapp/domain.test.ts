@@ -22,7 +22,10 @@ function builder(table: string) {
   const chain: Record<string, unknown> = {
     select(sql: string) { (selects[table] ??= []).push(sql); return chain; },
     eq() { return chain; }, gt() { return chain; }, gte() { return chain; },
-    in() { return chain; }, ilike() { return chain; }, limit() { return chain; }, order() { return chain; },
+    in() { return chain; }, ilike() { return chain; }, is() { return chain; }, not() { return chain; },
+    upsert() { return chain; },
+    limit() { return chain; }, order() { return chain; },
+    maybeSingle() { return Promise.resolve(tableData(table)); },
     then(resolve: (v: Rows) => unknown, reject?: (e: unknown) => unknown) {
       return Promise.resolve(tableData(table)).then(resolve, reject);
     },
@@ -30,13 +33,19 @@ function builder(table: string) {
   return chain;
 }
 
-mock.module("@/lib/supabaseAdmin", { exports: { supabaseAdmin: { from: (t: string) => builder(t) } } });
+let rpcResult: Rows = { data: null, error: null };
+mock.module("@/lib/supabaseAdmin", {
+  exports: { supabaseAdmin: { from: (t: string) => builder(t), rpc: async () => rpcResult } },
+});
 mock.module("@/lib/bookingAccess", { exports: { contactMatchesBooking: () => false, loadBookingById: async () => ({ found: false }) } });
 mock.module("@/lib/bookingServerUtils", { exports: { generateBookingId: () => "BK-1", generateTripId: () => "TRIP-1" } });
 mock.module("@/lib/payments/payment-service", { exports: { initiatePayChanguPayment: async () => ({ outcome: "rejected", reason: "test" }) } });
 mock.module("@/lib/payments/finalize-flow", { exports: { verifyAndFinalizePayment: async () => ({ outcome: "failed" }) } });
 
-const { findAvailableDepartures, loadDeparture } = await import("./domain.ts");
+const {
+  findAvailableDepartures, loadDeparture, listBookableRoutes, loadBookableRoute,
+  createUnassignedWhatsAppBooking,
+} = await import("./domain.ts");
 
 const activeRoute = {
   id: "r1", origin_district: "Lilongwe", university_id: "u1", fare: 12000,
@@ -51,6 +60,7 @@ beforeEach(() => {
   routesRows = { data: [activeRoute], error: null };
   departuresRows = { data: [], error: null };
   bookingsRows = { data: [], error: null };
+  rpcResult = { data: null, error: null };
 });
 
 test("the routes query does not select the non-existent destination_label column", async () => {
@@ -83,4 +93,57 @@ test("a genuine routes query error still propagates (caller guards it)", async (
 
 test("loadDeparture returns null when the id is not among available departures", async () => {
   assert.equal(await loadDeparture("missing"), null);
+});
+
+// --- Booking before a trip is created (Stage 2.1) ---
+
+test("listBookableRoutes shapes a route and flags it priced, without needing a departure", async () => {
+  const [route] = await listBookableRoutes("Lilongwe");
+  assert.equal(route.label, "Lilongwe - Mzuzu University");
+  assert.equal(route.fare, 12000);
+  assert.equal(route.priced, true);
+  assert.doesNotMatch(selects.routes.join(" "), /destination_label/);
+});
+
+test("listBookableRoutes still lists an unpriced route but marks priced=false", async () => {
+  routesRows = { data: [{ ...activeRoute, fare: 0 }], error: null };
+  const [route] = await listBookableRoutes("Lilongwe");
+  assert.equal(route.priced, false);
+});
+
+test("listBookableRoutes drops routes whose destination university is inactive", async () => {
+  routesRows = { data: [{ ...activeRoute, university: { name: "Mzuzu University", status: "suspended" } }], error: null };
+  assert.deepEqual(await listBookableRoutes("Lilongwe"), []);
+});
+
+test("loadBookableRoute returns null when the route row is missing", async () => {
+  routesRows = { data: null, error: null };
+  assert.equal(await loadBookableRoute("nope"), null);
+});
+
+test("createUnassignedWhatsAppBooking refuses an unpriced route before calling the RPC", async () => {
+  routesRows = { data: { ...activeRoute, fare: 0 }, error: null };
+  const result = await createUnassignedWhatsAppBooking(
+    { conversationId: "c1", contactId: "ct1", waId: "+265991234567" } as never,
+    { routeId: "r1", travelDate: "2026-12-20", name: "Jane Banda" },
+    "op-1",
+  );
+  assert.deepEqual(result, { outcome: "rejected", reason: "route_unpriced" });
+});
+
+test("createUnassignedWhatsAppBooking returns the created booking from the RPC row", async () => {
+  routesRows = { data: activeRoute, error: null };
+  rpcResult = {
+    data: [{ outcome: "created", booking_id: "BK-1", reason: null, expires_at: "2026-12-13T21:59:59Z", fare: 12000, booking_fee: 5000 }],
+    error: null,
+  };
+  const result = await createUnassignedWhatsAppBooking(
+    { conversationId: "c1", contactId: "ct1", waId: "+265991234567" } as never,
+    { routeId: "r1", travelDate: "2026-12-20", name: "Jane Banda" },
+    "op-1",
+  );
+  assert.equal(result.outcome, "created");
+  assert.equal(result.bookingId, "BK-1");
+  assert.equal(result.fare, 12000);
+  assert.equal(result.bookingFee, 5000);
 });

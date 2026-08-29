@@ -31,6 +31,12 @@ function payloadFor(to: string, message: WhatsAppOutboundMessage): Record<string
     if (message.rows.length < 1 || message.rows.length > 10) throw new MetaWhatsAppError("invalid_list");
     return { ...base, type: "interactive", interactive: { type: "list", body: { text: message.body }, action: { button: message.button.slice(0, 20), sections: [{ title: "Travel With Hawkins", rows: message.rows.map((row) => ({ id: row.id, title: row.title.slice(0, 24), ...(row.description ? { description: row.description.slice(0, 72) } : {}) })) }] } } };
   }
+  if (message.type === "document") {
+    return { ...base, type: "document", document: { id: message.mediaId, filename: message.filename.slice(0, 240), ...(message.caption ? { caption: message.caption.slice(0, 1024) } : {}) } };
+  }
+  if (message.type === "image") {
+    return { ...base, type: "image", image: { id: message.mediaId, ...(message.caption ? { caption: message.caption.slice(0, 1024) } : {}) } };
+  }
   return { ...base, type: "template", template: { name: message.name, language: { code: message.languageCode }, ...(message.parameters?.length ? { components: [{ type: "body", parameters: message.parameters.map((value) => ({ type: "text", text: value })) }] } : {}) } };
 }
 
@@ -79,4 +85,45 @@ export async function sendWhatsAppMessage(to: string, message: WhatsAppOutboundM
 
 export async function markWhatsAppMessageRead(messageId: string): Promise<void> {
   await request({ messaging_product: "whatsapp", status: "read", message_id: messageId }, 0, false);
+}
+
+const MEDIA_UPLOAD_TIMEOUT_MS = 30_000;
+
+// Upload bytes to Meta's media endpoint and return the media id used by a
+// document/image message. Not retried: a failed upload leaves at most an
+// orphan media object (Meta expires unused media in ~30 days) and retrying
+// risks sending twice from a caller that also retries.
+export async function uploadWhatsAppMedia(bytes: Uint8Array, mimeType: string, filename: string): Promise<string> {
+  const config = getWhatsAppSendConfig();
+  if (!config.enabled) throw new MetaWhatsAppError("feature_disabled");
+  const form = new FormData();
+  form.set("messaging_product", "whatsapp");
+  form.set("type", mimeType);
+  form.set("file", new Blob([bytes as unknown as BlobPart], { type: mimeType }), filename);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_UPLOAD_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`https://graph.facebook.com/${config.apiVersion}/${encodeURIComponent(config.phoneNumberId)}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.accessToken}` },
+      body: form, signal: controller.signal,
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    logError("Meta WhatsApp media upload failed", { reason: timedOut ? "timeout" : "network_error" });
+    throw new MetaWhatsAppError(timedOut ? "timeout" : "network_error");
+  } finally { clearTimeout(timeout); }
+
+  const text = await response.text();
+  let parsed: Record<string, unknown> = {};
+  try { parsed = text ? JSON.parse(text) as Record<string, unknown> : {}; } catch { /* handled below */ }
+  if (!response.ok) {
+    const providerError = parsed.error && typeof parsed.error === "object" ? parsed.error as Record<string, unknown> : undefined;
+    logWarn("Meta WhatsApp rejected media upload", { httpStatus: response.status, providerCode: providerError?.code });
+    throw new MetaWhatsAppError("media_upload_rejected", response.status);
+  }
+  if (typeof parsed.id !== "string" || !parsed.id) throw new MetaWhatsAppError("malformed_media_response");
+  return parsed.id;
 }

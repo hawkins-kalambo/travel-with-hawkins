@@ -19,6 +19,8 @@ const state = {
   departuresCalls: 0,
   loadDepartureCalls: 0,
   bookingCalls: 0,
+  unassignedCalls: 0,
+  bookableRoutesCalls: 0,
   paymentCalls: 0,
   listCalls: 0,
   cancelCalls: 0,
@@ -31,6 +33,9 @@ let conversationRow: Record<string, unknown>;
 let departuresImpl: (origin?: string) => Promise<unknown[]>;
 let loadDepartureImpl: (id: string) => Promise<unknown>;
 let createBookingImpl: (...a: unknown[]) => Promise<unknown>;
+let bookableRoutesImpl: (origin?: string) => unknown[];
+let loadBookableRouteImpl: (id: string) => unknown;
+let createUnassignedImpl: (...a: unknown[]) => Promise<unknown>;
 let paymentImpl: () => unknown;
 let listImpl: () => unknown[];
 let loadBookingImpl: (id: string) => unknown;
@@ -62,6 +67,9 @@ mock.module("@/lib/whatsapp/domain", {
     findAvailableDepartures: async (origin?: string) => { state.departuresCalls += 1; return departuresImpl(origin); },
     loadDeparture: async (id: string) => { state.loadDepartureCalls += 1; return loadDepartureImpl(id); },
     createWhatsAppBooking: async (...a: unknown[]) => { state.bookingCalls += 1; return createBookingImpl(...a); },
+    createUnassignedWhatsAppBooking: async (...a: unknown[]) => { state.unassignedCalls += 1; return createUnassignedImpl(...a); },
+    listBookableRoutes: async (origin?: string) => { state.bookableRoutesCalls += 1; return bookableRoutesImpl(origin); },
+    loadBookableRoute: async (id: string) => loadBookableRouteImpl(id),
     getBookingFeeAmount: async () => 5000,
     getOrCreateBookingFeeCheckout: async () => { state.paymentCalls += 1; return paymentImpl(); },
     listWhatsAppBookings: async () => { state.listCalls += 1; return listImpl(); },
@@ -104,12 +112,16 @@ function steps() { return state.transitions.map((t) => t.step); }
 beforeEach(() => {
   state.delivered = []; state.transitions = []; state.finished = 0; state.failed = [];
   state.departuresCalls = 0; state.loadDepartureCalls = 0; state.bookingCalls = 0; state.paymentCalls = 0;
+  state.unassignedCalls = 0; state.bookableRoutesCalls = 0;
   state.listCalls = 0; state.cancelCalls = 0; state.aiCalls = 0;
   claimResult = null;
   conversationRow = baseConversation();
   departuresImpl = async () => [];
   loadDepartureImpl = async () => null;
   createBookingImpl = async () => ({ outcome: "rejected", reason: "test" });
+  bookableRoutesImpl = () => [];
+  loadBookableRouteImpl = () => null;
+  createUnassignedImpl = async () => ({ outcome: "rejected", reason: "test" });
   paymentImpl = () => ({ outcome: "rejected", reason: "test" });
   listImpl = () => [];
   loadBookingImpl = () => null;
@@ -389,6 +401,118 @@ test("booking review: declining creates no booking and takes no payment", async 
   assert.equal(state.bookingCalls, 0);
   assert.equal(state.paymentCalls, 0);
   assert.deepEqual(steps(), ["menu"]);
+});
+
+// ===========================================================================
+// Booking before a trip is created (master plan §A / Stage 2.1)
+// ===========================================================================
+
+const bookableRoute = {
+  routeId: "route-1", label: "Lilongwe - Mzuzu University", origin: "Lilongwe",
+  destination: "Mzuzu University", pickup: "Lilongwe Main", fare: 12000, priced: true,
+};
+
+test("no scheduled departure in booking mode: offers supported routes and moves to route_pick", async () => {
+  conversationRow = baseConversation({ step: "route_origin", data: { booking: {} } });
+  departuresImpl = async () => [];
+  bookableRoutesImpl = () => [bookableRoute];
+  inbound("Lilongwe");
+  await processWhatsAppEvent("evt");
+  assert.equal(state.bookableRoutesCalls, 1);
+  assert.deepEqual(steps(), ["route_pick"]);
+  assert.equal(state.delivered.at(-1)?.type, "list");
+  assert.match(JSON.stringify(state.delivered.at(-1)), /route:route-1/);
+  assert.match(texts().join("\n"), /choose your route/i);
+});
+
+test("no scheduled departure in Find-a-Route (non-booking) mode: plain 'no dates', no route picker", async () => {
+  conversationRow = baseConversation({ step: "route_origin", data: {} });
+  departuresImpl = async () => [];
+  bookableRoutesImpl = () => [bookableRoute];
+  inbound("Lilongwe");
+  await processWhatsAppEvent("evt");
+  assert.equal(state.bookableRoutesCalls, 0);
+  assert.deepEqual(steps(), []);
+  assert.match(texts().join("\n"), /no published travel dates/i);
+});
+
+test("route_pick with a priced route asks for a preferred travel date", async () => {
+  conversationRow = baseConversation({ step: "route_pick", data: { booking: {}, origin: "Lilongwe" } });
+  loadBookableRouteImpl = () => bookableRoute;
+  inbound("pick", { actionId: "route:route-1" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_date"]);
+  assert.match(texts().join("\n"), /YYYY-MM-DD/);
+});
+
+test("route_pick with an unpriced route flags it for an agent and stops before personal details", async () => {
+  conversationRow = baseConversation({ step: "route_pick", data: { booking: {}, origin: "Lilongwe" } });
+  loadBookableRouteImpl = () => ({ ...bookableRoute, fare: 0, priced: false });
+  inbound("pick", { actionId: "route:route-1" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.unassignedCalls, 0);
+  assert.match(texts().join("\n"), /fare has not been set/i);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("route_date rejects a non-date and re-prompts without advancing", async () => {
+  conversationRow = baseConversation({ step: "route_date", data: { booking: { routeId: "route-1", routeLabel: "Lilongwe - Mzuzu University", fare: 12000 }, origin: "Lilongwe" } });
+  inbound("next friday");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), []);
+  assert.match(texts().join("\n"), /real future date/i);
+});
+
+test("route_date accepts a future date and moves on to passenger details", async () => {
+  conversationRow = baseConversation({ step: "route_date", data: { booking: { routeId: "route-1", routeLabel: "Lilongwe - Mzuzu University", pickup: "Lilongwe Main", fare: 12000 }, origin: "Lilongwe" } });
+  inbound("2026-12-20");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"]);
+  assert.equal(state.delivered.at(-1)?.type, "buttons");
+});
+
+const unassignedDraft = {
+  routeId: "route-1", routeLabel: "Lilongwe - Mzuzu University", pickup: "Lilongwe Main",
+  travelDate: "2026-12-20", fare: 12000, passengerIsSelf: true, name: "Jane Banda",
+};
+
+test("unassigned booking review shows the requested date and the 'assigned later' note, not a seat/pickup", async () => {
+  conversationRow = baseConversation({ step: "booking_student_id", data: { booking: unassignedDraft } });
+  inbound("skip");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_review"]);
+  const body = texts().join("\n");
+  assert.match(body, /Requested date: 2026-12-20/);
+  assert.match(body, /assigned later/i);
+  assert.doesNotMatch(body, /Pickup:/);
+});
+
+test("unassigned booking confirm: creates an unassigned booking and says transport is assigned later", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: unassignedDraft } });
+  createUnassignedImpl = async () => ({
+    outcome: "created", bookingId: "BK-U1", expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    fare: 12000, bookingFee: 5000, shortNotice: false,
+  });
+  paymentImpl = () => ({ outcome: "checkout", url: "https://pay.example/u1", amount: 5000 });
+  inbound("confirm", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.unassignedCalls, 1);
+  assert.equal(state.bookingCalls, 0);
+  const body = texts().join("\n");
+  assert.match(body, /BK-U1/);
+  assert.match(body, /assigned later/i);
+  assert.match(body, /https:\/\/pay\.example\/u1/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("unassigned booking confirm: route_unpriced rejection is explained and takes no payment", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: unassignedDraft } });
+  createUnassignedImpl = async () => ({ outcome: "rejected", reason: "route_unpriced" });
+  inbound("confirm");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /fare has not been set/i);
+  assert.equal(state.paymentCalls, 0);
+  assert.equal(steps().at(-1), "menu");
 });
 
 test("My Bookings: an empty list replies helpfully and stays at the menu", async () => {

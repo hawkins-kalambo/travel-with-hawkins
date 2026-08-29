@@ -17,3 +17,24 @@ Before submission, confirm Meta category, language code, parameter examples,
 opt-out wording, and whether URLs require URL-button components rather than body
 parameters. Add a name to `WHATSAPP_APPROVED_TEMPLATE_NAMES` only after approval.
 
+## Document-header templates (Stage 2.2b / §6 — NOT submitted)
+
+Sending a document or image outside the 24-hour customer-service window
+requires an **approved utility template with a media header**. None is wired up
+yet, so the admin media route records a `blocked` state and never reports the
+file as sent (the agent is told to ask the customer to message first, then
+resend inside the window).
+
+| Internal draft name | Category | Header | English body draft | Chichewa draft (review required) |
+|---|---|---|---|---|
+| `agent_document` | Utility | Document (dynamic) | “Travel With Hawkins support has sent you a document about booking {{1}}. Reply AGENT if you need help.” | “Support ya Travel With Hawkins yakutumizirani chikalata chokhudza booking {{1}}. Yankhani AGENT ngati mukufuna thandizo.” |
+| `agent_image` | Utility | Image (dynamic) | “Travel With Hawkins support has sent you an image about booking {{1}}. Reply AGENT if you need help.” | “Support ya Travel With Hawkins yakutumizirani chithunzi chokhudza booking {{1}}. Yankhani AGENT ngati mukufuna thandizo.” |
+
+Open questions before submission: whether Meta approves a generic
+“support has sent a document” utility template, whether the header media must be
+re-uploaded per send (it must — the media id is passed in the header
+component), and the opt-out footer. When approved, add the name to
+`WHATSAPP_APPROVED_TEMPLATE_NAMES` **and** extend `payloadFor` in
+`lib/whatsapp/client.ts` to attach a media header component (it currently only
+supports body parameters).
+

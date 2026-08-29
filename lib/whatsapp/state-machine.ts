@@ -10,7 +10,8 @@ export type StateMachineCommand =
   | { kind: "handoff"; nextStep: "agent_waiting" };
 
 const BACK: Partial<Record<WhatsAppConversationStep, WhatsAppConversationStep>> = {
-  route_destination: "route_origin", booking_departure: "route_origin",
+  route_destination: "route_origin", route_pick: "route_origin", route_date: "route_origin",
+  booking_departure: "route_origin",
   booking_passenger_for: "booking_departure", booking_name: "booking_passenger_for",
   booking_email: "booking_name", booking_student_id: "booking_email",
   booking_review: "booking_student_id", payment_booking_id: "menu",
