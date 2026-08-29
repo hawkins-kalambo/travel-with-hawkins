@@ -44,6 +44,7 @@ mock.module("@/lib/whatsapp/domain", {
     findGeneralRoute: async () => null,
     findStudentRoute: async () => null,
     listActiveUniversities: async () => [],
+    matchActiveUniversity: () => null,
     createRouteRequest: async () => ({ id: "rr-1" }),
     getBookingFeeAmount: async () => 5000,
     getOrCreateBookingFeeCheckout: async () => ({ outcome: "rejected", reason: "test" }),

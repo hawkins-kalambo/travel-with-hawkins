@@ -17,7 +17,7 @@ export type AvailableDeparture = {
 // route picker. `routes` has no `destination_label` column (see the note in
 // findAvailableDepartures) — the destination comes from the linked university.
 const ROUTE_SELECT =
-  "id, origin_district, university_id, destination_district, route_type, is_popular, popular_order, fare, status, direction, university:universities(name,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)";
+  "id, origin_district, university_id, destination_district, route_type, is_popular, popular_order, fare, status, direction, university:universities(name,short_code,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)";
 
 function embedsActive(route: Record<string, unknown>): boolean {
   const university = related(route.university);
@@ -33,6 +33,13 @@ export type BookableRoute = {
   routeId: string; label: string; origin: string; destination: string;
   pickup: string; fare: number; priced: boolean;
   routeType: RouteType; isPopular: boolean;
+  // `label` keeps the full destination name (stored on the booking, shown in
+  // confirmations). `menuLabel` is the compact form for WhatsApp list rows —
+  // the university short code (MZUNI) instead of the full name.
+  menuLabel: string;
+  universityId: string | null;
+  universityName: string | null;
+  universityShortCode: string | null;
 };
 
 // Build the customer-facing view of a `routes` row. Returns null when there is
@@ -54,18 +61,28 @@ function toBookableRoute(route: Record<string, unknown>): BookableRoute | null {
     const destination = String(route.destination_district || "").trim();
     if (!origin || !destination) return null;
     const pickup = String(district?.label || origin);
+    const label = `${origin} - ${destination}`;
     return {
-      routeId: String(route.id), label: `${origin} - ${destination}`,
+      routeId: String(route.id), label, menuLabel: label,
       origin, destination, pickup, fare, priced: fare > 0, routeType, isPopular,
+      universityId: null, universityName: null, universityShortCode: null,
     };
   }
 
-  const destination = String(university?.name || "").trim();
-  if (!destination) return null;
+  const universityName = String(university?.name || "").trim();
+  if (!universityName) return null;
+  const shortCode = String(university?.short_code || "").trim() || null;
+  const menuName = shortCode || universityName;
   const reverse = route.direction === "from_university";
-  const label = reverse ? `${destination} - ${origin}` : `${origin} - ${destination}`;
-  const pickup = String((reverse ? campus?.label : district?.label) || (reverse ? destination : origin));
-  return { routeId: String(route.id), label, origin, destination, pickup, fare, priced: fare > 0, routeType, isPopular };
+  const label = reverse ? `${universityName} - ${origin}` : `${origin} - ${universityName}`;
+  const menuLabel = reverse ? `${menuName} - ${origin}` : `${origin} - ${menuName}`;
+  const pickup = String((reverse ? campus?.label : district?.label) || (reverse ? universityName : origin));
+  return {
+    routeId: String(route.id), label, menuLabel, origin, destination: universityName,
+    pickup, fare, priced: fare > 0, routeType, isPopular,
+    universityId: route.university_id ? String(route.university_id) : null,
+    universityName, universityShortCode: shortCode,
+  };
 }
 
 // Booking fee is a single configured amount (settings.booking_fee, MWK).
@@ -344,7 +361,7 @@ export async function listPopularRoutes(): Promise<BookableRoute[]> {
     const view = toBookableRoute(route);
     if (view) views.push(view);
   }
-  return views.slice(0, 10);
+  return views.slice(0, 30);
 }
 
 // A district-to-district general route, matched in either orientation. When the
@@ -385,16 +402,41 @@ export async function findStudentRoute(
   return row ? toBookableRoute(row) : null;
 }
 
-export type ActiveUniversity = { id: string; name: string };
+export type ActiveUniversity = { id: string; name: string; shortCode: string | null };
 
 // Active universities only — the student flow never offers one that is not
-// live, and never hard-codes the list.
+// live, and never hard-codes the list. `short_code` is the abbreviation shown
+// in compact WhatsApp menus (universities.short_code is NOT NULL in schema, so
+// the fallback to `name` is defensive only).
 export async function listActiveUniversities(): Promise<ActiveUniversity[]> {
-  const result = await supabaseAdmin.from("universities").select("id, name, status")
+  const result = await supabaseAdmin.from("universities").select("id, name, short_code, status")
     .eq("status", "active").order("name", { ascending: true }).limit(50);
   if (result.error) throw result.error;
-  return (result.data ?? []).map((row) => ({ id: String(row.id), name: String(row.name || "") }))
+  return (result.data ?? [])
+    .map((row) => ({
+      id: String(row.id), name: String(row.name || ""),
+      shortCode: String(row.short_code || "").trim() || null,
+    }))
     .filter((row) => row.name);
+}
+
+// Resolve a customer's typed university reference (short code or full name,
+// case- and spacing-insensitive) to an active university. Returns null when
+// nothing matches — the caller never guesses.
+export function matchActiveUniversity(
+  value: string, universities: ActiveUniversity[],
+): ActiveUniversity | null {
+  const v = value.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!v) return null;
+  const exactCode = universities.find((u) => u.shortCode && u.shortCode.toLowerCase() === v);
+  if (exactCode) return exactCode;
+  const exactName = universities.find((u) => u.name.toLowerCase() === v);
+  if (exactName) return exactName;
+  return universities.find((u) => {
+    const name = u.name.toLowerCase();
+    return name.includes(v) || v.includes(name)
+      || (u.shortCode ? v.includes(u.shortCode.toLowerCase()) : false);
+  }) ?? null;
 }
 
 export type RouteRequestInput = {

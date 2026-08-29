@@ -44,13 +44,13 @@ mock.module("@/lib/payments/finalize-flow", { exports: { verifyAndFinalizePaymen
 
 const {
   findAvailableDepartures, loadDeparture, listBookableRoutes, loadBookableRoute,
-  createUnassignedWhatsAppBooking, listPopularRoutes, findGeneralRoute,
+  createUnassignedWhatsAppBooking, listPopularRoutes, findGeneralRoute, matchActiveUniversity,
 } = await import("./domain.ts");
 
 const activeRoute = {
   id: "r1", origin_district: "Lilongwe", university_id: "u1", fare: 12000,
   status: "active", direction: "to_university",
-  university: { name: "Mzuzu University", status: "active" },
+  university: { name: "Mzuzu University", short_code: "MZUNI", status: "active" },
   pickupPoint: { label: "Main Campus", status: "active" },
   districtPickupPoint: { label: "Lilongwe Bus Depot", status: "active" },
 };
@@ -181,4 +181,31 @@ test("findGeneralRoute re-orients a stored leg to the requested origin -> destin
 test("findGeneralRoute returns null when no leg matches the corridor", async () => {
   routesRows = { data: [generalRouteRow], error: null };
   assert.equal(await findGeneralRoute("Mzuzu", "Zomba"), null);
+});
+
+// --- University abbreviations (spec §5) ---
+
+test("a student route exposes the university short code and a compact menu label", async () => {
+  const [route] = await listBookableRoutes("Lilongwe");
+  assert.equal(route.label, "Lilongwe - Mzuzu University");     // full name — stored on the booking
+  assert.equal(route.menuLabel, "Lilongwe - MZUNI");            // short code — WhatsApp list row
+  assert.equal(route.universityShortCode, "MZUNI");
+  assert.equal(route.universityName, "Mzuzu University");
+  assert.equal(route.universityId, "u1");
+});
+
+test("matchActiveUniversity resolves the short code and the full name to the same record", () => {
+  const unis = [
+    { id: "u-mzuni", name: "Mzuzu University", shortCode: "MZUNI" },
+    { id: "u-luanar", name: "Lilongwe University of Agriculture and Natural Resources", shortCode: "LUANAR" },
+    { id: "u-kuhes", name: "Kamuzu University of Health Sciences", shortCode: "KUHeS" },
+  ];
+  assert.equal(matchActiveUniversity("mzuni", unis)?.id, "u-mzuni");
+  assert.equal(matchActiveUniversity("  MZUNI ", unis)?.id, "u-mzuni");
+  assert.equal(matchActiveUniversity("Mzuzu University", unis)?.id, "u-mzuni");
+  assert.equal(matchActiveUniversity("mzuzu   university", unis)?.id, "u-mzuni");
+  // LUANAR and KUHeS stay distinct — never collapsed into one option
+  assert.equal(matchActiveUniversity("LUANAR", unis)?.id, "u-luanar");
+  assert.equal(matchActiveUniversity("KUHeS", unis)?.id, "u-kuhes");
+  assert.equal(matchActiveUniversity("Cambridge", unis), null);
 });

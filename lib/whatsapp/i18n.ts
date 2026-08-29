@@ -80,8 +80,11 @@ export const english = {
   cancelNeedsAgent: "This booking can't be cancelled automatically — I'm connecting you to an agent.",
   cancelNotFound: "I couldn't find that booking on this number.",
   askRoute: "There are no scheduled trips right now. Choose your route and I'll take your preferred travel date:",
-  askTravelDate: "What date would you like to travel? Reply as YYYY-MM-DD, for example 2026-09-20.",
-  invalidTravelDate: "That date didn't look right. Please use a real future date like YYYY-MM-DD, for example 2026-09-20.",
+  askTravelDate: "What date would you like to travel? You can say a date like 20 September, 20/09/2026 or 2026-09-20 — or just *tomorrow*.",
+  invalidTravelDate: "I couldn't read that date. Try a format like 20 September, 20/09/2026, 2026-09-20, or *tomorrow*.",
+  travelDatePast: "That date has already passed. Please give a future travel date, like 20 September or *tomorrow*.",
+  travelDateTooFar: "That's more than a year away. Please choose a travel date within the next 12 months.",
+  travelDateConfirmed: "Got it — travelling on {date}.",
   routeUnpriced: "That route is supported, but its fare has not been set yet. I've passed it to an agent to follow up — no booking was created.",
   unassignedNote: "Transport for this date is assigned later. This reserves your place under the payment deadline — not a specific seat, vehicle or pickup time.",
   reviewSummaryUnassigned: "Please review:\n\nPassenger: {name}\nRoute: {route}\nRequested date: {date}\n\nFare: MWK {fare}\nBooking fee (pay now): MWK {fee}\nTotal: MWK {total}\nBalance after fee: MWK {balance}\n\n{note}\n\nReply Confirm.",
@@ -121,6 +124,8 @@ export const english = {
   routeRequestLogged: "Thanks — we've noted your request for {origin} to {destination}. Our team will follow up if we can add it.",
   routePopularHeader: "Popular routes right now:",
   routePopularEmpty: "We don't have popular routes listed yet. Type your route as: Lilongwe to Blantyre",
+  routeMoreRoutes: "More routes",
+  routePrevRoutes: "Previous routes",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -205,8 +210,11 @@ export const chichewa: Record<TranslationKey, string> = {
   cancelNeedsAgent: "Booking iyi singachotsedwe payokha. Ndikukulumikizani ndi gulu lathu.",
   cancelNotFound: "Sindinapeze booking imeneyo pa nambala iyi.",
   askRoute: "Palibe maulendo okonzedwa pakadali pano. Sankhani route yanu ndipo ndikutengerani tsiku la ulendo lomwe mukufuna:",
-  askTravelDate: "Mukufuna kuyenda tsiku liti? Yankhani ngati YYYY-MM-DD, mwachitsanzo 2026-09-20.",
-  invalidTravelDate: "Tsiku ilo silinaoneke bwino. Chonde gwiritsani ntchito tsiku lenileni la mtsogolo ngati YYYY-MM-DD, mwachitsanzo 2026-09-20.",
+  askTravelDate: "Mukufuna kuyenda tsiku liti? Mutha kunena tsiku ngati 20 September, 20/09/2026 kapena 2026-09-20 — kapena *tomorrow* (mawa).",
+  invalidTravelDate: "Sindinamvetse tsiku ilo. Yesani ngati 20 September, 20/09/2026, 2026-09-20, kapena *tomorrow*.",
+  travelDatePast: "Tsiku ilo lapita kale. Chonde perekani tsiku la mtsogolo, ngati 20 September kapena *tomorrow*.",
+  travelDateTooFar: "Ilo ndi loposa chaka chimodzi kutsogolo. Sankhani tsiku mkati mwa miyezi 12 ikubwera.",
+  travelDateConfirmed: "Chabwino — mukuyenda pa {date}.",
   routeUnpriced: "Route imeneyi imapezeka, koma mtengo wake sunakhazikitsidwebe. Ndaupereka ku gulu lathu kuti atsatire — palibe booking yopangidwa.",
   unassignedNote: "Transport ya tsiku ili idzaperekedwa mtsogolo. Izi zikusungira malo anu pansi pa nthawi yolipira — osati mpando, galimoto kapena nthawi yotenga inayake.",
   reviewSummaryUnassigned: "Onani booking yanu:\n\nPassenger: {name}\nRoute: {route}\nTsiku lofunidwa: {date}\n\nMtengo (fare): MWK {fare}\nBooking fee (lipirani tsopano): MWK {fee}\nZonse: MWK {total}\nOtsala pambuyo pa fee: MWK {balance}\n\n{note}\n\nLembani Confirm.",
@@ -246,6 +254,8 @@ export const chichewa: Record<TranslationKey, string> = {
   routeRequestLogged: "Zikomo — talemba pempho lanu la {origin} kupita {destination}. Gulu lathu litsatira ngati tingathe kuwuwonjezera.",
   routePopularHeader: "Maulendo otchuka pakadali pano:",
   routePopularEmpty: "Tilibe maulendo otchuka pakadali pano. Lembani ulendo wanu motere: Lilongwe to Blantyre",
+  routeMoreRoutes: "Maulendo ena",
+  routePrevRoutes: "Maulendo am'mbuyo",
 };
 
 // Product/legal reviewers should review these mixed operational terms before
@@ -257,7 +267,8 @@ export const chichewaHumanReviewKeys: TranslationKey[] = [
   "reviewSummary", "bookingHeldStandard", "bookingHeldShort", "bookingHeldNoLink",
   "unpaidLimitReached", "departureTooSoon", "bookingDetail", "cancelConfirmPrompt",
   "cancelNeedsAgent", "aiClarify", "aiRouteHint",
-  "askRoute", "askTravelDate", "invalidTravelDate", "routeUnpriced", "unassignedNote",
+  "askRoute", "askTravelDate", "invalidTravelDate", "travelDatePast", "travelDateTooFar",
+  "travelDateConfirmed", "routeUnpriced", "unassignedNote",
   "reviewSummaryUnassigned",
   "bookingHeldUnassignedStandard", "bookingHeldUnassignedShort", "bookingHeldUnassignedNoLink",
   "welcomeIntro", "returnedToBot", "resolvedByAgent", "draftDiscardPrompt",

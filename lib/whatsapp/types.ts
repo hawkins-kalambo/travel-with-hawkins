@@ -140,6 +140,8 @@ export type WhatsAppStateData = {
   studentDirection?: "to_university" | "from_university";
   studentUniversityId?: string;
   studentUniversityName?: string;
+  // Popular Routes paging offset.
+  popularOffset?: number;
 };
 
 export type WhatsAppConversationState = {

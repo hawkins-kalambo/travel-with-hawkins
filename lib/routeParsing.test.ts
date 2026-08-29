@@ -23,6 +23,13 @@ test("a single place returns { kind: 'single' }", () => {
   assert.deepEqual(parseTypedRoute("  Nkhata Bay "), { kind: "single", place: "Nkhata Bay" });
 });
 
+test("strips a conversational lead-in", () => {
+  assert.deepEqual(parseTypedRoute("I want to travel from Blantyre to Mzuzu"), { kind: "pair", origin: "Blantyre", destination: "Mzuzu" });
+  assert.deepEqual(parseTypedRoute("Can you take me from Lilongwe to Zomba"), { kind: "pair", origin: "Lilongwe", destination: "Zomba" });
+  assert.deepEqual(parseTypedRoute("book me Kasungu to Mzuzu"), { kind: "pair", origin: "Kasungu", destination: "Mzuzu" });
+  assert.deepEqual(parseTypedRoute("MZUNI to Lilongwe"), { kind: "pair", origin: "MZUNI", destination: "Lilongwe" });
+});
+
 test("non-route text returns null", () => {
   assert.equal(parseTypedRoute("how much is the fare"), null);
   assert.equal(parseTypedRoute(""), null);

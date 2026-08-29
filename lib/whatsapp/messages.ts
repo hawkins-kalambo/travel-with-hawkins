@@ -106,7 +106,13 @@ export function bookingsListMessage(
   };
 }
 
-export type BookableRouteItem = { routeId: string; label: string; fareLabel: string };
+// `label` is the compact row title (university short code where applicable);
+// `subtitle` carries the fuller name / pickup as supporting text.
+export type BookableRouteItem = { routeId: string; label: string; fareLabel: string; subtitle?: string };
+
+function routeRowDescription(item: BookableRouteItem): string {
+  return [item.fareLabel, item.subtitle].filter(Boolean).join(" · ").slice(0, 72);
+}
 
 // Route picker shown when there are no scheduled departures: the customer picks
 // a supported route and is then asked for a preferred travel date.
@@ -114,7 +120,7 @@ export function routesListMessage(language: WhatsAppLanguage, routes: BookableRo
   const rows = routes.slice(0, 10).map((route) => ({
     id: `route:${route.routeId}`,
     title: route.label.slice(0, 24),
-    description: route.fareLabel.slice(0, 72),
+    description: routeRowDescription(route),
   }));
   const body = t(language, "askRoute");
   return {
@@ -164,23 +170,41 @@ export function studentDirectionMessage(language: WhatsAppLanguage): WhatsAppOut
   };
 }
 
-export type UniversityChoice = { id: string; name: string };
+// The short code (MZUNI) is the row title; the full university name is the
+// supporting line. Falls back to the full name as the title when a university
+// has no short code (schema makes that impossible today, but stay safe).
+export type UniversityChoice = { id: string; name: string; shortCode?: string | null };
 
 export function universityListMessage(language: WhatsAppLanguage, universities: UniversityChoice[]): WhatsAppOutboundMessage {
-  const rows = universities.slice(0, 10).map((u) => ({ id: `uni:${u.id}`, title: u.name.slice(0, 24) }));
+  const rows = universities.slice(0, 10).map((u) => ({
+    id: `uni:${u.id}`,
+    title: (u.shortCode || u.name).slice(0, 24),
+    description: u.shortCode ? u.name.slice(0, 72) : undefined,
+  }));
   const body = t(language, "routeStudentPickUniversity");
   return {
     type: "list", body, button: t(language, "routeStudentUniversityButton"), rows,
-    fallback: `${body}\n${universities.map((u, i) => `${i + 1}. ${u.name}`).join("\n")}`,
+    fallback: `${body}\n${universities.map((u, i) => `${i + 1}. ${u.shortCode ? `${u.shortCode} — ${u.name}` : u.name}`).join("\n")}`,
   };
 }
 
-export function popularRoutesMessage(language: WhatsAppLanguage, routes: BookableRouteItem[]): WhatsAppOutboundMessage {
-  const rows = routes.slice(0, 10).map((route) => ({
-    id: `route:${route.routeId}`,
-    title: route.label.slice(0, 24),
-    description: route.fareLabel.slice(0, 72),
-  }));
+// WhatsApp lists cap at 10 rows. Page the popular routes 8 at a time, keeping
+// two slots for "Previous routes" / "More routes" navigation.
+export const POPULAR_PAGE_SIZE = 8;
+
+export function popularRoutesMessage(
+  language: WhatsAppLanguage, routes: BookableRouteItem[], offset = 0,
+): WhatsAppOutboundMessage {
+  const start = Math.min(Math.max(0, offset), Math.max(0, routes.length - 1));
+  const page = routes.slice(start, start + POPULAR_PAGE_SIZE);
+  const rows: { id: string; title: string; description?: string }[] = [];
+  if (start > 0) rows.push({ id: "route_popular_prev", title: t(language, "routePrevRoutes") });
+  for (const route of page) {
+    rows.push({ id: `route:${route.routeId}`, title: route.label.slice(0, 24), description: routeRowDescription(route) });
+  }
+  if (start + POPULAR_PAGE_SIZE < routes.length) {
+    rows.push({ id: "route_popular_more", title: t(language, "routeMoreRoutes"), description: `${routes.length - (start + POPULAR_PAGE_SIZE)} more` });
+  }
   const body = t(language, "routePopularHeader");
   return {
     type: "list", body, button: t(language, "routesButton"), rows,
