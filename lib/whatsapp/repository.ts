@@ -5,6 +5,7 @@ import { sendWhatsAppMessage } from "@/lib/whatsapp/client";
 import { messageText } from "@/lib/whatsapp/messages";
 import type { WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppLanguage, WhatsAppOutboundMessage, WhatsAppParsedEvent, WhatsAppStateData } from "@/lib/whatsapp/types";
 import { toStoredEventData, webhookEventKey } from "@/lib/whatsapp/parser";
+import { notifyAdminOfWhatsAppHandoff } from "@/lib/whatsapp/agent-alerts";
 
 type StoredEvent = { id: string; processing_status: string };
 
@@ -191,10 +192,17 @@ export async function setOptOut(conversation: WhatsAppConversationState, optedOu
 }
 
 export async function requestHuman(conversation: WhatsAppConversationState): Promise<WhatsAppConversationState> {
+  // Alert the on-call admin only on a genuine new request for a human — not
+  // when the conversation is already waiting, or an agent already holds it.
+  const isNewRequest = conversation.status === "bot_controlled" || conversation.status === "resolved";
   const result = await supabaseAdmin.from("whatsapp_conversations").update({
     mode: "human", status: "waiting", assigned_to: null, updated_at: new Date().toISOString(),
   }).eq("conversation_id", conversation.conversationId);
   if (result.error) throw result.error;
+  if (isNewRequest) {
+    // Fail-soft: an SMS/email problem must never break the handoff itself.
+    try { await notifyAdminOfWhatsAppHandoff(conversation); } catch { /* logged inside */ }
+  }
   return { ...conversation, mode: "human", status: "waiting", step: "agent_waiting" };
 }
 

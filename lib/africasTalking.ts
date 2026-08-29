@@ -214,25 +214,30 @@ function resolveAdminPhone(logLabel: string): string | undefined {
   return normalized;
 }
 
-// Fires once per live-chat handoff (see lib/websiteChat/adminAlerts.ts).
+// Fires once per handoff to a human agent. `channel` names where the customer
+// is waiting ("live chat" for website chat, "WhatsApp" for the WhatsApp bot) so
+// the on-call admin knows which inbox to open. See lib/websiteChat/adminAlerts.ts
+// and lib/whatsapp/agent-alerts.ts.
 export async function sendAdminHandoffAlertSms({
   customerName,
   conversationUrl,
+  channel = "live chat",
 }: {
-  customerName: string;
+  customerName?: string;
   conversationUrl: string;
+  channel?: string;
 }): Promise<SmsNotificationResult> {
   const phone = resolveAdminPhone("Admin handoff alert SMS");
   if (!phone) return { attempted: false, success: false, outcome: "skipped", status: "not_configured" };
 
-  const firstName = sanitizeCustomerName(customerName);
-  const message = `Travel with Hawkins: ${firstName} needs a human agent on live chat. ${conversationUrl}`;
+  const who = customerName ? sanitizeCustomerName(customerName) : "A customer";
+  const message = `Travel with Hawkins: ${who} needs a human agent on ${channel}. ${conversationUrl}`;
 
   return deliverSms({
     phone,
     message,
     logLabel: "Admin handoff alert SMS",
-    logContext: {},
+    logContext: { channel },
   });
 }
 

@@ -86,7 +86,7 @@ function relativeWindow(expiry: string | null) {
   return { open: true, label: `Service window: ${hrs}h ${mins}m left` };
 }
 
-export default function WhatsAppInboxSection() {
+export default function WhatsAppInboxSection({ initialConversationId }: { initialConversationId?: string }) {
   const [items, setItems] = useState<ListItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -150,6 +150,13 @@ export default function WhatsAppInboxSection() {
 
   // Debounced list load on search / filter change.
   useEffect(() => { const t = window.setTimeout(() => void loadList(), 200); return () => window.clearTimeout(t); }, [loadList]);
+
+  // Deep link from an admin handoff SMS/email: ?tab=whatsapp&conversation=<id>.
+  useEffect(() => {
+    if (!initialConversationId) return;
+    const t = window.setTimeout(() => { void loadDetail(initialConversationId); setMobilePane("thread"); }, 0);
+    return () => window.clearTimeout(t);
+  }, [initialConversationId, loadDetail]);
 
   // Bounded polling. Drafts live in their own state so a refresh never clears
   // them; the thread scroll position is preserved in loadDetail.
