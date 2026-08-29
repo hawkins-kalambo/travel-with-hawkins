@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { jsonError } from "@/lib/apiResponse";
 import { approvedTemplateNames, requireWhatsAppAdmin } from "@/lib/whatsapp/admin";
 import { deliverAndRecord } from "@/lib/whatsapp/repository";
+import { mainMenuMessage } from "@/lib/whatsapp/messages";
+import { t } from "@/lib/whatsapp/i18n";
 import { classifySenderKind, confirmedDeliveryStatus } from "@/lib/whatsapp/inbox";
 import type { WhatsAppConversationState, WhatsAppLanguage } from "@/lib/whatsapp/types";
 
@@ -73,17 +75,41 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     supabaseAdmin.from("whatsapp_booking_operations").select("booking_id,status,created_at").eq("conversation_id", id).order("created_at", { ascending: false }).limit(10),
     supabaseAdmin.from("profiles").select("id,full_name,email,role").in("role", ["admin", "super_admin"]).order("full_name"),
     supabaseAdmin.from("whatsapp_media")
-      .select("id,message_id,kind,mime_type,file_name,byte_size,status,error_code,caption,created_at,uploaded_by")
+      .select("id,message_id,direction,kind,mime_type,file_name,byte_size,status,error_code,caption,created_at,uploaded_by,linked_booking_id,is_payment_proof,reviewed_by")
       .eq("conversation_id", id).order("created_at", { ascending: false }).limit(50),
   ]);
 
   const agentName = new Map((agents.data ?? []).map((a) => [a.id, a.full_name || a.email || a.id]));
-  const linkedBookingIds = (operations.data ?? []).map((row) => row.booking_id).filter(Boolean);
-  const contactBookings = await supabaseAdmin.from("bookings")
-    .select("booking_id,name,phone,email,destination,travel_date,status,booking_source,departure_id,assigned_at,booking_fee_status,booking_fee_amount,fare_status,fare,booking_expires_at")
+  const linkedBookingIds = (operations.data ?? []).map((row) => row.booking_id).filter(Boolean) as string[];
+
+  const BOOKING_COLS = "booking_id,name,phone,email,destination,travel_date,status,booking_source,departure_id,assigned_at,booking_fee_status,booking_fee_amount,fare_status,fare,booking_expires_at,whatsapp_contact_id";
+
+  // Authoritative: bookings whose canonical owner IS this WhatsApp contact,
+  // plus any this conversation's flow created (whatsapp_booking_operations).
+  const [ownedRes, linkedRes] = await Promise.all([
+    supabaseAdmin.from("bookings").select(BOOKING_COLS)
+      .eq("whatsapp_contact_id", conversation.contactId).order("created_at", { ascending: false }).limit(25),
+    linkedBookingIds.length
+      ? supabaseAdmin.from("bookings").select(BOOKING_COLS).in("booking_id", linkedBookingIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+  ]);
+  const ownedRows = new Map<string, Record<string, unknown>>();
+  for (const row of [...(ownedRes.data ?? []), ...(linkedRes.data ?? [])]) ownedRows.set(String(row.booking_id), row);
+  const bookings = Array.from(ownedRows.values()).map(bookingCard);
+
+  // Advisory only: bookings that merely share this phone number but are NOT
+  // owner-linked to this contact (e.g. a website booking the customer typed the
+  // number into, or a shared handset). Shown to agents as "not verified", never
+  // presented as this WhatsApp account's bookings.
+  const phoneMatchRes = await supabaseAdmin.from("bookings").select(BOOKING_COLS)
     .eq("phone", conversation.waId).order("created_at", { ascending: false }).limit(10);
-  const bookings = (contactBookings.data ?? []).map(bookingCard);
-  const bookingIds = Array.from(new Set([...linkedBookingIds, ...bookings.map((b) => b.bookingId)])).filter(Boolean);
+  const phoneMatchBookings = (phoneMatchRes.data ?? [])
+    .filter((row) => !ownedRows.has(String(row.booking_id)))
+    .map(bookingCard);
+
+  const bookingIds = Array.from(new Set([
+    ...bookings.map((b) => b.bookingId), ...phoneMatchBookings.map((b) => b.bookingId),
+  ])).filter(Boolean);
   const payments = bookingIds.length
     ? await supabaseAdmin.from("payments").select("id,booking_id,payment_type,status,expected_amount,currency,paid_at,internal_reference").in("booking_id", bookingIds).order("created_at", { ascending: false })
     : { data: [] as Array<Record<string, unknown>> };
@@ -137,14 +163,18 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     messages: transcript,
     notes: (notes.data ?? []).map((n) => ({ ...n, authorName: agentName.get(n.author_id) || null })),
     bookings,
+    phoneMatchBookings,
     payments: payments.data ?? [],
     receipts,
     agents: agents.data ?? [],
     media: (media.data ?? []).map((m) => ({
-      id: m.id, messageId: m.message_id, kind: m.kind, mimeType: m.mime_type,
+      id: m.id, messageId: m.message_id, direction: m.direction || "outbound",
+      kind: m.kind, mimeType: m.mime_type,
       fileName: m.file_name, byteSize: Number(m.byte_size) || 0, status: m.status,
       errorCode: m.error_code || null, caption: m.caption || null, createdAt: m.created_at,
       uploadedByName: m.uploaded_by ? agentName.get(m.uploaded_by) || null : null,
+      linkedBookingId: m.linked_booking_id || null, isPaymentProof: Boolean(m.is_payment_proof),
+      reviewedByName: m.reviewed_by ? agentName.get(m.reviewed_by) || null : null,
     })),
   });
 }
@@ -183,6 +213,23 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     const name = holder.data?.full_name || holder.data?.email || "another agent";
     return NextResponse.json({ success: false, error: `Held by ${name}`, conflict: true, holder: row.assigned_to }, { status: 409 });
   }
+  // Tell the customer once, only inside the 24h window (a free-form message
+  // outside it would be rejected). The DB state was reset either way, so their
+  // next message triggers a fresh welcome.
+  if (action === "bot" || action === "resolve") {
+    const conversation = await loadConversation(id);
+    const insideWindow = conversation?.serviceWindowExpiresAt
+      && new Date(conversation.serviceWindowExpiresAt).getTime() > Date.now();
+    if (conversation && insideWindow) {
+      try {
+        await deliverAndRecord(conversation,
+          { type: "text", text: t(conversation.language, action === "bot" ? "returnedToBot" : "resolvedByAgent") },
+          null, "automatic");
+        if (action === "bot") await deliverAndRecord(conversation, mainMenuMessage(conversation.language), null, "automatic");
+      } catch { /* transition already recorded; a send failure must not fail the action */ }
+    }
+  }
+
   return NextResponse.json({ success: true, conversation: { mode: row.mode, status: row.status, assignedTo: row.assigned_to } });
 }
 

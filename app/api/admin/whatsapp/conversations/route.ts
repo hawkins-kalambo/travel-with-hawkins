@@ -44,12 +44,18 @@ export async function GET(req: NextRequest) {
   const bookingIdByConversation = new Map((operations.data ?? []).map((row) => [row.conversation_id, row.booking_id]));
 
   const contactOf = (row: Record<string, unknown>) => (Array.isArray(row.contact) ? row.contact[0] : row.contact) as Record<string, unknown> | undefined;
-  const phones = page.map((row) => contactOf(row)?.wa_id).filter(Boolean) as string[];
-  const contactBookings = phones.length
-    ? await supabaseAdmin.from("bookings").select("booking_id,phone,created_at").in("phone", phones).order("created_at", { ascending: false })
-    : { data: [] as { booking_id: string; phone: string }[] };
-  const bookingByPhone = new Map<string, string>();
-  for (const booking of contactBookings.data ?? []) if (!bookingByPhone.has(booking.phone)) bookingByPhone.set(booking.phone, booking.booking_id);
+  // Preview chip: only a booking the flow created or one whose canonical owner
+  // IS this contact — never a loose phone-string match.
+  const contactIds = page.map((row) => contactOf(row)?.id).filter(Boolean) as string[];
+  const contactBookings = contactIds.length
+    ? await supabaseAdmin.from("bookings").select("booking_id,whatsapp_contact_id,created_at").in("whatsapp_contact_id", contactIds).order("created_at", { ascending: false })
+    : { data: [] as { booking_id: string; whatsapp_contact_id: string }[] };
+  const bookingByContact = new Map<string, string>();
+  for (const booking of contactBookings.data ?? []) {
+    if (booking.whatsapp_contact_id && !bookingByContact.has(booking.whatsapp_contact_id)) {
+      bookingByContact.set(booking.whatsapp_contact_id, booking.booking_id);
+    }
+  }
 
   const agentIds = Array.from(new Set(page.map((row) => row.assigned_to).filter(Boolean))) as string[];
   const agents = agentIds.length
@@ -70,7 +76,7 @@ export async function GET(req: NextRequest) {
       preview: previewFor(row.last_message_preview, 120),
       unread_count: Number(row.unread_count) || 0,
       contact,
-      bookingId: bookingIdByConversation.get(row.conversation_id) || bookingByPhone.get(String(contact?.wa_id || "")) || null,
+      bookingId: bookingIdByConversation.get(row.conversation_id) || bookingByContact.get(String(contact?.id || "")) || null,
     };
   });
 

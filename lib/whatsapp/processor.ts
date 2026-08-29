@@ -12,7 +12,7 @@ import { parseFutureTravelDate } from "@/lib/bookingLifecycle";
 import { answerFromApprovedKnowledge } from "@/lib/whatsapp/knowledge";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
-import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, languageMessage, mainMenuMessage, passengerForMessage, routesListMessage } from "@/lib/whatsapp/messages";
+import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, routesListMessage } from "@/lib/whatsapp/messages";
 import { claimWebhookEvent, deliverAndRecord, ensureConversation, failWebhookEvent, finishWebhookEvent, recordInbound, requestHuman, setLanguage, setOptOut, transitionState, updateDeliveryStatus } from "@/lib/whatsapp/repository";
 import { reduceGlobalCommand } from "@/lib/whatsapp/state-machine";
 import type { BookingDraft, WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppOutboundMessage } from "@/lib/whatsapp/types";
@@ -28,7 +28,7 @@ function promptForStep(conversation: WhatsAppConversationState): string {
     route_origin: "askOrigin", route_pick: "askRoute", route_date: "askTravelDate",
     booking_departure: "askDestination",
     booking_passenger_for: "askPassengerFor", booking_name: "askName",
-    booking_email: "askEmail", booking_student_id: "askStudentId",
+    booking_email: "askEmail", booking_student_id: "askStudentId", booking_review: "confirmBooking",
     payment_booking_id: "askBookingIdPayment", tracking_booking_id: "askBookingIdTracking", question: "askQuestion",
   } as const;
   const key = keys[conversation.step as keyof typeof keys];
@@ -52,11 +52,33 @@ async function send(conversation: WhatsAppConversationState, message: WhatsAppOu
   await deliverAndRecord(conversation, message);
 }
 
-async function goToMenu(conversation: WhatsAppConversationState, prefix?: string): Promise<WhatsAppConversationState> {
+// `opts`: a plain string is a one-line prefix before the menu; `{ welcome: true }`
+// sends the branded welcome instead. The full welcome is only for a genuinely
+// fresh start (new contact, deliberate restart, a resolved conversation
+// reopened, an expired draft) — never before every routine menu.
+async function goToMenu(
+  conversation: WhatsAppConversationState,
+  opts: string | { prefix?: string; welcome?: boolean } = {},
+): Promise<WhatsAppConversationState> {
+  const { prefix, welcome } = typeof opts === "string" ? { prefix: opts, welcome: false } : opts;
   const next = await transitionState(conversation, "menu", {});
-  if (prefix) await send(next, textMessage(prefix));
+  if (welcome) await send(next, textMessage(t(next.language, "welcomeIntro")));
+  else if (prefix) await send(next, textMessage(prefix));
   await send(next, mainMenuMessage(next.language));
   return next;
+}
+
+const DRAFT_STEPS = new Set<WhatsAppConversationState["step"]>([
+  "route_pick", "route_date", "booking_departure", "booking_passenger_for",
+  "booking_name", "booking_email", "booking_student_id", "booking_review",
+]);
+
+// True when the customer is mid-booking AND has actually given us something
+// worth not throwing away.
+function hasDraftInProgress(conversation: WhatsAppConversationState): boolean {
+  if (!DRAFT_STEPS.has(conversation.step)) return false;
+  const b = conversation.data.booking;
+  return Boolean(b && (b.name || b.routeId || b.departureId || b.travelDate));
 }
 
 // Route/departure reads hit external tables and can fail (missing schema,
@@ -142,21 +164,54 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
   if (conversationInput.optedOut) return;
   if (conversation.mode === "human") return;
 
-  // Expired mid-flow session: drop the stale flow and re-read this message
-  // at the menu. Chat history, language, bookings and payments are untouched;
-  // only the transient step + state_data are cleared. Uses the version-aware
-  // transition so an older in-flight message cannot resurrect the old step.
+  // A fresh start: a conversation an agent had resolved, or a booking draft
+  // that timed out. Reset to the menu and greet with the full welcome once,
+  // then let this same message be handled at the menu below. (Chat history,
+  // language, bookings and payments are untouched — only the transient step +
+  // state_data are cleared, via the version-aware transition so an older
+  // in-flight message cannot resurrect the old step.)
   const midFlow = conversation.step !== "menu" && conversation.step !== "language";
-  if (midFlow && conversation.stateExpiresAt != null && Date.parse(conversation.stateExpiresAt) < Date.now()) {
+  const expiredDraft = midFlow && conversation.stateExpiresAt != null
+    && Date.parse(conversation.stateExpiresAt) < Date.now();
+  if (conversation.status === "resolved" || expiredDraft) {
     conversation = await transitionState(conversation, "menu", {});
+    await send(conversation, textMessage(t(conversation.language, "welcomeIntro")));
   }
 
   const globalCommand = reduceGlobalCommand(conversation.step, intent);
+
+  // Mid-draft "menu" / "cancel" / "restart": confirm before throwing captured
+  // details away. Asking for an agent still goes straight through.
+  if (["menu", "cancel", "restart"].includes(globalCommand.kind) && hasDraftInProgress(conversation)) {
+    const next = await transitionState(conversation, "discard_confirm", {
+      ...conversation.data,
+      pendingExit: globalCommand.kind as "menu" | "cancel" | "restart",
+      draftStep: conversation.step,
+    });
+    await send(next, discardConfirmMessage(next.language)); return;
+  }
+
+  // Answering the discard prompt: only an explicit Confirm discards; anything
+  // else keeps the draft and resumes.
+  if (conversation.step === "discard_confirm" && globalCommand.kind !== "handoff") {
+    const draftStep = conversation.data.draftStep;
+    if (!isAffirmative(message) && draftStep) {
+      const next = await transitionState(conversation, draftStep, {
+        ...conversation.data, pendingExit: undefined, draftStep: undefined,
+      });
+      await send(next, textMessage(`${t(next.language, "draftKept")} ${promptForStep(next)}`)); return;
+    }
+    const exit = conversation.data.pendingExit;
+    if (exit === "restart") { await goToMenu(conversation, { welcome: true }); return; }
+    if (exit === "cancel") { await goToMenu(conversation, t(conversation.language, "cancelled")); return; }
+    await goToMenu(conversation); return;
+  }
+
   if (globalCommand.kind === "handoff") {
     conversation = await requestHuman(conversation);
     await send(conversation, textMessage(t(conversation.language, "agentWaiting"))); return;
   }
-  if (globalCommand.kind === "restart") { await goToMenu(conversation, t(conversation.language, "restarted")); return; }
+  if (globalCommand.kind === "restart") { await goToMenu(conversation, { welcome: true }); return; }
   if (globalCommand.kind === "menu") { await goToMenu(conversation); return; }
   if (globalCommand.kind === "cancel") { await goToMenu(conversation, t(conversation.language, "cancelled")); return; }
   if (globalCommand.kind === "back") {
@@ -173,8 +228,12 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
   if (conversation.step === "language" || intent === "language") {
     const language = languageFromInput(message.text, message.actionId);
     if (!language) { await send(conversation, languageMessage()); return; }
+    const onboarding = conversation.step === "language";
     conversation = await setLanguage(conversation, language);
-    await goToMenu(conversation, t(language, "languageChanged")); return;
+    // First-ever language pick → branded welcome. A later "Change language"
+    // just confirms and shows the menu.
+    await goToMenu(conversation, onboarding ? { welcome: true } : t(language, "languageChanged"));
+    return;
   }
 
   if (conversation.step === "menu") {

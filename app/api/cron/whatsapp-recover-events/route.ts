@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAuthorizedCron } from "@/lib/whatsapp/cron";
 import { processWhatsAppEvent } from "@/lib/whatsapp/processor";
 import { redriveReceiptDeliveries } from "@/lib/payments/receipt-redrive";
+import { redriveInboundMedia } from "@/lib/whatsapp/inbound-media";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -43,6 +44,14 @@ export async function GET(req: NextRequest) {
     logError("Receipt re-drive failed", { code: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
   }
 
-  logInfo("WhatsApp events recovered", { candidates: ids.length, processed, receipts });
-  return NextResponse.json({ ok: true, candidates: ids.length, processed, receipts });
+  // And retry inbound customer media the webhook path left 'failed'.
+  let media = { candidates: 0, stored: 0 };
+  try {
+    media = await redriveInboundMedia(25);
+  } catch (error) {
+    logError("Inbound media re-drive failed", { code: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
+  }
+
+  logInfo("WhatsApp events recovered", { candidates: ids.length, processed, receipts, media });
+  return NextResponse.json({ ok: true, candidates: ids.length, processed, receipts, media });
 }

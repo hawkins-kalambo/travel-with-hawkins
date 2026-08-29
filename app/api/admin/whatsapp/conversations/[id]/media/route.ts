@@ -195,6 +195,46 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   });
 }
 
+// Review a received (inbound) attachment: link it to one of the conversation's
+// bookings and/or flag it as payment proof. Records the reviewing admin.
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const access = await requireWhatsAppAdmin(req);
+  if (!access.authorized) return jsonError(access.error, access.status);
+  const { id } = await context.params;
+  const owned = await loadOwnedConversation(id, access.user.id);
+  if (!owned.ok) return jsonError(owned.error, owned.status);
+
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  const mediaId = typeof body.mediaId === "string" ? body.mediaId.trim() : "";
+  if (!mediaId) return jsonError("mediaId is required", 400);
+
+  const row = await supabaseAdmin.from("whatsapp_media")
+    .select("conversation_id,contact_id,direction").eq("id", mediaId).maybeSingle();
+  if (row.error || !row.data || row.data.conversation_id !== id || row.data.contact_id !== owned.conversation.contactId) {
+    return jsonError("Attachment not found", 404);
+  }
+  if (row.data.direction !== "inbound") return jsonError("Only received attachments can be reviewed", 400);
+
+  const patch: Record<string, unknown> = { reviewed_by: access.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  if ("linkedBookingId" in body) {
+    const bookingId = typeof body.linkedBookingId === "string" ? body.linkedBookingId.trim() : "";
+    if (bookingId) {
+      // The booking must belong to this conversation's contact.
+      const booking = await supabaseAdmin.from("bookings").select("booking_id").eq("booking_id", bookingId).eq("phone", owned.conversation.waId).maybeSingle();
+      if (!booking.data) return jsonError("That booking is not linked to this conversation", 400);
+      patch.linked_booking_id = bookingId;
+    } else {
+      patch.linked_booking_id = null;
+    }
+  }
+  if ("isPaymentProof" in body) patch.is_payment_proof = body.isPaymentProof === true;
+
+  const updated = await supabaseAdmin.from("whatsapp_media").update(patch).eq("id", mediaId)
+    .select("id,linked_booking_id,is_payment_proof").maybeSingle();
+  if (updated.error || !updated.data) return jsonError("Unable to update the attachment", 500);
+  return NextResponse.json({ success: true, media: updated.data });
+}
+
 // Remove an upload that has not been sent (composer "remove before send", or
 // clearing a failed/blocked attempt).
 export async function DELETE(req: NextRequest, context: { params: Promise<{ id: string }> }) {

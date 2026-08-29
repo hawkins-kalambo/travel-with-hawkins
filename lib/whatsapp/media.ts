@@ -101,3 +101,54 @@ export function mediaReasonMessage(reason: string): string {
     default: return "The file could not be validated.";
   }
 }
+
+// ---------------------------------------------------------------------------
+// Inbound (customer-sent) media — a wider whitelist than outbound. Office
+// documents (DOCX / XLSX) are OOXML ZIP containers, so magic-byte sniffing can
+// only confirm "this is a ZIP/OOXML container"; the exact DOCX-vs-XLSX
+// distinction is taken from the declared MIME. Executables, scripts and plain
+// archives are still rejected by falling outside the whitelist.
+
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+export const INBOUND_MEDIA_TYPES: Record<string, { kind: WhatsAppMediaKind; ext: string }> = {
+  "application/pdf": { kind: "document", ext: "pdf" },
+  "image/jpeg": { kind: "image", ext: "jpg" },
+  "image/png": { kind: "image", ext: "png" },
+  [DOCX_MIME]: { kind: "document", ext: "docx" },
+  [XLSX_MIME]: { kind: "document", ext: "xlsx" },
+};
+
+export function inboundMediaMaxBytes(): number {
+  const configured = Number(process.env.WHATSAPP_INBOUND_MEDIA_MAX_MB);
+  const mb = Number.isFinite(configured) && configured > 0 ? Math.min(configured, 95) : 10;
+  return Math.round(mb * MB);
+}
+
+// Returns a concrete image/pdf type, "zip" for an OOXML/ZIP container, or null.
+export function sniffInboundContainer(bytes: Uint8Array): string | null {
+  const exact = sniffMediaType(bytes);
+  if (exact) return exact;
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b
+      && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)
+      && (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08)) {
+    return "zip"; // PK\x03\x04 (and empty/spanned variants)
+  }
+  return null;
+}
+
+export function validateInboundMediaBytes(bytes: Uint8Array, declaredType: string, filename = "attachment"): MediaValidation {
+  if (!bytes.length) return { ok: false, reason: "empty_file" };
+  if (bytes.length > inboundMediaMaxBytes()) return { ok: false, reason: "file_too_large" };
+  const spec = INBOUND_MEDIA_TYPES[declaredType];
+  if (!spec) return { ok: false, reason: "unsupported_type" };
+  const sniffed = sniffInboundContainer(bytes);
+  if (!sniffed) return { ok: false, reason: "unsupported_type" };
+  const isOoxml = declaredType === DOCX_MIME || declaredType === XLSX_MIME;
+  // OOXML must be a ZIP container; PDF/JPEG/PNG must match their exact magic bytes.
+  if (isOoxml ? sniffed !== "zip" : sniffed !== declaredType) {
+    return { ok: false, reason: "type_mismatch" };
+  }
+  return { ok: true, kind: spec.kind, mimeType: declaredType, ext: spec.ext, safeName: sanitizeFilename(filename, spec.ext) };
+}

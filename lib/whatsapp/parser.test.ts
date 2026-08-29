@@ -25,6 +25,34 @@ test("parses button and list replies using stable action ids", () => {
   assert.equal(list.kind === "message" && list.inputType, "list");
 });
 
+test("parses an inbound document with media metadata", () => {
+  const [event] = parseWhatsAppWebhook(payload({
+    id: "wamid.doc", from: "265991234567", type: "document",
+    document: { id: "MEDIA-1", mime_type: "application/pdf", filename: "proof.pdf", sha256: "abc", caption: "here" },
+  }));
+  assert.equal(event.kind === "message" && event.inputType, "document");
+  assert.equal(event.kind === "message" && event.text, "here");
+  assert.deepEqual(event.kind === "message" ? event.media : null,
+    { id: "MEDIA-1", mimeType: "application/pdf", filename: "proof.pdf", caption: "here", sha256: "abc" });
+});
+
+test("parses an inbound image with no caption", () => {
+  const [event] = parseWhatsAppWebhook(payload({
+    id: "wamid.img", from: "265991234567", type: "image",
+    image: { id: "MEDIA-2", mime_type: "image/jpeg" },
+  }));
+  assert.equal(event.kind === "message" && event.inputType, "image");
+  assert.equal(event.kind === "message" && event.text, "[image]");
+  assert.equal(event.kind === "message" && event.media?.id, "MEDIA-2");
+  assert.equal(event.kind === "message" && event.media?.filename, undefined);
+});
+
+test("an image message with no media id degrades to unknown, not a crash", () => {
+  const [event] = parseWhatsAppWebhook(payload({ id: "wamid.bad", from: "265991234567", type: "image", image: {} }));
+  assert.equal(event.kind === "message" && event.inputType, "unknown");
+  assert.equal(event.kind === "message" ? event.media : "x", undefined);
+});
+
 test("parses delivery failures without retaining provider error text", () => {
   const events = parseWhatsAppWebhook({ object: "whatsapp_business_account", entry: [{ changes: [{ field: "messages", value: { statuses: [{ id: "wamid.out", status: "failed", recipient_id: "265991234567", errors: [{ code: 131000, message: "sensitive provider detail" }] }] } }] }] });
   assert.deepEqual(events[0], { kind: "status", id: "wamid.out", status: "failed", timestamp: undefined, recipientId: "+265991234567", errorCode: "131000", accountId: undefined, phoneNumberId: undefined });

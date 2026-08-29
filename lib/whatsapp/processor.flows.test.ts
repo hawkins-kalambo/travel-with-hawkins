@@ -195,10 +195,11 @@ test("after a lookup failure, the NEXT message is handled normally (no permanent
 // ---------------------------------------------------------------------------
 // 3. Hello / Menu / Restart from bot-managed states
 // ---------------------------------------------------------------------------
-for (const step of ["route_origin", "route_destination", "booking_name", "booking_seats", "payment_booking_id", "tracking_booking_id", "question"]) {
+// Steps with no captured booking draft: menu/restart go straight to the menu.
+for (const step of ["route_origin", "route_destination", "payment_booking_id", "tracking_booking_id", "question"]) {
   for (const word of ["hello", "Hi", "  MENU ", "restart"]) {
     test(`"${word.trim()}" from ${step} returns to the menu without touching route lookup`, async () => {
-      conversationRow = baseConversation({ step, data: { origin: "x", booking: { name: "Jo" } } });
+      conversationRow = baseConversation({ step, data: { origin: "x" } });
       inbound(word);
       await processWhatsAppEvent("evt");
       assert.deepEqual(steps(), ["menu"], "transitioned to menu");
@@ -211,6 +212,42 @@ for (const step of ["route_origin", "route_destination", "booking_name", "bookin
     });
   }
 }
+
+// Phase G: mid-draft, menu/cancel/restart ask before discarding captured details.
+for (const step of ["booking_name", "route_date", "booking_review"]) {
+  test(`"menu" from ${step} with a draft asks to discard, does not jump to the menu`, async () => {
+    conversationRow = baseConversation({ step, data: { origin: "x", booking: { name: "Jo", routeId: "r1" } } });
+    inbound("menu");
+    await processWhatsAppEvent("evt");
+    assert.deepEqual(steps(), ["discard_confirm"]);
+    assert.match(texts().join("\n"), /in progress|discard/i);
+    assert.equal(state.finished, 1);
+  });
+}
+
+test("discard prompt: Confirm discards the draft and returns to the menu", async () => {
+  conversationRow = baseConversation({ step: "discard_confirm", data: { booking: { name: "Jo" }, pendingExit: "menu", draftStep: "booking_name" } });
+  inbound("Confirm", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.equal(steps().at(-1), "menu");
+  assert.match(texts().join("\n"), /how can we help/i);
+});
+
+test("discard prompt: Keep going resumes the draft step", async () => {
+  conversationRow = baseConversation({ step: "discard_confirm", data: { booking: { name: "Jo" }, pendingExit: "menu", draftStep: "booking_name" } });
+  inbound("Keep going", { actionId: "flow_back" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_name"]);
+  assert.match(texts().join("\n"), /full name/i);
+});
+
+test("discard prompt: restart-driven discard shows the branded welcome", async () => {
+  conversationRow = baseConversation({ step: "discard_confirm", data: { booking: { name: "Jo" }, pendingExit: "restart", draftStep: "booking_name" } });
+  inbound("Confirm", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.equal(steps().at(-1), "menu");
+  assert.match(texts().join("\n"), /Welcome to Travel With Hawkins/i);
+});
 
 // ---------------------------------------------------------------------------
 // 4. Completed / expired sessions are reusable
@@ -245,6 +282,42 @@ test("a non-expired mid-flow session is NOT reset", async () => {
   await processWhatsAppEvent("evt");
   assert.equal(state.departuresCalls, 1, "still treated as a district");
   assert.deepEqual(steps(), []);
+});
+
+// ---------------------------------------------------------------------------
+// Phase G: branded welcome — shown for a fresh start, not before every menu
+// ---------------------------------------------------------------------------
+test("first-ever language pick shows the branded welcome, then the menu", async () => {
+  conversationRow = baseConversation({ step: "language" });
+  inbound("English", { actionId: "lang_en" });
+  await processWhatsAppEvent("evt");
+  const body = texts().join("\n");
+  assert.match(body, /Welcome to Travel With Hawkins/i);
+  assert.match(body, /how can we help/i);
+});
+
+test("a resolved conversation reopened gets the welcome, then handles the message", async () => {
+  conversationRow = baseConversation({ step: "menu", status: "resolved" });
+  inbound("Make a Booking");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /Welcome to Travel With Hawkins/i);
+  assert.equal(steps().at(-1), "route_origin", "the booking request still runs after the welcome");
+});
+
+test("plain 'menu' in an active session shows the menu WITHOUT repeating the welcome", async () => {
+  conversationRow = baseConversation({ step: "menu", status: "bot_controlled" });
+  inbound("menu");
+  await processWhatsAppEvent("evt");
+  const body = texts().join("\n");
+  assert.doesNotMatch(body, /Welcome to Travel With Hawkins/i);
+  assert.match(body, /how can we help/i);
+});
+
+test("'restart' shows the welcome (no draft to protect)", async () => {
+  conversationRow = baseConversation({ step: "menu" });
+  inbound("restart");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /Welcome to Travel With Hawkins/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -590,7 +663,7 @@ test("cancel_confirm: declining keeps the booking (no cancel call)", async () =>
   assert.deepEqual(steps(), ["menu"]);
 });
 
-for (const step of ["booking_review", "my_bookings", "booking_action", "cancel_confirm"]) {
+for (const step of ["my_bookings", "booking_action", "cancel_confirm"]) {
   test(`"menu" from ${step} returns to the menu with no booking/payment/cancel side effects`, async () => {
     conversationRow = baseConversation({ step, data: { booking: draft, selectedBookingId: "BK-1" } });
     inbound("menu");

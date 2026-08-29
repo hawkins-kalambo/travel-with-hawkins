@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  mediaReasonMessage, sanitizeFilename, sniffMediaType, validateMediaBytes, validateMediaClaim,
+  mediaReasonMessage, sanitizeFilename, sniffInboundContainer, sniffMediaType,
+  validateInboundMediaBytes, validateMediaBytes, validateMediaClaim,
 } from "./media.ts";
+
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
 
 const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]); // %PDF-1.4
 const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
@@ -65,4 +70,31 @@ test("mediaReasonMessage gives a human string for each reason", () => {
     assert.equal(typeof mediaReasonMessage(reason), "string");
     assert.ok(mediaReasonMessage(reason).length > 0);
   }
+});
+
+// --- inbound (customer-sent) media ---
+
+test("sniffInboundContainer recognises a ZIP/OOXML container", () => {
+  assert.equal(sniffInboundContainer(zip), "zip");
+  assert.equal(sniffInboundContainer(pdf), "application/pdf");
+  assert.equal(sniffInboundContainer(new Uint8Array([0x00, 0x01])), null);
+});
+
+test("validateInboundMediaBytes accepts a DOCX declared as a ZIP container", () => {
+  const result = validateInboundMediaBytes(zip, DOCX);
+  assert.equal(result.ok, true);
+  if (result.ok) { assert.equal(result.kind, "document"); assert.equal(result.ext, "docx"); }
+  assert.equal((validateInboundMediaBytes(zip, XLSX) as { ext?: string }).ext, "xlsx");
+});
+
+test("validateInboundMediaBytes still rejects a fake PDF and unknown types", () => {
+  assert.deepEqual(validateInboundMediaBytes(zip, "application/pdf"), { ok: false, reason: "type_mismatch" });
+  assert.deepEqual(validateInboundMediaBytes(new Uint8Array([0x4d, 0x5a]), "application/pdf"), { ok: false, reason: "unsupported_type" });
+  assert.deepEqual(validateInboundMediaBytes(pdf, "application/x-msdownload"), { ok: false, reason: "unsupported_type" });
+});
+
+test("validateInboundMediaBytes accepts PDF/JPEG/PNG by exact magic bytes", () => {
+  assert.equal(validateInboundMediaBytes(pdf, "application/pdf").ok, true);
+  assert.equal(validateInboundMediaBytes(jpeg, "image/jpeg").ok, true);
+  assert.equal(validateInboundMediaBytes(png, "image/png").ok, true);
 });

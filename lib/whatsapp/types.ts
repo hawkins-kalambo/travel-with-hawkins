@@ -27,15 +27,24 @@ export type WhatsAppActionId =
 // before an event is persisted or processed. They are intentionally absent
 // from the stored/rehydrated event shape (see `toStoredEventData`), so they
 // remain optional on the type.
+export type WhatsAppInboundMedia = {
+  id: string;
+  mimeType: string;
+  filename?: string;
+  caption?: string;
+  sha256?: string;
+};
+
 export type WhatsAppInboundMessage = {
   kind: "message";
   id: string;
   from: string;
   timestamp?: string;
   displayName?: string;
-  inputType: "text" | "button" | "list" | "unknown";
+  inputType: "text" | "button" | "list" | "document" | "image" | "unknown";
   text: string;
   actionId?: string;
+  media?: WhatsAppInboundMedia;
   accountId?: string;
   phoneNumberId?: string;
 };
@@ -79,6 +88,7 @@ export type WhatsAppConversationStep =
   | "booking_email"
   | "booking_student_id"
   | "booking_review"
+  | "discard_confirm"
   | "payment_booking_id"
   | "tracking_booking_id"
   | "my_bookings"
@@ -106,6 +116,9 @@ export type WhatsAppStateData = {
   booking?: BookingDraft;
   trackingFailures?: number;
   selectedBookingId?: string;
+  // Set while a "discard your booking in progress?" prompt is showing.
+  pendingExit?: "menu" | "cancel" | "restart";
+  draftStep?: WhatsAppConversationStep;
 };
 
 export type WhatsAppConversationState = {

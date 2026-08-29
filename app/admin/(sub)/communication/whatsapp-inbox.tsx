@@ -29,9 +29,11 @@ type Payment = { booking_id: string; payment_type: string; status: string; expec
 type Note = { id: string; body: string; created_at: string; authorName: string | null };
 type Agent = { id: string; full_name?: string; email?: string };
 type MediaRow = {
-  id: string; messageId: string | null; kind: "document" | "image"; mimeType: string;
+  id: string; messageId: string | null; direction: "inbound" | "outbound";
+  kind: "document" | "image"; mimeType: string;
   fileName: string; byteSize: number; status: string; errorCode: string | null;
   caption: string | null; createdAt: string; uploadedByName: string | null;
+  linkedBookingId: string | null; isPaymentProof: boolean; reviewedByName: string | null;
 };
 type ReceiptRow = {
   paymentId: string; bookingId: string | null; paymentType: string | null;
@@ -46,8 +48,8 @@ type Detail = {
     serviceWindowExpiresAt: string | null; unreadCount: number;
     viewerId: string; viewerRole?: string;
   };
-  messages: Message[]; notes: Note[]; bookings: BookingCard[]; payments: Payment[];
-  receipts: ReceiptRow[]; agents: Agent[]; media: MediaRow[];
+  messages: Message[]; notes: Note[]; bookings: BookingCard[]; phoneMatchBookings: BookingCard[];
+  payments: Payment[]; receipts: ReceiptRow[]; agents: Agent[]; media: MediaRow[];
 };
 
 const ACCEPTED_FILE_TYPES = "application/pdf,image/jpeg,image/png";
@@ -86,7 +88,7 @@ function relativeWindow(expiry: string | null) {
   return { open: true, label: `Service window: ${hrs}h ${mins}m left` };
 }
 
-export default function WhatsAppInboxSection() {
+export default function WhatsAppInboxSection({ initialConversationId }: { initialConversationId?: string }) {
   const [items, setItems] = useState<ListItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -150,6 +152,13 @@ export default function WhatsAppInboxSection() {
 
   // Debounced list load on search / filter change.
   useEffect(() => { const t = window.setTimeout(() => void loadList(), 200); return () => window.clearTimeout(t); }, [loadList]);
+
+  // Deep link from an admin handoff SMS/email: ?tab=whatsapp&conversation=<id>.
+  useEffect(() => {
+    if (!initialConversationId) return;
+    const t = window.setTimeout(() => { void loadDetail(initialConversationId); setMobilePane("thread"); }, 0);
+    return () => window.clearTimeout(t);
+  }, [initialConversationId, loadDetail]);
 
   // Bounded polling. Drafts live in their own state so a refresh never clears
   // them; the thread scroll position is preserved in loadDetail.
@@ -257,6 +266,20 @@ export default function WhatsAppInboxSection() {
     if (!selected) return;
     await authFetch(`/api/admin/whatsapp/conversations/${selected}/media?mediaId=${encodeURIComponent(mediaId)}`, { method: "DELETE" });
     await loadDetail(selected, true);
+  }
+
+  async function reviewMedia(mediaId: string, patch: { linkedBookingId?: string; isPaymentProof?: boolean }) {
+    if (!selected) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await authFetch(`/api/admin/whatsapp/conversations/${selected}/media`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaId, ...patch }),
+      });
+      const body = await res.json();
+      if (!res.ok) setError(body.error || "Unable to update the attachment");
+      await loadDetail(selected, true);
+    } finally { setBusy(false); }
   }
 
   async function openMedia(mediaId: string) {
@@ -491,7 +514,7 @@ export default function WhatsAppInboxSection() {
 
               <div>
                 <h3 className="text-sm font-semibold text-gray-800">Bookings</h3>
-                {!detail.bookings.length ? <p className="text-xs text-gray-400">No bookings for this number.</p> : detail.bookings.map((b) => (
+                {!detail.bookings.length ? <p className="text-xs text-gray-400">No bookings owned by this WhatsApp account.</p> : detail.bookings.map((b) => (
                   <div key={b.bookingId} className="mt-2 rounded-xl border border-gray-200 p-3 text-xs">
                     <p className="font-semibold text-gray-900">{b.bookingId} <span className="font-normal text-gray-500">· {b.status}</span></p>
                     <p className="text-gray-600">{b.route} · requested {b.requestedDate || "—"}</p>
@@ -506,6 +529,18 @@ export default function WhatsAppInboxSection() {
                     {b.deadline ? <p className="text-amber-700">Fee deadline: {when(b.deadline)}</p> : null}
                   </div>
                 ))}
+                {detail.phoneMatchBookings.length ? (
+                  <details className="mt-2 rounded-xl border border-dashed border-gray-300 p-2 text-xs">
+                    <summary className="cursor-pointer text-gray-500">
+                      {detail.phoneMatchBookings.length} other booking{detail.phoneMatchBookings.length === 1 ? "" : "s"} on this phone number — not verified as this WhatsApp account
+                    </summary>
+                    {detail.phoneMatchBookings.map((b) => (
+                      <p key={b.bookingId} className="mt-1 text-gray-500">
+                        {b.bookingId} · {b.route} · {b.requestedDate || "—"} · {b.status} · {b.source}
+                      </p>
+                    ))}
+                  </details>
+                ) : null}
               </div>
 
               <div>
@@ -543,8 +578,46 @@ export default function WhatsAppInboxSection() {
               </div>
 
               <div>
+                <h3 className="text-sm font-semibold text-gray-800">Files received</h3>
+                {!detail.media.some((m) => m.direction === "inbound") ? (
+                  <p className="text-xs text-gray-400">No files received from this customer.</p>
+                ) : detail.media.filter((m) => m.direction === "inbound").map((m) => (
+                  <div key={m.id} className="mt-2 rounded-xl border border-gray-200 p-2 text-xs">
+                    <p className="font-semibold text-gray-900">
+                      {m.kind === "document" ? "📄" : "🖼"} {m.fileName}
+                      {m.isPaymentProof ? <span className="ml-1 rounded bg-emerald-100 px-1 text-[10px] text-emerald-800">payment proof</span> : null}
+                    </p>
+                    <p className="text-gray-500">{humanSize(m.byteSize)} · {new Date(m.createdAt).toLocaleString()}</p>
+                    {m.caption ? <p className="text-gray-600">“{m.caption}”</p> : null}
+                    <p className={m.status === "stored" ? "text-emerald-700" : m.status === "quarantined" || m.status === "failed" ? "text-danger" : "text-gray-500"}>
+                      {m.status}{m.errorCode ? ` · ${m.errorCode}` : ""}
+                    </p>
+                    {m.status === "stored" ? (
+                      <div className="mt-1 space-y-1">
+                        <button onClick={() => void openMedia(m.id)} className="font-semibold text-primary-700">Open</button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={m.linkedBookingId || ""} disabled={busy}
+                            onChange={(e) => void reviewMedia(m.id, { linkedBookingId: e.target.value })}
+                            className="rounded border px-1 py-0.5 text-[11px]">
+                            <option value="">Link to booking…</option>
+                            {detail.bookings.map((b) => <option key={b.bookingId} value={b.bookingId}>{b.bookingId}</option>)}
+                          </select>
+                          <label className="flex items-center gap-1 text-[11px]">
+                            <input type="checkbox" checked={m.isPaymentProof} disabled={busy}
+                              onChange={(e) => void reviewMedia(m.id, { isPaymentProof: e.target.checked })} />
+                            payment proof
+                          </label>
+                        </div>
+                        {m.reviewedByName ? <p className="text-[11px] text-gray-400">reviewed by {m.reviewedByName}</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+
+              <div>
                 <h3 className="text-sm font-semibold text-gray-800">Files sent</h3>
-                {!detail.media.length ? <p className="text-xs text-gray-400">No files sent.</p> : detail.media.map((m) => (
+                {!detail.media.some((m) => m.direction === "outbound") ? <p className="text-xs text-gray-400">No files sent.</p> : detail.media.filter((m) => m.direction === "outbound").map((m) => (
                   <div key={m.id} className="mt-2 rounded-xl border border-gray-200 p-2 text-xs">
                     <p className="font-semibold text-gray-900">{m.kind === "document" ? "📄" : "🖼"} {m.fileName}</p>
                     <p className="text-gray-500">{humanSize(m.byteSize)} · {new Date(m.createdAt).toLocaleString()}{m.uploadedByName ? ` · ${m.uploadedByName}` : ""}</p>

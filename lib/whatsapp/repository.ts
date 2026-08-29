@@ -5,6 +5,9 @@ import { sendWhatsAppMessage } from "@/lib/whatsapp/client";
 import { messageText } from "@/lib/whatsapp/messages";
 import type { WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppLanguage, WhatsAppOutboundMessage, WhatsAppParsedEvent, WhatsAppStateData } from "@/lib/whatsapp/types";
 import { toStoredEventData, webhookEventKey } from "@/lib/whatsapp/parser";
+import { notifyAdminOfWhatsAppHandoff } from "@/lib/whatsapp/agent-alerts";
+import { ingestInboundMedia } from "@/lib/whatsapp/inbound-media";
+import { logError } from "@/lib/logger";
 
 type StoredEvent = { id: string; processing_status: string };
 
@@ -84,19 +87,42 @@ export async function ensureConversation(message: WhatsAppInboundMessage): Promi
 }
 
 export async function recordInbound(conversation: WhatsAppConversationState, message: WhatsAppInboundMessage): Promise<void> {
+  const preview = message.text || `[${message.inputType}]`;
   const result = await supabaseAdmin.from("communication_messages").insert({
-    conversation_id: conversation.conversationId, sender_id: null, body: message.text || `[${message.inputType}]`,
+    conversation_id: conversation.conversationId, sender_id: null, body: preview,
     html: null, attachments: [], channel: "whatsapp", direction: "inbound", visibility: "customer",
     message_kind: message.inputType, external_sender_id: conversation.contactId,
     provider_message_id: message.id, provider_status: "received", provider_metadata: {},
-  });
-  if (result.error && result.error.code !== "23505") throw result.error;
+  }).select("id").maybeSingle();
+  let messageId: string | null = result.data?.id ?? null;
+  if (result.error) {
+    if (result.error.code !== "23505") throw result.error;
+    // Redelivered webhook — find the row we already stored so media ingestion
+    // can still attach to it.
+    const existing = await supabaseAdmin.from("communication_messages")
+      .select("id").eq("provider_message_id", message.id).maybeSingle();
+    messageId = existing.data?.id ?? null;
+  }
   // Bump the list-view preview + unread badge in one guarded RPC (unread only
   // accrues while a human is involved — see the migration).
   await supabaseAdmin.rpc("bump_whatsapp_unread", {
-    p_conversation_id: conversation.conversationId,
-    p_preview: message.text || `[${message.inputType}]`,
+    p_conversation_id: conversation.conversationId, p_preview: preview,
   });
+  // A customer document/image: download + store it, off the critical path — a
+  // media failure must never fail the text-message persistence.
+  if (message.media?.id) {
+    try {
+      await ingestInboundMedia(
+        { conversationId: conversation.conversationId, contactId: conversation.contactId },
+        message, messageId,
+      );
+    } catch (error) {
+      logError("WhatsApp inbound media ingestion threw", {
+        conversationId: conversation.conversationId,
+        error: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+      });
+    }
+  }
 }
 
 // `origin` attributes the transcript line: "agent" (a human sent it),
@@ -191,10 +217,17 @@ export async function setOptOut(conversation: WhatsAppConversationState, optedOu
 }
 
 export async function requestHuman(conversation: WhatsAppConversationState): Promise<WhatsAppConversationState> {
+  // Alert the on-call admin only on a genuine new request for a human — not
+  // when the conversation is already waiting, or an agent already holds it.
+  const isNewRequest = conversation.status === "bot_controlled" || conversation.status === "resolved";
   const result = await supabaseAdmin.from("whatsapp_conversations").update({
     mode: "human", status: "waiting", assigned_to: null, updated_at: new Date().toISOString(),
   }).eq("conversation_id", conversation.conversationId);
   if (result.error) throw result.error;
+  if (isNewRequest) {
+    // Fail-soft: an SMS/email problem must never break the handoff itself.
+    try { await notifyAdminOfWhatsAppHandoff(conversation); } catch { /* logged inside */ }
+  }
   return { ...conversation, mode: "human", status: "waiting", step: "agent_waiting" };
 }
 

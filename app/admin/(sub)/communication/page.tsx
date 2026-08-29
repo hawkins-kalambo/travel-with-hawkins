@@ -390,7 +390,7 @@ function AdminCommunicationPageContent() {
 
           {activeTab === "conversations" && <InboxSection conversations={conversations} onRefresh={loadCommunicationCenter} />}
           {activeTab === "website" && <WebsiteChatInboxSection initialConversationId={initialConversationId} />}
-          {activeTab === "whatsapp" && <WhatsAppInboxSection />}
+          {activeTab === "whatsapp" && <WhatsAppInboxSection initialConversationId={initialConversationId} />}
         </div>
       </div>
     </div>
