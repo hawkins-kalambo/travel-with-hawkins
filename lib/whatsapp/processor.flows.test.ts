@@ -25,6 +25,8 @@ const state = {
   listCalls: 0,
   cancelCalls: 0,
   aiCalls: 0,
+  popularRoutesCalls: 0,
+  routeRequestCalls: 0,
 };
 
 // Per-test knobs
@@ -42,6 +44,11 @@ let loadBookingImpl: (id: string) => unknown;
 let cancelImpl: (...a: unknown[]) => unknown;
 let transitionThrows: string | null;
 let aiInterpret: ((text: string, lang: string) => Promise<unknown>) | null;
+let popularRoutesImpl: () => unknown[];
+let generalRouteImpl: (origin: string, destination: string) => unknown;
+let studentRouteImpl: (home: string, universityId: string, direction: string) => unknown;
+let activeUniversitiesImpl: () => { id: string; name: string }[];
+let routeRequestImpl: (...a: unknown[]) => unknown;
 
 function baseConversation(overrides: Record<string, unknown> = {}) {
   return {
@@ -70,6 +77,11 @@ mock.module("@/lib/whatsapp/domain", {
     createUnassignedWhatsAppBooking: async (...a: unknown[]) => { state.unassignedCalls += 1; return createUnassignedImpl(...a); },
     listBookableRoutes: async (origin?: string) => { state.bookableRoutesCalls += 1; return bookableRoutesImpl(origin); },
     loadBookableRoute: async (id: string) => loadBookableRouteImpl(id),
+    listPopularRoutes: async () => { state.popularRoutesCalls += 1; return popularRoutesImpl(); },
+    findGeneralRoute: async (origin: string, destination: string) => generalRouteImpl(origin, destination),
+    findStudentRoute: async (home: string, universityId: string, direction: string) => studentRouteImpl(home, universityId, direction),
+    listActiveUniversities: async () => activeUniversitiesImpl(),
+    createRouteRequest: async (...a: unknown[]) => { state.routeRequestCalls += 1; return routeRequestImpl(...a); },
     getBookingFeeAmount: async () => 5000,
     getOrCreateBookingFeeCheckout: async () => { state.paymentCalls += 1; return paymentImpl(); },
     listWhatsAppBookings: async () => { state.listCalls += 1; return listImpl(); },
@@ -114,6 +126,7 @@ beforeEach(() => {
   state.departuresCalls = 0; state.loadDepartureCalls = 0; state.bookingCalls = 0; state.paymentCalls = 0;
   state.unassignedCalls = 0; state.bookableRoutesCalls = 0;
   state.listCalls = 0; state.cancelCalls = 0; state.aiCalls = 0;
+  state.popularRoutesCalls = 0; state.routeRequestCalls = 0;
   claimResult = null;
   conversationRow = baseConversation();
   departuresImpl = async () => [];
@@ -128,6 +141,11 @@ beforeEach(() => {
   cancelImpl = () => ({ outcome: "not_found" });
   transitionThrows = null;
   aiInterpret = null; // AI disabled by default
+  popularRoutesImpl = () => [];
+  generalRouteImpl = () => null;
+  studentRouteImpl = () => null;
+  activeUniversitiesImpl = () => [];
+  routeRequestImpl = () => ({ id: "rr-1" });
 });
 
 const oneDeparture = [{
@@ -830,4 +848,187 @@ test("restarting from the question step does not create/cancel a booking or take
   assert.equal(state.bookingCalls, 0);
   assert.equal(state.paymentCalls, 0);
   assert.equal(state.cancelCalls, 0);
+});
+
+// ===========================================================================
+// "Find a Route" — student vs general travel discovery
+// (master plan: "Improved Routes, Student Travel and General Travel Flow")
+// ===========================================================================
+
+const studentRoute = {
+  routeId: "sr-1", label: "Lilongwe - Mzuzu University", origin: "Lilongwe",
+  destination: "Mzuzu University", pickup: "Lilongwe Bus Depot", fare: 15000,
+  priced: true, routeType: "student", isPopular: false,
+};
+const generalRoute = {
+  routeId: "gr-1", label: "Lilongwe - Blantyre", origin: "Lilongwe",
+  destination: "Blantyre", pickup: "Lilongwe Bus Depot", fare: 18000,
+  priced: true, routeType: "general", isPopular: true,
+};
+
+test("menu -> Find a Route opens the route entry (Popular / Student / Other / Menu), no route lookup", async () => {
+  conversationRow = baseConversation({ step: "menu" });
+  inbound("Find a Route", { actionId: "menu_routes" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_entry"]);
+  const last = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string }> };
+  assert.equal(last.type, "list");
+  assert.deepEqual(last.rows.map((r) => r.id), ["route_popular", "route_student", "route_other", "route_menu"]);
+  assert.equal(state.departuresCalls, 0);
+});
+
+test("route_entry: a typed 'X to University' resolves a student route and shows fare + pickup", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University" }];
+  studentRouteImpl = (home, universityId, direction) => (home.toLowerCase() === "lilongwe"
+    && universityId === "u-mzuni" && direction === "to_university" ? studentRoute : null);
+  inbound("Lilongwe to Mzuzu University");
+  await processWhatsAppEvent("evt");
+  const body = texts().join("\n");
+  assert.match(body, /Lilongwe - Mzuzu University/);
+  assert.match(body, /MWK 15,000/);
+  assert.match(body, /Lilongwe Bus Depot/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("route_entry: a single place asks the one-location clarifier", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  inbound("Lilongwe");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_clarify"]);
+  assert.equal(state.transitions.at(-1)?.data && (state.transitions.at(-1)!.data as { routeKnownPlace: string }).routeKnownPlace, "Lilongwe");
+  const last = state.delivered.at(-1) as unknown as { type: string; buttons: Array<{ id: string }> };
+  assert.equal(last.type, "buttons");
+  assert.deepEqual(last.buttons.map((b) => b.id), ["route_from", "route_to", "route_restart"]);
+});
+
+test("route_clarify -> 'Travelling from' then a destination resolves a general route", async () => {
+  conversationRow = baseConversation({ step: "route_clarify", data: { routeKnownPlace: "Lilongwe" } });
+  inbound("from", { actionId: "route_from" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_entry"]);
+  assert.match(texts().join("\n"), /travelling to/i);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "route_entry", data: { routeKnownPlace: "Lilongwe", routeKnownRole: "origin" } });
+  generalRouteImpl = (origin, destination) => (origin.toLowerCase() === "lilongwe"
+    && destination.toLowerCase() === "blantyre" ? generalRoute : null);
+  inbound("Blantyre");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /Lilongwe - Blantyre/);
+  assert.match(texts().join("\n"), /MWK 18,000/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("route_entry: 'Other Travel' sets the general lane, then 'X to Y' matches a general route", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  inbound("other", { actionId: "route_other" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(state.transitions.at(-1)?.data, { travellerType: "general" });
+  assert.match(texts().join("\n"), /Lilongwe to Blantyre/);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "route_entry", data: { travellerType: "general" } });
+  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University" }];
+  generalRouteImpl = () => generalRoute;
+  studentRouteImpl = () => { throw new Error("student lookup must not run in the general lane"); };
+  inbound("Lilongwe to Blantyre");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /Lilongwe - Blantyre/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("route_entry: an unknown corridor offers 'Request this route', which logs it and returns to the menu", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  activeUniversitiesImpl = () => [];
+  generalRouteImpl = () => null;
+  inbound("Karonga to Ntcheu");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_request_confirm"]);
+  assert.deepEqual(state.transitions.at(-1)?.data, {
+    travellerType: undefined, pendingRouteOrigin: "Karonga", pendingRouteDestination: "Ntcheu",
+  });
+  assert.match(texts().join("\n"), /could not find/i);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({
+    step: "route_request_confirm",
+    data: { pendingRouteOrigin: "Karonga", pendingRouteDestination: "Ntcheu" },
+  });
+  inbound("request", { actionId: "route_req_submit" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.routeRequestCalls, 1);
+  assert.match(texts().join("\n"), /noted your request for Karonga to Ntcheu/i);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("Student Travel: direction -> university -> home district resolves the route", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  inbound("student", { actionId: "route_student" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_student_direction"]);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "route_student_direction" });
+  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University" }];
+  inbound("to", { actionId: "route_dir_to" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_student_university"]);
+  assert.deepEqual(state.transitions.at(-1)?.data, { studentDirection: "to_university" });
+  const uniList = state.delivered.at(-1) as unknown as { rows: Array<{ id: string }> };
+  assert.deepEqual(uniList.rows.map((r) => r.id), ["uni:u-mzuni"]);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "route_student_university", data: { studentDirection: "to_university" } });
+  inbound("pick", { actionId: "uni:u-mzuni" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_student_home"]);
+  assert.match(texts().join("\n"), /which district/i);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({
+    step: "route_student_home",
+    data: { studentDirection: "to_university", studentUniversityId: "u-mzuni", studentUniversityName: "Mzuzu University" },
+  });
+  studentRouteImpl = (home) => (home.toLowerCase() === "lilongwe" ? studentRoute : null);
+  inbound("Lilongwe");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /MWK 15,000/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("Student Travel: no active universities routes to the menu with an explanation", async () => {
+  conversationRow = baseConversation({ step: "route_student_direction" });
+  activeUniversitiesImpl = () => [];
+  inbound("to", { actionId: "route_dir_to" });
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /Other Travel/);
+  assert.equal(steps().at(-1), "menu");
+});
+
+test("Popular Routes: lists the curated routes; empty falls back to a typed-route hint", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  popularRoutesImpl = () => [generalRoute];
+  inbound("popular", { actionId: "route_popular" });
+  await processWhatsAppEvent("evt");
+  assert.equal(state.popularRoutesCalls, 1);
+  const last = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string }> };
+  assert.equal(last.type, "list");
+  assert.deepEqual(last.rows.map((r) => r.id), ["route:gr-1"]);
+
+  state.delivered = [];
+  conversationRow = baseConversation({ step: "route_entry" });
+  popularRoutesImpl = () => [];
+  inbound("popular", { actionId: "route_popular" });
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /don't have popular routes/i);
+});
+
+test("route_entry: unparseable text re-prompts without a route lookup or state change", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  inbound("how much is the fare please");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), []);
+  assert.equal(state.departuresCalls, 0);
+  assert.match(texts().join("\n"), /one town or city|full route/i);
 });

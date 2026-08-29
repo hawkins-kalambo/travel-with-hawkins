@@ -123,6 +123,86 @@ export function routesListMessage(language: WhatsAppLanguage, routes: BookableRo
   };
 }
 
+// "Find a Route" entry: Popular Routes / Student Travel / Other Travel / Main
+// Menu. The customer can also just type a route ("Lilongwe to Mzuzu").
+export function routeEntryMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  const rows = [
+    { id: "route_popular", title: t(language, "routeOptPopular") },
+    { id: "route_student", title: t(language, "routeOptStudent") },
+    { id: "route_other", title: t(language, "routeOptOther") },
+    { id: "route_menu", title: t(language, "routeOptMenu") },
+  ];
+  return {
+    type: "list", body: t(language, "routeEntryIntro"), button: t(language, "routeEntryButton"), rows,
+    fallback: `${t(language, "routeEntryIntro")}\n${rows.map((row, i) => `${i + 1}. ${row.title}`).join("\n")}`,
+  };
+}
+
+// One-location clarifier: "Is {place} where you are travelling from or to?"
+export function routeClarifyMessage(language: WhatsAppLanguage, place: string): WhatsAppOutboundMessage {
+  const body = t(language, "routeClarifyPrompt", { place });
+  return {
+    type: "buttons", body,
+    buttons: [
+      { id: "route_from", title: t(language, "routeClarifyFrom") },
+      { id: "route_to", title: t(language, "routeClarifyTo") },
+      { id: "route_restart", title: t(language, "routeClarifyRestart") },
+    ],
+    fallback: `${body}\n1. ${t(language, "routeClarifyFrom")} ${place}\n2. ${t(language, "routeClarifyTo")} ${place}\n3. ${t(language, "routeClarifyRestart")}`,
+  };
+}
+
+export function studentDirectionMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  const body = t(language, "routeStudentDirectionPrompt");
+  return {
+    type: "buttons", body,
+    buttons: [
+      { id: "route_dir_to", title: t(language, "routeDirToUni") },
+      { id: "route_dir_from", title: t(language, "routeDirFromUni") },
+    ],
+    fallback: `${body}\n1. ${t(language, "routeDirToUni")}\n2. ${t(language, "routeDirFromUni")}`,
+  };
+}
+
+export type UniversityChoice = { id: string; name: string };
+
+export function universityListMessage(language: WhatsAppLanguage, universities: UniversityChoice[]): WhatsAppOutboundMessage {
+  const rows = universities.slice(0, 10).map((u) => ({ id: `uni:${u.id}`, title: u.name.slice(0, 24) }));
+  const body = t(language, "routeStudentPickUniversity");
+  return {
+    type: "list", body, button: t(language, "routeStudentUniversityButton"), rows,
+    fallback: `${body}\n${universities.map((u, i) => `${i + 1}. ${u.name}`).join("\n")}`,
+  };
+}
+
+export function popularRoutesMessage(language: WhatsAppLanguage, routes: BookableRouteItem[]): WhatsAppOutboundMessage {
+  const rows = routes.slice(0, 10).map((route) => ({
+    id: `route:${route.routeId}`,
+    title: route.label.slice(0, 24),
+    description: route.fareLabel.slice(0, 72),
+  }));
+  const body = t(language, "routePopularHeader");
+  return {
+    type: "list", body, button: t(language, "routesButton"), rows,
+    fallback: `${body}\n${routes.map((route, i) => `${i + 1}. ${route.label} (${route.fareLabel})`).join("\n")}`,
+  };
+}
+
+// "We could not find that route" — offer to log it, or step sideways.
+export function routeRequestMessage(language: WhatsAppLanguage, origin: string, destination: string): WhatsAppOutboundMessage {
+  const body = t(language, "routeNotFoundPrompt", { origin, destination });
+  const rows = [
+    { id: "route_req_submit", title: t(language, "routeReqSubmit") },
+    { id: "route_popular", title: t(language, "routeOptPopular") },
+    { id: "menu_agent", title: t(language, "menuAgent") },
+    { id: "route_menu", title: t(language, "routeOptMenu") },
+  ];
+  return {
+    type: "list", body, button: t(language, "routeEntryButton"), rows,
+    fallback: `${body}\n${rows.map((row, i) => `${i + 1}. ${row.title}`).join("\n")}`,
+  };
+}
+
 export function bookingActionMessage(language: WhatsAppLanguage, body: string): WhatsAppOutboundMessage {
   return {
     type: "buttons", body,

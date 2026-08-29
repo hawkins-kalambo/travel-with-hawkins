@@ -44,7 +44,7 @@ mock.module("@/lib/payments/finalize-flow", { exports: { verifyAndFinalizePaymen
 
 const {
   findAvailableDepartures, loadDeparture, listBookableRoutes, loadBookableRoute,
-  createUnassignedWhatsAppBooking,
+  createUnassignedWhatsAppBooking, listPopularRoutes, findGeneralRoute,
 } = await import("./domain.ts");
 
 const activeRoute = {
@@ -146,4 +146,39 @@ test("createUnassignedWhatsAppBooking returns the created booking from the RPC r
   assert.equal(result.bookingId, "BK-1");
   assert.equal(result.fare, 12000);
   assert.equal(result.bookingFee, 5000);
+});
+
+// --- Structured route discovery (student vs general travel flow) ---
+
+const generalRouteRow = {
+  id: "gr-1", origin_district: "Lilongwe", university_id: null,
+  destination_district: "Blantyre", route_type: "general", is_popular: true, popular_order: 1,
+  fare: 18000, status: "active", direction: "general",
+  university: null, pickupPoint: null,
+  districtPickupPoint: { label: "Lilongwe Bus Depot", status: "active" },
+};
+
+test("listPopularRoutes shapes a district-to-district general route with no university", async () => {
+  routesRows = { data: [generalRouteRow], error: null };
+  const [route] = await listPopularRoutes();
+  assert.equal(route.label, "Lilongwe - Blantyre");
+  assert.equal(route.destination, "Blantyre");
+  assert.equal(route.routeType, "general");
+  assert.equal(route.isPopular, true);
+  assert.equal(route.priced, true);
+  assert.equal(route.pickup, "Lilongwe Bus Depot");
+});
+
+test("findGeneralRoute re-orients a stored leg to the requested origin -> destination", async () => {
+  routesRows = { data: [generalRouteRow], error: null };
+  const reversed = await findGeneralRoute("Blantyre", "Lilongwe");
+  assert.ok(reversed);
+  assert.equal(reversed!.label, "Blantyre - Lilongwe");
+  assert.equal(reversed!.origin, "Blantyre");
+  assert.equal(reversed!.destination, "Lilongwe");
+});
+
+test("findGeneralRoute returns null when no leg matches the corridor", async () => {
+  routesRows = { data: [generalRouteRow], error: null };
+  assert.equal(await findGeneralRoute("Mzuzu", "Zomba"), null);
 });
