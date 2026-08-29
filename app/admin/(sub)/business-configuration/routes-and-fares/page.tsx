@@ -19,7 +19,14 @@ import {
 } from "@/app/admin/(sub)/business-configuration/businessConfigClient";
 import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
 import { journeyDirectionLabel, type JourneyDirection } from "@/lib/journeyDirection";
+import type { RouteType } from "@/app/admin/(sub)/business-configuration/businessConfigClient";
 import { authFetch } from "@/lib/auth";
+
+const ROUTE_TYPES: { value: RouteType; label: string }[] = [
+  { value: "student", label: "Student (home ⇄ university)" },
+  { value: "general", label: "General (district ⇄ district)" },
+  { value: "both", label: "Both" },
+];
 
 interface RouteObject {
   id: string;
@@ -96,7 +103,9 @@ const COMMISSION_TYPES: { value: "fixed" | "percentage"; label: string }[] = [
 
 function emptyRouteDraft() {
   return {
+    routeType: "student" as RouteType,
     originDistrict: "",
+    destinationDistrict: "",
     universityId: "",
     pickupPointId: "",
     districtPickupPointId: "",
@@ -104,6 +113,8 @@ function emptyRouteDraft() {
     fare: "0",
     commissionAmount: "0",
     commissionType: "fixed" as "fixed" | "percentage",
+    isPopular: false,
+    popularOrder: "",
   };
 }
 
@@ -229,24 +240,51 @@ export default function RoutesAndFaresPage() {
   };
 
   const addStructuredRoute = async () => {
-    if (!routeDraft.originDistrict || !routeDraft.universityId || !routeDraft.districtPickupPointId) {
+    const isGeneral = routeDraft.routeType === "general";
+    if (isGeneral) {
+      if (!routeDraft.originDistrict || !routeDraft.destinationDistrict) {
+        setStructuredError("Choose an origin district and a destination district.");
+        return;
+      }
+      if (routeDraft.originDistrict === routeDraft.destinationDistrict) {
+        setStructuredError("Origin and destination districts must be different.");
+        return;
+      }
+    } else if (!routeDraft.originDistrict || !routeDraft.universityId || !routeDraft.districtPickupPointId) {
       setStructuredError("Choose a home district, university and district pickup/drop-off point.");
       return;
     }
     setStructuredSaving("new");
     setStructuredError(null);
     try {
-      await createStructuredRouteApi({
-        originDistrict: routeDraft.originDistrict,
-        universityId: routeDraft.universityId,
-        pickupPointId: routeDraft.pickupPointId || undefined,
-        districtPickupPointId: routeDraft.districtPickupPointId,
-        fare: Number(routeDraft.fare) || 0,
-        commissionAmount: Number(routeDraft.commissionAmount) || 0,
-        commissionType: routeDraft.commissionType,
-        direction: routeDraft.direction,
-        status: "inactive",
-      });
+      await createStructuredRouteApi(
+        isGeneral
+          ? {
+              routeType: "general",
+              originDistrict: routeDraft.originDistrict,
+              destinationDistrict: routeDraft.destinationDistrict,
+              fare: Number(routeDraft.fare) || 0,
+              commissionAmount: Number(routeDraft.commissionAmount) || 0,
+              commissionType: routeDraft.commissionType,
+              isPopular: routeDraft.isPopular,
+              popularOrder: routeDraft.popularOrder === "" ? null : Number(routeDraft.popularOrder) || 0,
+              status: "inactive",
+            }
+          : {
+              routeType: routeDraft.routeType,
+              originDistrict: routeDraft.originDistrict,
+              universityId: routeDraft.universityId,
+              pickupPointId: routeDraft.pickupPointId || undefined,
+              districtPickupPointId: routeDraft.districtPickupPointId,
+              fare: Number(routeDraft.fare) || 0,
+              commissionAmount: Number(routeDraft.commissionAmount) || 0,
+              commissionType: routeDraft.commissionType,
+              direction: routeDraft.direction,
+              isPopular: routeDraft.isPopular,
+              popularOrder: routeDraft.popularOrder === "" ? null : Number(routeDraft.popularOrder) || 0,
+              status: "inactive",
+            },
+      );
       setRouteDraft(emptyRouteDraft());
       await refreshStructured();
       flashStructured("Route added as inactive — activate it once the fare is confirmed.");
@@ -272,6 +310,8 @@ export default function RoutesAndFaresPage() {
         direction: route.direction,
         pickupPointId: route.pickup_point_id || undefined,
         districtPickupPointId: route.district_pickup_point_id || undefined,
+        isPopular: route.is_popular,
+        popularOrder: route.popular_order,
       });
       await refreshStructured();
       flashStructured("Route updated.");
@@ -567,18 +607,34 @@ export default function RoutesAndFaresPage() {
 
           <div className="mb-6 grid gap-4 rounded-2xl border border-dashed border-slate-300 p-4 md:grid-cols-4 lg:grid-cols-7 lg:items-end">
             <label className="block text-sm text-slate-700">
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Direction</span>
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Route type</span>
               <select
-                value={routeDraft.direction}
-                onChange={(e) => setRouteDraft({ ...routeDraft, direction: e.target.value as JourneyDirection })}
+                value={routeDraft.routeType}
+                onChange={(e) => setRouteDraft({ ...routeDraft, routeType: e.target.value as RouteType })}
                 className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
               >
-                <option value="to_university">Going to university</option>
-                <option value="from_university">Going home</option>
+                {ROUTE_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
               </select>
             </label>
+            {routeDraft.routeType !== "general" && (
+              <label className="block text-sm text-slate-700">
+                <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Direction</span>
+                <select
+                  value={routeDraft.direction}
+                  onChange={(e) => setRouteDraft({ ...routeDraft, direction: e.target.value as JourneyDirection })}
+                  className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="to_university">Going to university</option>
+                  <option value="from_university">Going home</option>
+                </select>
+              </label>
+            )}
             <label className="block text-sm text-slate-700">
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Home district</span>
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">
+                {routeDraft.routeType === "general" ? "Origin district" : "Home district"}
+              </span>
               <select
                 value={routeDraft.originDistrict}
                 onChange={(e) => setRouteDraft({ ...routeDraft, originDistrict: e.target.value, districtPickupPointId: "" })}
@@ -590,47 +646,65 @@ export default function RoutesAndFaresPage() {
                 ))}
               </select>
             </label>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">University</span>
-              <select
-                value={routeDraft.universityId}
-                onChange={(e) => setRouteDraft({ ...routeDraft, universityId: e.target.value, pickupPointId: "", districtPickupPointId: "" })}
-                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="">Select university</option>
-                {universities.map((university) => (
-                  <option key={university.id} value={university.id}>{university.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Campus point</span>
-              <select
-                value={routeDraft.pickupPointId}
-                onChange={(e) => setRouteDraft({ ...routeDraft, pickupPointId: e.target.value })}
-                disabled={!routeDraft.universityId}
-                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
-              >
-                <option value="">Default</option>
-                {pickupPointsFor(routeDraft.universityId).map((point) => (
-                  <option key={point.id} value={point.id}>{point.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">District point</span>
-              <select
-                value={routeDraft.districtPickupPointId}
-                onChange={(e) => setRouteDraft({ ...routeDraft, districtPickupPointId: e.target.value })}
-                disabled={!routeDraft.universityId || !routeDraft.originDistrict}
-                className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
-              >
-                <option value="">Select point</option>
-                {districtPointsFor(routeDraft.universityId, routeDraft.originDistrict).map((point) => (
-                  <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
-                ))}
-              </select>
-            </label>
+            {routeDraft.routeType === "general" ? (
+              <label className="block text-sm text-slate-700">
+                <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Destination district</span>
+                <select
+                  value={routeDraft.destinationDistrict}
+                  onChange={(e) => setRouteDraft({ ...routeDraft, destinationDistrict: e.target.value })}
+                  className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Select district</option>
+                  {MALAWI_DISTRICTS.map((district) => (
+                    <option key={district} value={district}>{district}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <>
+                <label className="block text-sm text-slate-700">
+                  <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">University</span>
+                  <select
+                    value={routeDraft.universityId}
+                    onChange={(e) => setRouteDraft({ ...routeDraft, universityId: e.target.value, pickupPointId: "", districtPickupPointId: "" })}
+                    className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Select university</option>
+                    {universities.map((university) => (
+                      <option key={university.id} value={university.id}>{university.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm text-slate-700">
+                  <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Campus point</span>
+                  <select
+                    value={routeDraft.pickupPointId}
+                    onChange={(e) => setRouteDraft({ ...routeDraft, pickupPointId: e.target.value })}
+                    disabled={!routeDraft.universityId}
+                    className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
+                  >
+                    <option value="">Default</option>
+                    {pickupPointsFor(routeDraft.universityId).map((point) => (
+                      <option key={point.id} value={point.id}>{point.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm text-slate-700">
+                  <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">District point</span>
+                  <select
+                    value={routeDraft.districtPickupPointId}
+                    onChange={(e) => setRouteDraft({ ...routeDraft, districtPickupPointId: e.target.value })}
+                    disabled={!routeDraft.universityId || !routeDraft.originDistrict}
+                    className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
+                  >
+                    <option value="">Select point</option>
+                    {districtPointsFor(routeDraft.universityId, routeDraft.originDistrict).map((point) => (
+                      <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
             <label className="block text-sm text-slate-700">
               <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Fare (MWK)</span>
               <input
@@ -663,6 +737,27 @@ export default function RoutesAndFaresPage() {
                 className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
               />
             </label>
+            <label className="block text-sm text-slate-700">
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Popular order</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={routeDraft.isPopular}
+                  onChange={(e) => setRouteDraft({ ...routeDraft, isPopular: e.target.checked })}
+                  className="h-4 w-4"
+                  aria-label="Show in Popular Routes"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  value={routeDraft.popularOrder}
+                  onChange={(e) => setRouteDraft({ ...routeDraft, popularOrder: e.target.value })}
+                  disabled={!routeDraft.isPopular}
+                  placeholder="Order"
+                  className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
+                />
+              </div>
+            </label>
             <button
               onClick={addStructuredRoute}
               disabled={structuredSaving === "new"}
@@ -685,14 +780,21 @@ export default function RoutesAndFaresPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-bold text-slate-900">
-                        {route.direction === "from_university"
-                          ? `${route.university?.name || "Unknown university"} → ${route.origin_district}`
-                          : `${route.origin_district} → ${route.university?.name || "Unknown university"}`}
+                        {route.route_type === "general"
+                          ? `${route.origin_district} → ${route.destination_district || "Unknown"}`
+                          : route.direction === "from_university"
+                            ? `${route.university?.name || "Unknown university"} → ${route.origin_district}`
+                            : `${route.origin_district} → ${route.university?.name || "Unknown university"}`}
                         {route.districtPickupPoint ? ` · District: ${route.districtPickupPoint.label}` : ""}
                         {route.pickupPoint ? ` · Campus: ${route.pickupPoint.label}` : ""}
                       </p>
-                      <p className="mt-1 text-xs font-semibold text-[#0f3f78]">{journeyDirectionLabel(route.direction)}</p>
-                      {route.university?.status !== "active" && (
+                      <p className="mt-1 text-xs font-semibold text-[#0f3f78]">
+                        {route.route_type === "general"
+                          ? "General travel"
+                          : journeyDirectionLabel(route.direction === "general" ? "to_university" : route.direction)}
+                        {route.is_popular ? ` · Popular #${route.popular_order ?? "?"}` : ""}
+                      </p>
+                      {route.route_type !== "general" && route.university?.status !== "active" && (
                         <p className="mt-1 text-xs font-semibold text-amber-700">University is inactive — this route stays hidden regardless of its own status.</p>
                       )}
                     </div>
@@ -706,17 +808,19 @@ export default function RoutesAndFaresPage() {
                   </div>
 
                   <div className="mt-3 grid gap-3 md:grid-cols-5">
-                    <label className="block text-sm text-slate-700">
-                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Direction</span>
-                      <select
-                        value={route.direction}
-                        onChange={(e) => updateStructuredField(route.id, { direction: e.target.value as JourneyDirection })}
-                        className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value="to_university">Going to university</option>
-                        <option value="from_university">Going home</option>
-                      </select>
-                    </label>
+                    {route.route_type !== "general" && (
+                      <label className="block text-sm text-slate-700">
+                        <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Direction</span>
+                        <select
+                          value={route.direction}
+                          onChange={(e) => updateStructuredField(route.id, { direction: e.target.value as JourneyDirection })}
+                          className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="to_university">Going to university</option>
+                          <option value="from_university">Going home</option>
+                        </select>
+                      </label>
+                    )}
                     <label className="block text-sm text-slate-700">
                       <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Fare (MWK)</span>
                       <input
@@ -755,9 +859,30 @@ export default function RoutesAndFaresPage() {
                         <option value="inactive">Inactive</option>
                       </select>
                     </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Popular Routes</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={route.is_popular}
+                          onChange={(e) => updateStructuredField(route.id, { is_popular: e.target.checked })}
+                          className="h-4 w-4"
+                          aria-label="Show in Popular Routes"
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={route.popular_order == null ? "" : String(route.popular_order)}
+                          onChange={(e) => updateStructuredField(route.id, { popular_order: e.target.value === "" ? null : Number(e.target.value) || 0 })}
+                          disabled={!route.is_popular}
+                          placeholder="Order"
+                          className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60"
+                        />
+                      </div>
+                    </label>
                   </div>
 
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {route.route_type !== "general" && <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <label className="block text-sm text-slate-700">
                       <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">District pickup / drop-off</span>
                       <select
@@ -766,7 +891,7 @@ export default function RoutesAndFaresPage() {
                         className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                       >
                         <option value="">Select district point</option>
-                        {districtPointsFor(route.university_id, route.origin_district).map((point) => (
+                        {districtPointsFor(route.university_id ?? "", route.origin_district).map((point) => (
                           <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
                         ))}
                       </select>
@@ -779,12 +904,12 @@ export default function RoutesAndFaresPage() {
                         className="input-field w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                       >
                         <option value="">Default campus</option>
-                        {pickupPointsFor(route.university_id).map((point) => (
+                        {pickupPointsFor(route.university_id ?? "").map((point) => (
                           <option key={point.id} value={point.id}>{point.label}{point.status !== "active" ? " (inactive)" : ""}</option>
                         ))}
                       </select>
                     </label>
-                  </div>
+                  </div>}
 
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <label className="block text-sm text-slate-700">
