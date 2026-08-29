@@ -52,6 +52,15 @@ export function departureEpochMs(travelDate: string, departureTime?: string | nu
   return Date.parse(`${travelDate}T${padded}${MALAWI_UTC_OFFSET}`);
 }
 
+// Booking-before-trip: a customer picks a future DATE with no scheduled
+// departure and therefore no time. We anchor the deadline maths to the end of
+// that day in Malawi time (23:59), so "how far away is travel" is measured
+// generously from the last moment of the requested day. Mirrored by
+// create_route_booking_no_departure() in SQL.
+export function requestedDateEpochMs(travelDate: string): number {
+  return Date.parse(`${travelDate}T23:59:59${MALAWI_UTC_OFFSET}`);
+}
+
 /** "10 Sep 2026, 07:00 (Malawi time)" — for customer-facing deadline notices. */
 export function formatMalawiDateTime(ms: number): string {
   if (!Number.isFinite(ms)) return "the stated deadline";

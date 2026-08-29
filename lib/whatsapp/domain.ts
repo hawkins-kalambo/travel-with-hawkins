@@ -13,6 +13,41 @@ export type AvailableDeparture = {
   departureTime?: string; fare: number; pickup: string; availableSeats: number;
 };
 
+// Same embed shape used by findAvailableDepartures and the booking-before-trip
+// route picker. `routes` has no `destination_label` column (see the note in
+// findAvailableDepartures) — the destination comes from the linked university.
+const ROUTE_SELECT =
+  "id, origin_district, university_id, fare, status, direction, university:universities(name,status), pickupPoint:university_pickup_points(label,status), districtPickupPoint:district_pickup_points(label,status)";
+
+function embedsActive(route: Record<string, unknown>): boolean {
+  const university = related(route.university);
+  const campus = related(route.pickupPoint);
+  const district = related(route.districtPickupPoint);
+  return (!university || university.status === "active")
+    && (!campus || campus.status === "active") && (!district || district.status === "active");
+}
+
+export type BookableRoute = {
+  routeId: string; label: string; origin: string; destination: string;
+  pickup: string; fare: number; priced: boolean;
+};
+
+// Build the customer-facing view of a `routes` row. Returns null when the route
+// is missing its destination university (nothing safe to show).
+function toBookableRoute(route: Record<string, unknown>): BookableRoute | null {
+  const university = related(route.university);
+  const campus = related(route.pickupPoint);
+  const district = related(route.districtPickupPoint);
+  const destination = String(university?.name || "").trim();
+  if (!destination) return null;
+  const origin = String(route.origin_district || "").trim();
+  const reverse = route.direction === "from_university";
+  const label = reverse ? `${destination} - ${origin}` : `${origin} - ${destination}`;
+  const pickup = String((reverse ? campus?.label : district?.label) || (reverse ? destination : origin));
+  const fare = Number(route.fare) || 0;
+  return { routeId: String(route.id), label, origin, destination, pickup, fare, priced: fare > 0 };
+}
+
 // Booking fee is a single configured amount (settings.booking_fee, MWK).
 // Read the same way create_capacity_checked_booking() reads it, for the
 // pre-confirmation preview only — the RPC re-reads it at creation time.
@@ -233,4 +268,142 @@ export async function getOrCreateBookingFeeCheckout(bookingId: string, waId: str
   return result.outcome === "initialized"
     ? { outcome: "checkout", url: result.checkoutUrl, amount: result.amount }
     : { outcome: "rejected", reason: result.reason };
+}
+
+// ---------------------------------------------------------------------------
+// Booking before a trip is created (master plan §A / Stage 2.1).
+// A customer picks a supported route and a preferred future date when there is
+// no scheduled route_departures row. The booking is real but "unassigned"
+// (departure_id IS NULL) until an admin links transport later.
+// ---------------------------------------------------------------------------
+
+// Supported routes offered when there are no scheduled departures. Unpriced
+// routes are still listed — the customer may request one and it is flagged for
+// an agent rather than guessed at (see createUnassignedWhatsAppBooking).
+export async function listBookableRoutes(origin?: string): Promise<BookableRoute[]> {
+  let query = supabaseAdmin.from("routes").select(ROUTE_SELECT).eq("status", "active").limit(50);
+  if (origin?.trim()) query = query.ilike("origin_district", origin.trim());
+  const result = await query;
+  if (result.error) throw result.error;
+  return (result.data ?? [])
+    .filter((route) => embedsActive(route))
+    .map((route) => toBookableRoute(route))
+    .filter((route): route is BookableRoute => route !== null)
+    .slice(0, 10);
+}
+
+export async function loadBookableRoute(routeId: string): Promise<BookableRoute | null> {
+  const result = await supabaseAdmin.from("routes").select(ROUTE_SELECT)
+    .eq("id", routeId).eq("status", "active").maybeSingle();
+  if (result.error || !result.data) return null;
+  if (!embedsActive(result.data)) return null;
+  return toBookableRoute(result.data);
+}
+
+export type CreateUnassignedBookingResult =
+  | { outcome: "created" | "existing"; bookingId: string; expiresAt: string | null; fare: number; bookingFee: number; shortNotice: boolean }
+  | { outcome: "rejected"; reason: string };
+
+export async function createUnassignedWhatsAppBooking(
+  conversation: WhatsAppConversationState, draft: BookingDraft, operationKey: string
+): Promise<CreateUnassignedBookingResult> {
+  if (!draft.routeId || !draft.travelDate || !draft.name) {
+    return { outcome: "rejected", reason: "incomplete_booking" };
+  }
+  const route = await loadBookableRoute(draft.routeId);
+  if (!route) return { outcome: "rejected", reason: "route_unavailable" };
+  if (!route.priced) {
+    // Never guess a fare. Surface the request so an agent can price the route
+    // and follow up; no booking is created.
+    console.warn("[whatsapp] unpriced route requested", {
+      conversationId: conversation.conversationId, routeId: route.routeId,
+      routeLabel: route.label, travelDate: draft.travelDate,
+    });
+    return { outcome: "rejected", reason: "route_unpriced" };
+  }
+  const bookingId = generateBookingId();
+  const tripId = generateTripId(route.label, draft.travelDate);
+  const result = await supabaseAdmin.rpc("create_route_booking_no_departure", {
+    p_operation_key: operationKey, p_booking_id: bookingId, p_trip_id: tripId,
+    p_route_id: route.routeId, p_travel_date: draft.travelDate,
+    p_name: draft.name, p_phone: conversation.waId, p_email: draft.email || "",
+    p_student_id: draft.studentId || "", p_destination: route.label,
+    p_pickup: route.pickup, p_location: route.pickup, p_booking_type: "WhatsApp",
+    p_whatsapp_contact_id: conversation.contactId, p_policy_version: WHATSAPP_POLICY_VERSION,
+  });
+  if (result.error) throw result.error;
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  if (!row || row.outcome === "rejected") return { outcome: "rejected", reason: row?.reason || "booking_failed" };
+  await supabaseAdmin.from("whatsapp_booking_operations").upsert({
+    operation_key: operationKey, conversation_id: conversation.conversationId,
+    booking_id: row.booking_id, status: "completed", updated_at: new Date().toISOString(),
+  }, { onConflict: "operation_key" });
+  const expiresAt: string | null = row.expires_at ?? null;
+  const shortNotice = expiresAt ? Date.parse(expiresAt) - Date.now() < 30 * 60 * 1000 : false;
+  return {
+    outcome: row.outcome, bookingId: row.booking_id, expiresAt,
+    fare: Number(row.fare) || route.fare, bookingFee: Number(row.booking_fee) || 0, shortNotice,
+  };
+}
+
+export type UnassignedBookingRow = {
+  bookingId: string; routeId: string | null; routeLabel: string; travelDate: string;
+  name: string; phone: string; status: string; bookingFeeStatus: string; fareStatus: string;
+  expiresAt: string | null; createdAt: string | null;
+};
+
+// Admin: WhatsApp bookings still awaiting a transport assignment, newest first,
+// optionally narrowed to one route and/or requested date.
+export async function listUnassignedWhatsAppBookings(
+  filters: { routeId?: string; date?: string } = {}
+): Promise<UnassignedBookingRow[]> {
+  let query = supabaseAdmin.from("bookings")
+    .select("booking_id,route_id,destination,travel_date,name,phone,status,booking_fee_status,fare_status,booking_expires_at,created_at")
+    .eq("booking_source", "whatsapp").is("departure_id", null)
+    .not("status", "in", "(Cancelled,Completed)")
+    .order("created_at", { ascending: false }).limit(100);
+  if (filters.routeId) query = query.eq("route_id", filters.routeId);
+  if (filters.date) query = query.eq("travel_date", filters.date);
+  const result = await query;
+  if (result.error) throw result.error;
+  return (result.data ?? []).map((row) => ({
+    bookingId: String(row.booking_id), routeId: row.route_id ? String(row.route_id) : null,
+    routeLabel: String(row.destination || "Trip"), travelDate: String(row.travel_date || ""),
+    name: String(row.name || ""), phone: String(row.phone || ""),
+    status: String(row.status || "Booked"), bookingFeeStatus: String(row.booking_fee_status || "unpaid"),
+    fareStatus: String(row.fare_status || "unpaid"), expiresAt: row.booking_expires_at ?? null,
+    createdAt: row.created_at ?? null,
+  }));
+}
+
+// Published departures an unassigned booking could be linked to: same route,
+// same requested date, with remaining capacity. The RPC re-checks all of this
+// under row locks at assignment time.
+export async function assignableDeparturesFor(bookingId: string): Promise<AvailableDeparture[]> {
+  const booking = await supabaseAdmin.from("bookings")
+    .select("route_id,travel_date,departure_id,booking_source")
+    .eq("booking_id", bookingId).maybeSingle();
+  if (booking.error || !booking.data) return [];
+  if (booking.data.departure_id || booking.data.booking_source !== "whatsapp") return [];
+  const routeId = booking.data.route_id ? String(booking.data.route_id) : "";
+  const travelDate = String(booking.data.travel_date || "");
+  if (!routeId || !travelDate) return [];
+  const all = await findAvailableDepartures();
+  return all.filter((departure) => departure.routeId === routeId && departure.travelDate === travelDate);
+}
+
+export type AssignTransportResult = { outcome: "assigned" | "rejected"; reason?: string };
+
+export async function assignWhatsAppBookingTransport(
+  bookingId: string, departureId: string, actorId: string | null
+): Promise<AssignTransportResult> {
+  const result = await supabaseAdmin.rpc("assign_whatsapp_booking", {
+    p_booking_id: bookingId, p_departure_id: departureId, p_actor: actorId,
+  });
+  if (result.error) throw result.error;
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  if (!row) return { outcome: "rejected", reason: "assignment_failed" };
+  return row.outcome === "assigned"
+    ? { outcome: "assigned" }
+    : { outcome: "rejected", reason: row.reason || "assignment_failed" };
 }

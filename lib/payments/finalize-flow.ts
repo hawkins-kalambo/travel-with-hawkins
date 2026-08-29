@@ -3,9 +3,9 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { verifyPayChanguTransaction, PayChanguClientError } from "./paychangu-client";
 import { validatePayChanguVerification } from "./verification-validator";
-import { emailReceiptForPayment } from "./receipt-service";
+import { emailReceiptForPayment, enqueueReceiptDeliveries } from "./receipt-service";
 import { logError } from "@/lib/logger";
-import { notifyWhatsAppPaymentConfirmed } from "@/lib/whatsapp/notifications";
+import { deliverWhatsAppReceipt } from "@/lib/whatsapp/receipt-delivery";
 
 // Shared by the webhook route and the browser return/callback route — both
 // are just different triggers for the same "independently verify with
@@ -86,22 +86,32 @@ export async function verifyAndFinalizePayment(txRef: string, paymentEventId: st
     return { outcome: "rejected", reason: outcome?.reason || "finalize_rejected" };
   }
 
-  // Email delivery is best-effort and idempotent. It must never change the
-  // result of a payment that PayChangu has already verified and finalized.
+  // Durably record that a receipt is owed on each channel BEFORE attempting
+  // delivery, so a crash here is recoverable by the re-drive job. Idempotent.
+  try {
+    await enqueueReceiptDeliveries(trimmedTxRef);
+  } catch (error) {
+    logError("Receipt delivery enqueue failed", {
+      txRef: trimmedTxRef, error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+
+  // Delivery attempts are best-effort and idempotent (claim-guarded). They
+  // must never change the result of a payment PayChangu has already verified
+  // and finalized. Anything not delivered here is retried by the re-drive.
   try {
     await emailReceiptForPayment(trimmedTxRef);
   } catch (error) {
-    logError("Automatic payment receipt delivery failed", {
-      txRef: trimmedTxRef,
-      error: error instanceof Error ? error.message : "unknown",
+    logError("Automatic email receipt delivery failed", {
+      txRef: trimmedTxRef, error: error instanceof Error ? error.message : "unknown",
     });
   }
 
   if (outcome.outcome === "finalized") {
     try {
-      await notifyWhatsAppPaymentConfirmed(outcome.booking_id as string, outcome.payment_type as string);
+      await deliverWhatsAppReceipt(trimmedTxRef);
     } catch (error) {
-      logError("Automatic WhatsApp payment confirmation failed", {
+      logError("Automatic WhatsApp receipt delivery failed", {
         bookingId: outcome.booking_id,
         error: error instanceof Error ? error.message : "unknown",
       });

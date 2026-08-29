@@ -60,13 +60,19 @@ export type WhatsAppOutboundMessage =
   | { type: "text"; text: string }
   | { type: "buttons"; body: string; buttons: WhatsAppButton[]; fallback: string }
   | { type: "list"; body: string; button: string; rows: WhatsAppListRow[]; fallback: string }
-  | { type: "template"; name: string; languageCode: string; parameters?: string[] };
+  | { type: "template"; name: string; languageCode: string; parameters?: string[] }
+  // Media messages reference a Meta-hosted media id obtained from the media
+  // upload endpoint (never a URL — no arbitrary URL fetching by the provider).
+  | { type: "document"; mediaId: string; filename: string; caption?: string }
+  | { type: "image"; mediaId: string; caption?: string };
 
 export type WhatsAppConversationStep =
   | "language"
   | "menu"
   | "route_origin"
   | "route_destination"
+  | "route_pick"
+  | "route_date"
   | "booking_departure"
   | "booking_passenger_for"
   | "booking_name"

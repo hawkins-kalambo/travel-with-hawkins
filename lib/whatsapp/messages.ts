@@ -70,6 +70,23 @@ export function bookingsListMessage(language: WhatsAppLanguage, items: BookingLi
   };
 }
 
+export type BookableRouteItem = { routeId: string; label: string; fareLabel: string };
+
+// Route picker shown when there are no scheduled departures: the customer picks
+// a supported route and is then asked for a preferred travel date.
+export function routesListMessage(language: WhatsAppLanguage, routes: BookableRouteItem[]): WhatsAppOutboundMessage {
+  const rows = routes.slice(0, 10).map((route) => ({
+    id: `route:${route.routeId}`,
+    title: route.label.slice(0, 24),
+    description: route.fareLabel.slice(0, 72),
+  }));
+  const body = t(language, "askRoute");
+  return {
+    type: "list", body, button: t(language, "routesButton"), rows,
+    fallback: `${body}\n${routes.map((route, index) => `${index + 1}. ${route.label} (${route.fareLabel})`).join("\n")}`,
+  };
+}
+
 export function bookingActionMessage(language: WhatsAppLanguage, body: string): WhatsAppOutboundMessage {
   return {
     type: "buttons", body,
@@ -84,5 +101,7 @@ export function bookingActionMessage(language: WhatsAppLanguage, body: string): 
 export function messageText(message: WhatsAppOutboundMessage): string {
   if (message.type === "text") return message.text;
   if (message.type === "template") return `[template:${message.name}]`;
+  if (message.type === "document") return message.caption ? `[document: ${message.filename}] ${message.caption}` : `[document: ${message.filename}]`;
+  if (message.type === "image") return message.caption ? `[image] ${message.caption}` : "[image]";
   return message.fallback;
 }

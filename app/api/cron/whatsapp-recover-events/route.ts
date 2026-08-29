@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAuthorizedCron } from "@/lib/whatsapp/cron";
 import { processWhatsAppEvent } from "@/lib/whatsapp/processor";
+import { redriveReceiptDeliveries } from "@/lib/payments/receipt-redrive";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -33,6 +34,15 @@ export async function GET(req: NextRequest) {
       logError("WhatsApp recovery reprocess failed", { code: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
     }
   }
-  logInfo("WhatsApp events recovered", { candidates: ids.length, processed });
-  return NextResponse.json({ ok: true, candidates: ids.length, processed });
+  // Also re-drive any receipt deliveries the finaliser could not complete
+  // (crash before send, or a transient provider error). Best-effort.
+  let receipts = { candidates: 0, delivered: 0 };
+  try {
+    receipts = await redriveReceiptDeliveries(50);
+  } catch (error) {
+    logError("Receipt re-drive failed", { code: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
+  }
+
+  logInfo("WhatsApp events recovered", { candidates: ids.length, processed, receipts });
+  return NextResponse.json({ ok: true, candidates: ids.length, processed, receipts });
 }

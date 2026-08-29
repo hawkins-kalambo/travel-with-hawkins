@@ -6,12 +6,13 @@ import { isRateLimited } from "@/lib/rateLimit";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 import { markWhatsAppMessageRead } from "@/lib/whatsapp/client";
 import { getWhatsAppAiProvider } from "@/lib/whatsapp/ai-provider";
-import { cancelWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listWhatsAppBookings, loadDeparture, loadWhatsAppBooking, trackBookingForWhatsApp, type AvailableDeparture } from "@/lib/whatsapp/domain";
+import { cancelWhatsAppBooking, createUnassignedWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listBookableRoutes, listWhatsAppBookings, loadBookableRoute, loadDeparture, loadWhatsAppBooking, trackBookingForWhatsApp, type AvailableDeparture } from "@/lib/whatsapp/domain";
 import { UNPAID_RESERVATION_LIMIT, formatMalawiDateTime } from "@/lib/whatsapp/booking-rules";
+import { parseFutureTravelDate } from "@/lib/bookingLifecycle";
 import { answerFromApprovedKnowledge } from "@/lib/whatsapp/knowledge";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
-import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, languageMessage, mainMenuMessage, passengerForMessage } from "@/lib/whatsapp/messages";
+import { bookingActionMessage, bookingsListMessage, confirmPromptMessage, languageMessage, mainMenuMessage, passengerForMessage, routesListMessage } from "@/lib/whatsapp/messages";
 import { claimWebhookEvent, deliverAndRecord, ensureConversation, failWebhookEvent, finishWebhookEvent, recordInbound, requestHuman, setLanguage, setOptOut, transitionState, updateDeliveryStatus } from "@/lib/whatsapp/repository";
 import { reduceGlobalCommand } from "@/lib/whatsapp/state-machine";
 import type { BookingDraft, WhatsAppConversationState, WhatsAppInboundMessage, WhatsAppOutboundMessage } from "@/lib/whatsapp/types";
@@ -24,7 +25,8 @@ function validEmail(value: string): boolean { return /^[^\s@]+@[^\s@]+\.[^\s@]+$
 
 function promptForStep(conversation: WhatsAppConversationState): string {
   const keys = {
-    route_origin: "askOrigin", booking_departure: "askDestination",
+    route_origin: "askOrigin", route_pick: "askRoute", route_date: "askTravelDate",
+    booking_departure: "askDestination",
     booking_passenger_for: "askPassengerFor", booking_name: "askName",
     booking_email: "askEmail", booking_student_id: "askStudentId",
     payment_booking_id: "askBookingIdPayment", tracking_booking_id: "askBookingIdTracking", question: "askQuestion",
@@ -38,9 +40,10 @@ function isAffirmative(message: WhatsAppInboundMessage): boolean {
     || ["confirm", "yes", "tsimikizani", "eya", "inde", "1"].includes(message.text.trim().toLowerCase());
 }
 
-function bookingRejectionKey(reason: string): "unpaidLimitReached" | "departureTooSoon" | "seatsUnavailable" | "bookingFailed" {
+function bookingRejectionKey(reason: string): "unpaidLimitReached" | "departureTooSoon" | "seatsUnavailable" | "routeUnpriced" | "bookingFailed" {
   if (reason === "unpaid_limit_reached") return "unpaidLimitReached";
   if (reason === "departure_too_soon") return "departureTooSoon";
+  if (reason === "route_unpriced") return "routeUnpriced";
   if (reason === "insufficient_seats" || reason === "departure_unavailable" || reason === "route_unavailable") return "seatsUnavailable";
   return "bookingFailed";
 }
@@ -158,7 +161,12 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
   if (globalCommand.kind === "cancel") { await goToMenu(conversation, t(conversation.language, "cancelled")); return; }
   if (globalCommand.kind === "back") {
     if (globalCommand.nextStep === "menu") { await goToMenu(conversation, t(conversation.language, "back")); return; }
-    const next = await transitionState(conversation, globalCommand.nextStep, conversation.data);
+    // Booking-before-trip has no departure step: from passenger details, "back"
+    // returns to the requested-date prompt, not the (skipped) departure list.
+    const backStep = globalCommand.nextStep === "booking_departure"
+      && conversation.data.booking?.routeId && !conversation.data.booking?.departureId
+      ? "route_date" : globalCommand.nextStep;
+    const next = await transitionState(conversation, backStep, conversation.data);
     await send(next, textMessage(`${t(next.language, "back")} ${promptForStep(next)}`)); return;
   }
 
@@ -212,11 +220,57 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     const lookup = await tryRouteLookup(conversation, () => findAvailableDepartures(origin));
     if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
     const departures = lookup.value;
-    if (!departures.length) { await send(conversation, textMessage(t(conversation.language, "noDepartures"))); return; }
     const booking = conversation.data.booking !== undefined;
+    if (!departures.length) {
+      // Booking-before-trip (master plan §A): no scheduled departure, so offer
+      // the supported routes and take a preferred date instead. "Find a Route"
+      // (no booking) keeps the plain "no dates" reply.
+      if (booking) {
+        const routesLookup = await tryRouteLookup(conversation, () => listBookableRoutes(origin));
+        if (routesLookup.ok && routesLookup.value.length) {
+          const next = await transitionState(conversation, "route_pick", { ...conversation.data, origin });
+          await send(next, routesListMessage(next.language, routesLookup.value.map((route) => ({
+            routeId: route.routeId, label: route.label,
+            fareLabel: route.priced ? `MWK ${route.fare.toLocaleString("en-MW")}` : t(next.language, "farePending"),
+          }))));
+          return;
+        }
+      }
+      await send(conversation, textMessage(t(conversation.language, "noDepartures"))); return;
+    }
     const next = await transitionState(conversation, booking ? "booking_departure" : "route_destination", { ...conversation.data, origin });
     await send(next, { type: "list", body: t(next.language, "askDestination"), button: "Departures", rows: departureRows(departures), fallback: `${t(next.language, "askDestination")}\n${departures.map((d, i) => `${i + 1}. ${d.routeLabel}, ${d.travelDate}, MWK ${d.fare}`).join("\n")}` });
     return;
+  }
+
+  // Booking-before-trip: pick a supported route, then a preferred future date.
+  if (conversation.step === "route_pick") {
+    const routeId = message.actionId?.startsWith("route:") ? message.actionId.slice(6) : "";
+    const lookup = routeId ? await tryRouteLookup(conversation, () => loadBookableRoute(routeId)) : { ok: true as const, value: null };
+    if (!lookup.ok) { await goToMenu(conversation, t(conversation.language, "routesUnavailable")); return; }
+    const route = lookup.value;
+    if (!route) { await send(conversation, textMessage(t(conversation.language, "invalidInput"))); return; }
+    if (!route.priced) {
+      // Never guess a fare. Flag the request for an agent and stop before
+      // collecting passenger details.
+      logWarn("WhatsApp unpriced route requested", {
+        conversationId: conversation.conversationId, routeId: route.routeId, routeLabel: route.label,
+      });
+      await goToMenu(conversation, t(conversation.language, "routeUnpriced")); return;
+    }
+    const booking: BookingDraft = {
+      routeId: route.routeId, routeLabel: route.label, pickup: route.pickup, fare: route.fare,
+    };
+    const next = await transitionState(conversation, "route_date", { ...conversation.data, booking });
+    await send(next, textMessage(t(next.language, "askTravelDate"))); return;
+  }
+
+  if (conversation.step === "route_date") {
+    const travelDate = parseFutureTravelDate(clean(message.text, 20));
+    if (!travelDate) { await send(conversation, textMessage(t(conversation.language, "invalidTravelDate"))); return; }
+    const booking = { ...conversation.data.booking, travelDate };
+    const next = await transitionState(conversation, "booking_passenger_for", { ...conversation.data, booking });
+    await send(next, passengerForMessage(next.language)); return;
   }
 
   if (conversation.step === "route_destination") {
@@ -275,15 +329,27 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     const fare = Number(booking.fare) || 0;
     const fee = await getBookingFeeAmount();
     const mwk = (n: number) => n.toLocaleString("en-MW");
-    const summary = t(next.language, "reviewSummary", {
-      name: booking.name ?? "", route: booking.routeLabel ?? "", date: booking.travelDate ?? "",
-      pickup: booking.pickup ?? "", fare: mwk(fare), fee: mwk(fee), total: mwk(fare + fee), balance: mwk(fare),
-    });
+    // No departureId => booking-before-trip: transport is assigned later, so the
+    // review must not present an allocated seat/vehicle/pickup.
+    const summary = booking.departureId
+      ? t(next.language, "reviewSummary", {
+          name: booking.name ?? "", route: booking.routeLabel ?? "", date: booking.travelDate ?? "",
+          pickup: booking.pickup ?? "", fare: mwk(fare), fee: mwk(fee), total: mwk(fare + fee), balance: mwk(fare),
+        })
+      : t(next.language, "reviewSummaryUnassigned", {
+          name: booking.name ?? "", route: booking.routeLabel ?? "", date: booking.travelDate ?? "",
+          fare: mwk(fare), fee: mwk(fee), total: mwk(fare + fee), balance: mwk(fare),
+          note: t(next.language, "unassignedNote"),
+        });
     await send(next, confirmPromptMessage(next.language, summary)); return;
   }
   if (conversation.step === "booking_review") {
     if (!isAffirmative(message)) { await goToMenu(conversation, t(conversation.language, "cancelled")); return; }
-    const result = await createWhatsAppBooking(conversation, conversation.data.booking || {}, `meta:${message.id}`);
+    const draft = conversation.data.booking || {};
+    const unassigned = !draft.departureId;
+    const result = unassigned
+      ? await createUnassignedWhatsAppBooking(conversation, draft, `meta:${message.id}`)
+      : await createWhatsAppBooking(conversation, draft, `meta:${message.id}`);
     if (result.outcome === "rejected") {
       await goToMenu(conversation, t(conversation.language, bookingRejectionKey(result.reason), { limit: UNPAID_RESERVATION_LIMIT }));
       return;
@@ -291,19 +357,18 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     const payment = await getOrCreateBookingFeeCheckout(result.bookingId, conversation.waId);
     const link = payment.outcome === "checkout" ? payment.url : "";
     const fee = result.bookingFee.toLocaleString("en-MW");
+    const date = draft.travelDate ?? "";
+    const deadline = result.expiresAt ? formatMalawiDateTime(Date.parse(result.expiresAt)) : "the stated deadline";
     let response: string;
     if (result.shortNotice) {
-      response = t(conversation.language, "bookingHeldShort", { bookingId: result.bookingId, fee, link });
+      response = t(conversation.language, unassigned ? "bookingHeldUnassignedShort" : "bookingHeldShort",
+        { bookingId: result.bookingId, fee, link, date });
     } else if (link) {
-      response = t(conversation.language, "bookingHeldStandard", {
-        bookingId: result.bookingId, fee,
-        deadline: result.expiresAt ? formatMalawiDateTime(Date.parse(result.expiresAt)) : "the stated deadline", link,
-      });
+      response = t(conversation.language, unassigned ? "bookingHeldUnassignedStandard" : "bookingHeldStandard",
+        { bookingId: result.bookingId, fee, deadline, link, date });
     } else {
-      response = t(conversation.language, "bookingHeldNoLink", {
-        bookingId: result.bookingId, fee,
-        deadline: result.expiresAt ? formatMalawiDateTime(Date.parse(result.expiresAt)) : "the stated deadline",
-      });
+      response = t(conversation.language, unassigned ? "bookingHeldUnassignedNoLink" : "bookingHeldNoLink",
+        { bookingId: result.bookingId, fee, deadline, date });
     }
     await goToMenu(conversation, response); return;
   }
