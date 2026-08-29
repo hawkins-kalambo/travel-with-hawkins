@@ -90,6 +90,8 @@ export const english = {
   bookingHeldUnassignedNoLink: "Place reserved — booking {bookingId}. Transport for {date} will be assigned later. Pay the MWK {fee} booking fee by {deadline}. Open My Bookings for the payment link.",
   routesButton: "Routes",
   farePending: "Fare confirmed by an agent",
+  showMore: "Show more",
+  editButton: "Edit",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -184,6 +186,8 @@ export const chichewa: Record<TranslationKey, string> = {
   bookingHeldUnassignedNoLink: "Malo asungidwa — booking {bookingId}. Transport ya {date} idzaperekedwa mtsogolo. Lipirani booking fee ya MWK {fee} pofika {deadline}. Tsegulani My Bookings kuti mupeze link ya kulipira.",
   routesButton: "Ma Route",
   farePending: "Mtengo utsimikizidwa ndi agent",
+  showMore: "Onetsani zambiri",
+  editButton: "Sinthani",
 };
 
 // Product/legal reviewers should review these mixed operational terms before

@@ -418,6 +418,24 @@ test("booking flow: the review shows fare, booking fee and total before confirmi
   assert.match(body, /Total: MWK 17,000/);
 });
 
+test("booking review: the confirm prompt offers Confirm, Edit and Cancel", async () => {
+  conversationRow = baseConversation({ step: "booking_student_id", data: { booking: draft } });
+  inbound("skip");
+  await processWhatsAppEvent("evt");
+  const last = state.delivered.at(-1);
+  assert.equal(last?.type, "buttons");
+  assert.deepEqual((last as unknown as { buttons: Array<{ id: string }> }).buttons.map((b) => b.id),
+    ["flow_confirm", "flow_back", "flow_cancel"]);
+});
+
+test("booking review: Edit steps back to the previous question, keeping the draft", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  inbound("Edit", { actionId: "flow_back" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_student_id"]);
+  assert.equal(state.bookingCalls, 0);
+});
+
 test("booking review + confirm: standard-deadline booking returns ID, deadline and pay link", async () => {
   conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
   createBookingImpl = async () => ({
@@ -618,6 +636,30 @@ test("My Bookings: lists bookings, then an explicit selection opens that booking
   assert.deepEqual(steps(), ["booking_action"]);
   assert.deepEqual(state.transitions[0].data, { selectedBookingId: "BK-1" });
   assert.match(texts().join("\n"), /BK-1/);
+});
+
+test("My Bookings: more than 10 bookings paginate with a 'Show more' row", async () => {
+  const many = Array.from({ length: 14 }, (_, i) => ({
+    bookingId: `BK-${i + 1}`, routeLabel: "Lilongwe - MZUNI", travelDate: "2026-09-01",
+    status: "Booked", bookingFeeStatus: "unpaid", fareStatus: "unpaid", expiresAt: null,
+  }));
+  listImpl = () => many;
+
+  conversationRow = baseConversation({ step: "menu" });
+  inbound("my bookings");
+  await processWhatsAppEvent("evt");
+  const first = state.delivered.at(-1) as unknown as { rows: Array<{ id: string }> };
+  assert.equal(first.rows.length, 10);
+  assert.equal(first.rows[9].id, "bk:more");
+  assert.deepEqual(state.transitions.at(-1)?.data, { myBookingsOffset: 0 });
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "my_bookings", data: { myBookingsOffset: 0 } });
+  inbound("more", { actionId: "bk:more" });
+  await processWhatsAppEvent("evt");
+  const second = state.delivered.at(-1) as unknown as { rows: Array<{ id: string }> };
+  assert.deepEqual(second.rows.map((r) => r.id), ["bk:BK-10", "bk:BK-11", "bk:BK-12", "bk:BK-13", "bk:BK-14"]);
+  assert.deepEqual(state.transitions.at(-1)?.data, { myBookingsOffset: 9 });
 });
 
 test("Booking actions: Pay fee uses the fee checkout for the selected booking", async () => {

@@ -58,6 +58,20 @@ export function discardConfirmMessage(language: WhatsAppLanguage): WhatsAppOutbo
   };
 }
 
+// Review screen: Confirm / Edit / Cancel. Edit maps to flow_back so the
+// customer steps back through the captured fields to change one.
+export function reviewConfirmMessage(language: WhatsAppLanguage, summary: string): WhatsAppOutboundMessage {
+  return {
+    type: "buttons", body: summary,
+    buttons: [
+      { id: "flow_confirm", title: t(language, "confirmed") },
+      { id: "flow_back", title: t(language, "editButton") },
+      { id: "flow_cancel", title: t(language, "cancel") },
+    ],
+    fallback: `${summary}\n1. ${t(language, "confirmed")}\n2. ${t(language, "editButton")}\n3. ${t(language, "cancel")}`,
+  };
+}
+
 export function passengerForMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
   return {
     type: "buttons", body: t(language, "askPassengerFor"),
@@ -71,12 +85,20 @@ export function passengerForMessage(language: WhatsAppLanguage): WhatsAppOutboun
 
 export type BookingListItem = { bookingId: string; routeLabel: string; travelDate: string; statusLabel: string };
 
-export function bookingsListMessage(language: WhatsAppLanguage, items: BookingListItem[]): WhatsAppOutboundMessage {
-  const rows = items.slice(0, 10).map((item) => ({
+// WhatsApp lists cap at 10 rows. When the customer owns more, show a page of 9
+// plus a "Show more" row that advances the offset.
+export function bookingsListMessage(
+  language: WhatsAppLanguage, items: BookingListItem[], offset = 0,
+): WhatsAppOutboundMessage {
+  const start = Math.max(0, offset);
+  const hasMore = items.length > start + 10;
+  const page = items.slice(start, start + (hasMore ? 9 : 10));
+  const rows = page.map((item) => ({
     id: `bk:${item.bookingId}`,
     title: item.routeLabel.slice(0, 24),
     description: `${item.travelDate} • ${item.statusLabel}`.slice(0, 72),
   }));
+  if (hasMore) rows.push({ id: "bk:more", title: t(language, "showMore"), description: `${items.length - (start + 9)} more` });
   const body = t(language, "myBookingsHeader");
   return {
     type: "list", body, button: t(language, "myBookingsButton"), rows,
