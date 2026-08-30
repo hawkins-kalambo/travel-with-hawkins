@@ -8,9 +8,13 @@ let toolResults: Record<string, unknown>;
 
 mock.module("@/lib/whatsapp/ai/tools", {
   exports: {
-    runTool: async (name: string) => {
-      if (name in toolResults) {
-        const v = toolResults[name];
+    runTool: async (name: string, _ctx: unknown, input: unknown) => {
+      // gatherAlternatives() calls searchActiveRoutes with no destination — let a
+      // test override just that call via "searchActiveRoutes:all".
+      const noDest = name === "searchActiveRoutes" && !String((input as { destination?: string } | null)?.destination ?? "");
+      const key = noDest && "searchActiveRoutes:all" in toolResults ? "searchActiveRoutes:all" : name;
+      if (key in toolResults) {
+        const v = toolResults[key];
         if (v && typeof v === "object" && "__error" in (v as object)) {
           return { ok: false, error: (v as { __error: string }).__error, message: "x" };
         }
@@ -107,4 +111,40 @@ test("an intent with no live handler returns null (no reply)", async () => {
   const r = await composeLiveAnswer(controller("luggage_question"), CTX, "en");
   assert.equal(r.text, null);
   assert.equal(r.toolOutcome, "none");
+});
+
+// --- routeAlternatives (Phase A3) -----------------------------------------
+
+const altEnv = { WHATSAPP_AI_ASSISTANT_ENABLED: "true", WHATSAPP_AI_ROUTE_ALTERNATIVES_ENABLED: "true" };
+const fromBlantyre = [
+  mzuni, // r1, 120,000 — the asked-for route
+  { routeId: "r2", label: "Blantyre - Lilongwe", origin: "Blantyre", destination: "Lilongwe", pickup: "Rank", fare: 25000, priced: true, universityShortCode: null },
+  { routeId: "r3", label: "Blantyre - Zomba", origin: "Blantyre", destination: "Zomba", pickup: "Rank", fare: 8000, priced: true, universityShortCode: null },
+  { routeId: "r4", label: "Blantyre - Mangochi", origin: "Blantyre", destination: "Mangochi", pickup: "Rank", fare: null, priced: false, universityShortCode: null },
+];
+
+test("with routeAlternatives on, a fare answer appends other verified routes cheapest-first", async () => {
+  toolResults["searchActiveRoutes:all"] = fromBlantyre;
+  const r = await composeLiveAnswer(controller("fare_question", { origin: "Blantyre", destination: "MZUNI" }), CTX, "en", { env: altEnv as unknown as NodeJS.ProcessEnv });
+  assert.match(r.text ?? "", /current fare for Blantyre - Mzuzu University is MWK 120,000/);
+  assert.match(r.text ?? "", /Other routes from Blantyre: Blantyre - Zomba \(MWK 8,000\); Blantyre - Lilongwe \(MWK 25,000\)\./);
+  // never the asked-for route, never an unpriced one
+  assert.doesNotMatch(r.text ?? "", /Other routes.*Mzuzu University/);
+  assert.doesNotMatch(r.text ?? "", /Mangochi/);
+});
+
+test("with routeAlternatives off, no 'Other routes' line is added", async () => {
+  toolResults["searchActiveRoutes:all"] = fromBlantyre;
+  const r = await composeLiveAnswer(controller("fare_question", { origin: "Blantyre", destination: "MZUNI" }), CTX, "en");
+  assert.match(r.text ?? "", /MWK 120,000/);
+  assert.doesNotMatch(r.text ?? "", /Other routes from/);
+});
+
+test("route not found still offers verified alternatives when the flag is on", async () => {
+  toolResults.searchActiveRoutes = []; // asked-for corridor missing
+  toolResults["searchActiveRoutes:all"] = fromBlantyre;
+  const r = await composeLiveAnswer(controller("route_search", { origin: "Blantyre", destination: "Karonga" }), CTX, "en", { env: altEnv as unknown as NodeJS.ProcessEnv });
+  assert.match(r.text ?? "", /couldn't find an active route from Blantyre to Karonga\./i);
+  assert.doesNotMatch(r.text ?? "", /Karonga[^.]*MWK/); // no invented fare for the missing route
+  assert.match(r.text ?? "", /Other routes from Blantyre: /);
 });
