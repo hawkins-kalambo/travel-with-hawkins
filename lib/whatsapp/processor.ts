@@ -14,12 +14,12 @@ import { isAiFeatureEnabled } from "@/lib/whatsapp/ai/flags";
 import { interpretTurn } from "@/lib/whatsapp/ai/controller";
 import { formatFromPack, gatherFacts } from "@/lib/whatsapp/ai/respond";
 import { synthesiseReply } from "@/lib/whatsapp/ai/synthesise";
-import { recordAiInteraction } from "@/lib/whatsapp/ai/audit";
+import { recordAiInteraction, setInteractionFeedback } from "@/lib/whatsapp/ai/audit";
 import { prepareBookingDraft } from "@/lib/whatsapp/ai/bookingBridge";
 import { classifyUrgency } from "@/lib/whatsapp/ai/urgency";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
-import { POPULAR_PAGE_SIZE, agentWaitingMessage, bookingActionMessage, bookingDoneMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, popularRoutesMessage, reviewActionsMessage, routeClarifyMessage, routeEntryMessage, routeRequestMessage, routeSelectedMessage, routesListMessage, studentDirectionMessage, universityListMessage } from "@/lib/whatsapp/messages";
+import { POPULAR_PAGE_SIZE, agentWaitingMessage, bookingActionMessage, bookingDoneMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, feedbackPromptMessage, languageMessage, mainMenuMessage, passengerForMessage, popularRoutesMessage, reviewActionsMessage, routeClarifyMessage, routeEntryMessage, routeRequestMessage, routeSelectedMessage, routesListMessage, studentDirectionMessage, universityListMessage } from "@/lib/whatsapp/messages";
 import { matchDistrict, parseTypedRoute } from "@/lib/routeParsing";
 import { cancelHumanRequest, claimWebhookEvent, deliverAndRecord, ensureConversation, failWebhookEvent, finishWebhookEvent, recordInbound, requestHuman, setLanguage, setOptOut, transitionState, updateDeliveryStatus } from "@/lib/whatsapp/repository";
 import { reduceGlobalCommand } from "@/lib/whatsapp/state-machine";
@@ -366,7 +366,7 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
       }
     }
 
-    void recordAiInteraction({
+    const interactionId = await recordAiInteraction({
       conversationId: conversation.conversationId, contactId: conversation.contactId,
       inboundMessageId: null, customerMessage: question,
       detectedLanguage: controller.language, detectedIntent: controller.intent,
@@ -379,15 +379,24 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
     });
 
     if (replied) {
-      // Keep a short rolling memory for follow-ups (only when we stayed on the
-      // question step — the agent / booking-draft paths have moved elsewhere).
       if (handledInPlace) {
+        // Ask for feedback only on the weaker answers (§24): a deterministic
+        // fallback, or a low-confidence read. Never after a clarification.
+        const offerFeedback = !clarification
+          && (!synthesised || controller.confidence < 0.7)
+          && conversation.data.lastAiInteractionId !== interactionId;
+        if (offerFeedback) await send(conversation, feedbackPromptMessage(conversation.language));
+        // Keep a short rolling memory for follow-ups (only when we stayed on
+        // the question step — agent / booking-draft paths moved elsewhere).
         const nextRecent = [
           ...recent,
           { role: "user" as const, text: question.slice(0, 160) },
           ...(previewText ? [{ role: "bot" as const, text: previewText.replace(/\n+/g, " ").slice(0, 160) }] : []),
         ].slice(-6);
-        await transitionState(conversation, "question", { ...conversation.data, aiRecent: nextRecent });
+        await transitionState(conversation, "question", {
+          ...conversation.data, aiRecent: nextRecent,
+          lastAiInteractionId: offerFeedback ? (interactionId ?? undefined) : conversation.data.lastAiInteractionId,
+        });
       }
       return;
     }
@@ -480,6 +489,21 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     conversation = await cancelHumanRequest(conversation);
     await send(conversation, textMessage(t(conversation.language, "agentRequestCancelled")));
     if (!hasDraftInProgress(conversation)) { await goToMenu(conversation); }
+    return;
+  }
+
+  // Helpful / Still-need-help on the last AI answer (§24).
+  if (message.actionId === "ai_helpful" || message.actionId === "ai_needs_help") {
+    const id = conversation.data.lastAiInteractionId;
+    await setInteractionFeedback(id, message.actionId === "ai_helpful" ? "helpful" : "needs_help");
+    conversation = await transitionState(conversation, conversation.step, { ...conversation.data, lastAiInteractionId: undefined });
+    if (message.actionId === "ai_helpful") {
+      await send(conversation, textMessage(t(conversation.language, "feedbackThanks")));
+    } else {
+      conversation = await requestHuman(conversation);
+      await send(conversation, textMessage(t(conversation.language, "agentWaiting")));
+      await send(conversation, agentWaitingMessage(conversation.language));
+    }
     return;
   }
 

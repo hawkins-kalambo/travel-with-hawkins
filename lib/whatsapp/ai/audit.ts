@@ -39,7 +39,7 @@ function trim(value: string | null | undefined, max: number): string | null {
   return cleaned ? cleaned.slice(0, max) : null;
 }
 
-export async function recordAiInteraction(record: AiInteractionRecord): Promise<void> {
+export async function recordAiInteraction(record: AiInteractionRecord): Promise<string | null> {
   try {
     const row = {
       conversation_id: record.conversationId ?? null,
@@ -63,13 +63,31 @@ export async function recordAiInteraction(record: AiInteractionRecord): Promise<
         ? Math.round(record.responseMs) : null,
       model: trim(record.model, 80),
     };
-    const result = await supabaseAdmin.from("whatsapp_ai_interactions").insert(row);
+    const result = await supabaseAdmin.from("whatsapp_ai_interactions").insert(row).select("id").maybeSingle();
     if (result.error) {
       logWarn("AI interaction audit insert failed", { code: result.error.code || "unknown" });
+      return null;
     }
+    return result.data ? String(result.data.id) : null;
   } catch (error) {
     logWarn("AI interaction audit threw", {
       reason: error instanceof Error ? error.message.slice(0, 120) : "unknown",
     });
+    return null;
+  }
+}
+
+// The customer's Helpful / Still-need-help signal, or an admin review verdict.
+export async function setInteractionFeedback(
+  id: string | null | undefined,
+  feedback: "helpful" | "needs_help",
+): Promise<void> {
+  if (!id) return;
+  try {
+    const result = await supabaseAdmin.from("whatsapp_ai_interactions")
+      .update({ feedback }).eq("id", id);
+    if (result.error) logWarn("AI feedback update failed", { code: result.error.code || "unknown" });
+  } catch {
+    /* swallow — a feedback tag is never worth breaking a reply */
   }
 }

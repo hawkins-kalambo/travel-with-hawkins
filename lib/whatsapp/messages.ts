@@ -102,6 +102,19 @@ export function reviewActionsMessage(language: WhatsAppLanguage, summary: string
   };
 }
 
+// Offered after a weaker AI answer — not after every reply (§24).
+export function feedbackPromptMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  const body = t(language, "feedbackPrompt");
+  return {
+    type: "buttons", body,
+    buttons: [
+      { id: "ai_helpful", title: t(language, "feedbackYes") },
+      { id: "ai_needs_help", title: t(language, "feedbackMore") },
+    ],
+    fallback: `${body}\n1. ${t(language, "feedbackYes")}\n2. ${t(language, "feedbackMore")}`,
+  };
+}
+
 // Raised a support request but the bot still serves the customer (§14).
 export function agentWaitingMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
   const rows = [

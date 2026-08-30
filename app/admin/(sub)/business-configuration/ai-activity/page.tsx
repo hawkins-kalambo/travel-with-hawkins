@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  loadAiSummary, loadAiInteractions, reviewAiInteraction,
+  loadAiSummary, loadAiInteractions, reviewAiInteraction, createAiKnowledge,
   type AiQualitySummary, type AiInteraction,
 } from "@/app/admin/(sub)/business-configuration/businessConfigClient";
 
@@ -40,6 +40,28 @@ export default function AiActivityPage() {
     try {
       const updated = await reviewAiInteraction(id, fb);
       setRows((cur) => cur.map((r) => (r.id === id ? updated : r)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const suggestKnowledge = async (r: AiInteraction) => {
+    const q = (r.customer_message ?? "").trim();
+    if (!q) return;
+    setBusy(r.id);
+    try {
+      await createAiKnowledge({
+        topic: q.slice(0, 140),
+        category: "faq",
+        exampleQuestions: q,
+        approvedAnswer: "(draft — write the approved answer, then activate)",
+        requiresReview: true,
+        isActive: false,
+      });
+      setError(null);
+      window.alert("Draft added to AI Knowledge — fill in the answer and activate it there.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -127,13 +149,17 @@ export default function AiActivityPage() {
                 <span>{new Date(r.created_at).toLocaleString()}</span>
               </p>
               {r.response_preview && <p className="mt-1 text-xs italic text-slate-500">reply: {r.response_preview}</p>}
-              <div className="mt-2 flex gap-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 {(["correct", "needs_improvement", "unsafe"] as const).map((fb) => (
                   <button key={fb} onClick={() => review(r.id, fb)} disabled={busy === r.id || r.feedback === fb}
                     className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40">
                     {fb === "needs_improvement" ? "Needs improvement" : fb[0].toUpperCase() + fb.slice(1)}
                   </button>
                 ))}
+                <button onClick={() => suggestKnowledge(r)} disabled={busy === r.id || !r.customer_message}
+                  className="rounded-full border border-[#0f3f78]/40 bg-[#0f3f78]/5 px-3 py-1 text-xs font-semibold text-[#0f3f78] disabled:opacity-40">
+                  Add suggested knowledge
+                </button>
               </div>
             </div>
           ))}
