@@ -9,6 +9,8 @@ const sections = [
   { slug: "payment-settings", title: "Payment Settings", description: "Manage currency, accepted payment methods and receipt generation." },
   { slug: "notifications", title: "Notifications", description: "Enable or disable email, SMS and ambassador notification workflows." },
   { slug: "system-preferences", title: "System Preferences", description: "Update company branding, support contacts and policies." },
+  { slug: "ai-knowledge", title: "AI Knowledge", description: "Approved answers the WhatsApp assistant may give — versioned, English and Chichewa, activated only after review." },
+  { slug: "ai-activity", title: "AI Activity", description: "Assistant performance — fallback rate, intents, handovers — and review of answers that need attention." },
 ];
 
 export default function BusinessConfigurationPage() {

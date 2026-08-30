@@ -27,6 +27,7 @@ const state = {
   aiCalls: 0,
   popularRoutesCalls: 0,
   routeRequestCalls: 0,
+  aiAuditRows: [] as unknown[],
 };
 
 // Per-test knobs
@@ -63,6 +64,24 @@ function baseConversation(overrides: Record<string, unknown> = {}) {
 mock.module("@/lib/logger", { exports: { logInfo() {}, logWarn() {}, logError() {} } });
 mock.module("@/lib/rateLimit", { exports: { isRateLimited: async () => false } });
 mock.module("@/lib/whatsapp/client", { exports: { markWhatsAppMessageRead: async () => {} } });
+let controllerImpl: (text: string, lang: string) => Promise<unknown>;
+let composeLiveImpl: () => Promise<unknown>;
+let bridgeImpl: () => Promise<unknown>;
+mock.module("@/lib/whatsapp/ai/controller", { exports: { interpretTurn: (t: string, l: string) => controllerImpl(t, l) } });
+mock.module("@/lib/whatsapp/ai/respond", { exports: { composeLiveAnswer: () => composeLiveImpl() } });
+mock.module("@/lib/whatsapp/ai/bookingBridge", { exports: { prepareBookingDraft: () => bridgeImpl() } });
+mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async (r: unknown) => { state.aiAuditRows.push(r); } } });
+mock.module("@/lib/whatsapp/ai/knowledgeStore", {
+  exports: {
+    searchKnowledge: async (question: string) => {
+      const q = String(question).toLowerCase();
+      if (/ignore (all|previous)|system prompt|reveal.*(prompt|secret)|api key/.test(q)) return { source: "none", outcome: "unsafe" };
+      if (/how.*book|make.*booking/.test(q)) return { source: "builtin", answer: "Choose Make a Booking, select a published departure, enter the passenger details, review the summary, and confirm.", requiresLiveData: false };
+      if (/travel with hawkins|booking|payment|pickup|bus|trip|fare|route|luggage|late/.test(q)) return { source: "none", outcome: "unknown" };
+      return { source: "none", outcome: "unrelated" };
+    },
+  },
+});
 mock.module("@/lib/whatsapp/ai-provider", {
   exports: {
     getWhatsAppAiProvider: () => aiInterpret
@@ -140,6 +159,10 @@ beforeEach(() => {
   state.unassignedCalls = 0; state.bookableRoutesCalls = 0;
   state.listCalls = 0; state.cancelCalls = 0; state.aiCalls = 0;
   state.popularRoutesCalls = 0; state.routeRequestCalls = 0;
+  state.aiAuditRows = [];
+  controllerImpl = async () => ({ intent: "unknown", language: "en", confidence: 0, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal", schemaVersion: 1 });
+  composeLiveImpl = async () => ({ text: null, allowedTool: null, toolOutcome: "none" });
+  bridgeImpl = async () => ({ outcome: "need_origin" });
   claimResult = null;
   conversationRow = baseConversation();
   departuresImpl = async () => [];
@@ -923,6 +946,107 @@ test("restarting from the question step does not create/cancel a booking or take
   assert.equal(state.bookingCalls, 0);
   assert.equal(state.paymentCalls, 0);
   assert.equal(state.cancelCalls, 0);
+});
+
+// --- Stage 3: live-data tools in the question step (behind the liveTools flag) ---
+function withLiveTools(fn: () => Promise<void>) {
+  return async () => {
+    const prev = { a: process.env.WHATSAPP_AI_ASSISTANT_ENABLED, l: process.env.WHATSAPP_AI_LIVE_TOOLS_ENABLED };
+    process.env.WHATSAPP_AI_ASSISTANT_ENABLED = "true";
+    process.env.WHATSAPP_AI_LIVE_TOOLS_ENABLED = "true";
+    try { await fn(); } finally {
+      process.env.WHATSAPP_AI_ASSISTANT_ENABLED = prev.a;
+      process.env.WHATSAPP_AI_LIVE_TOOLS_ENABLED = prev.l;
+    }
+  };
+}
+
+test("§3 with liveTools on, a verified answer from the composer is sent and audited", withLiveTools(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "fare_question", confidence: 0.9, entities: { origin: "Blantyre", destination: "MZUNI" }, missingFields: [], requestedTool: "getPublicFare", requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  composeLiveImpl = async () => ({ text: "The current fare for Blantyre - Mzuzu University is MWK 120,000.", allowedTool: "getPublicFare", toolOutcome: "ok" });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("how much from Blantyre to MZUNI");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /MWK 120,000/);
+  assert.equal(state.aiCalls, 0, "the legacy provider path is not used when the composer answers");
+  assert.equal(state.aiAuditRows.length, 1);
+  assert.equal((state.aiAuditRows[0] as { detectedIntent: string }).detectedIntent, "fare_question");
+}));
+
+test("§3 urgent turn raises an agent request and keeps serving, still audited", withLiveTools(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "urgent_support", confidence: 0.95, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: true, urgency: "urgent" });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("the bus left without me and I am stranded");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /sent to our support team/i);
+  assert.equal((state.aiAuditRows.at(-1) as { humanRequested: boolean }).humanRequested, true);
+}));
+
+test("§3 when the composer can't answer, it falls through to the legacy hint path", withLiveTools(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "route_search", confidence: 0.7, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  composeLiveImpl = async () => ({ text: null, allowedTool: null, toolOutcome: "none" });
+  aiInterpret = async () => ({ intent: "routes", origin: "Lilongwe", clarify: false });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("do you have buses");
+  await processWhatsAppEvent("evt");
+  assert.equal(state.aiCalls, 1, "legacy provider consulted after the composer returns nothing");
+  assert.match(texts().join("\n"), /Find a Route/);
+}));
+
+function withBookingDrafts(fn: () => Promise<void>) {
+  return withLiveTools(async () => {
+    const prev = process.env.WHATSAPP_AI_BOOKING_DRAFTS_ENABLED;
+    process.env.WHATSAPP_AI_BOOKING_DRAFTS_ENABLED = "true";
+    try { await fn(); } finally { process.env.WHATSAPP_AI_BOOKING_DRAFTS_ENABLED = prev; }
+  });
+}
+
+test("§4 'book me from Blantyre to MZUNI tomorrow' seeds a draft and hands to the deterministic flow", withBookingDrafts(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "start_booking", confidence: 0.95, entities: { origin: "Blantyre", destination: "MZUNI", travelDate: "2026-09-01" }, missingFields: [], requestedTool: "createBookingDraft", requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  bridgeImpl = async () => ({
+    outcome: "ready",
+    draft: { routeId: "sr-1", routeLabel: "Blantyre - Mzuzu University", origin: "Blantyre", destination: "Mzuzu University", pickup: "Depot", fare: 120000, travellerType: "student", universityShortCode: "MZUNI", travelDate: "2026-09-01" },
+    dateLabel: "Tuesday, 1 September 2026",
+  });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("book me from Blantyre to MZUNI tomorrow");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_selected"]);
+  const body = texts().join("\n");
+  assert.match(body, /Blantyre - Mzuzu University/);
+  assert.match(body, /MWK 120,000/);
+  assert.match(body, /1 September 2026/);
+  assert.equal(state.bookingCalls, 0, "the AI never creates the booking");
+  assert.equal((state.aiAuditRows.at(-1) as { detectedIntent: string }).detectedIntent, "start_booking");
+}));
+
+test("§4 route_selected Continue with a pre-filled date skips straight to passenger details", async () => {
+  conversationRow = baseConversation({ step: "route_selected", data: { booking: { routeId: "sr-1", routeLabel: "Blantyre - MZUNI", pickup: "Depot", fare: 120000, travelDate: "2026-09-01" } } });
+  departureForRouteDateImpl = () => null;
+  inbound("continue", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"]);
+  assert.match(texts().join("\n"), /hasn't been assigned for this date yet/i);
+});
+
+test("§4 an unresolvable natural-language route offers to request it, creates nothing", withBookingDrafts(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "start_booking", confidence: 0.9, entities: { origin: "Karonga", destination: "Ntcheu" }, missingFields: [], requestedTool: "createBookingDraft", requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  bridgeImpl = async () => ({ outcome: "no_route", origin: "Karonga", destination: "Ntcheu" });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("book Karonga to Ntcheu");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /could not find Karonga to Ntcheu/i);
+  assert.equal(state.bookingCalls, 0);
+}));
+
+test("§19 an urgent message at the question step goes straight to a person, even with AI off", async () => {
+  conversationRow = baseConversation({ step: "question" });
+  inbound("the bus left without me and I am stranded at the station");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /sent to our support team/i);
+  assert.equal(state.aiCalls, 0, "no AI advice on an emergency");
+  assert.equal((state.aiAuditRows.at(-1) as { urgency: string; humanRequested: boolean }).urgency, "urgent");
+  assert.equal((state.aiAuditRows.at(-1) as { humanRequested: boolean }).humanRequested, true);
 });
 
 // ===========================================================================

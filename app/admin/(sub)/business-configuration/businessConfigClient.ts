@@ -212,3 +212,111 @@ export async function updateRouteRequest(payload: { id: string; status: RouteReq
   }
   return data.request;
 }
+
+export type AiKnowledgeCategory =
+  | "general" | "faq" | "booking" | "booking_fee" | "payment" | "cancellation" | "luggage"
+  | "pickup" | "business_info" | "contact" | "student_travel" | "university_travel" | "support";
+
+export type AiKnowledgeEntry = {
+  id: string;
+  topic: string;
+  category: AiKnowledgeCategory;
+  example_questions: string;
+  approved_answer: string;
+  language: "en" | "ny";
+  keywords: string;
+  is_active: boolean;
+  priority: number;
+  requires_live_data: boolean;
+  requires_review: boolean;
+  version: number;
+  last_reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function loadAiKnowledge(status?: "active" | "inactive" | "review"): Promise<AiKnowledgeEntry[]> {
+  const res = await authFetch(`/api/admin/ai-knowledge${status ? `?status=${status}` : ""}`);
+  const data = (await res.json()) as { success?: boolean; entries?: AiKnowledgeEntry[]; error?: string };
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to load AI knowledge (${res.status})`);
+  return data.entries || [];
+}
+
+export async function createAiKnowledge(payload: Record<string, unknown>): Promise<AiKnowledgeEntry> {
+  const res = await authFetch("/api/admin/ai-knowledge", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { success?: boolean; entry?: AiKnowledgeEntry; error?: string };
+  if (!res.ok || data.success !== true || !data.entry) throw new Error(data.error || `Unable to create AI knowledge (${res.status})`);
+  return data.entry;
+}
+
+export async function updateAiKnowledge(payload: Record<string, unknown> & { id: string }): Promise<AiKnowledgeEntry> {
+  const res = await authFetch("/api/admin/ai-knowledge", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { success?: boolean; entry?: AiKnowledgeEntry; error?: string };
+  if (!res.ok || data.success !== true || !data.entry) throw new Error(data.error || `Unable to update AI knowledge (${res.status})`);
+  return data.entry;
+}
+
+export async function deleteAiKnowledge(id: string): Promise<void> {
+  const res = await authFetch("/api/admin/ai-knowledge", {
+    method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+  });
+  const data = (await res.json()) as { success?: boolean; error?: string };
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to delete AI knowledge (${res.status})`);
+}
+
+export type AiInteraction = {
+  id: string;
+  customer_message: string | null;
+  detected_language: string | null;
+  detected_intent: string | null;
+  confidence: number | null;
+  requested_tool: string | null;
+  allowed_tool: string | null;
+  tool_outcome: string;
+  fallback_used: boolean;
+  clarification_requested: boolean;
+  human_requested: boolean;
+  urgency: string;
+  response_preview: string | null;
+  response_ms: number | null;
+  feedback: string | null;
+  created_at: string;
+};
+
+export type AiQualitySummary = {
+  windowDays: number; turns: number; fallbackRate: number; unknownIntentRate: number;
+  clarificationRate: number; humanHandoverRate: number; toolDenied: number; urgent: number;
+  byLanguage: Record<string, number>; topIntents: { intent: string; count: number }[];
+  avgResponseMs: number | null; feedbackHelpful: number; feedbackNeedsHelp: number;
+};
+
+export async function loadAiSummary(days = 30): Promise<{ summary: AiQualitySummary; features: Record<string, boolean> }> {
+  const res = await authFetch(`/api/admin/ai-interactions?summary=1&days=${days}`);
+  const data = (await res.json()) as { success?: boolean; summary?: AiQualitySummary; features?: Record<string, boolean>; error?: string };
+  if (!res.ok || data.success !== true || !data.summary) throw new Error(data.error || `Unable to load AI summary (${res.status})`);
+  return { summary: data.summary, features: data.features ?? {} };
+}
+
+export async function loadAiInteractions(params: { fallback?: boolean; unreviewed?: boolean; intent?: string } = {}): Promise<AiInteraction[]> {
+  const qs = new URLSearchParams();
+  if (params.fallback) qs.set("fallback", "1");
+  if (params.unreviewed) qs.set("unreviewed", "1");
+  if (params.intent) qs.set("intent", params.intent);
+  const res = await authFetch(`/api/admin/ai-interactions${qs.toString() ? `?${qs}` : ""}`);
+  const data = (await res.json()) as { success?: boolean; interactions?: AiInteraction[]; error?: string };
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to load AI interactions (${res.status})`);
+  return data.interactions || [];
+}
+
+export async function reviewAiInteraction(id: string, feedback: "correct" | "needs_improvement" | "unsafe"): Promise<AiInteraction> {
+  const res = await authFetch("/api/admin/ai-interactions", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, feedback }),
+  });
+  const data = (await res.json()) as { success?: boolean; interaction?: AiInteraction; error?: string };
+  if (!res.ok || data.success !== true || !data.interaction) throw new Error(data.error || `Unable to review (${res.status})`);
+  return data.interaction;
+}
