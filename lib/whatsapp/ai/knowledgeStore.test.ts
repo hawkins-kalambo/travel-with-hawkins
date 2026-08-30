@@ -3,6 +3,8 @@ import test, { beforeEach, mock } from "node:test";
 
 let rows: unknown[];
 let queryError: { code: string } | null;
+let rpcRows: unknown[] | null;
+let rpcError: { code: string } | null;
 
 function builder() {
   const chain: Record<string, unknown> = {
@@ -16,7 +18,12 @@ function builder() {
 }
 
 mock.module("@/lib/supabaseAdmin", {
-  exports: { supabaseAdmin: { from: () => builder() } },
+  exports: {
+    supabaseAdmin: {
+      from: () => builder(),
+      rpc: async () => (rpcError ? { data: null, error: rpcError } : { data: rpcRows, error: null }),
+    },
+  },
 });
 mock.module("@/lib/logger", { exports: { logWarn() {}, logError() {}, logInfo() {} } });
 // The real built-in matcher is fine to use — it's pure.
@@ -29,9 +36,17 @@ const feeRow = {
   priority: 10, requires_live_data: false,
 };
 
+const changeRow = {
+  id: "k-chg", topic: "Changing a booking", approved_answer: "Contact our team to change a booking.",
+  language: "en", keywords: "change reschedule date route passenger amend booking",
+  example_questions: "can I change my travel date", priority: 30, requires_live_data: false,
+};
+
 beforeEach(() => {
   rows = [feeRow];
   queryError = null;
+  rpcRows = null;
+  rpcError = { code: "42883" }; // function match_ai_knowledge() not present (pre-migration)
 });
 
 test("returns an admin-managed row when the keywords overlap", async () => {
@@ -71,4 +86,32 @@ test("a Chichewa query can match an English row but prefers a Chichewa one", asy
   ];
   const hit = await searchKnowledge("kodi booking fee ndi separate ndi fare", "ny");
   assert.equal(hit.source === "table" && hit.id, "k-ny");
+});
+
+test("tolerates typos via the in-process trigram matcher", async () => {
+  rows = [feeRow, changeRow];
+  const hit = await searchKnowledge("how do i chnage my bookin", "en");
+  assert.equal(hit.source === "table" && hit.id, "k-chg");
+});
+
+test("uses the Postgres ranked match when the function is available", async () => {
+  rpcError = null;
+  rpcRows = [{ ...feeRow, id: "k-rpc", score: 0.71 }];
+  const hit = await searchKnowledge("totally different words here", "en");
+  assert.equal(hit.source === "table" && hit.id, "k-rpc");
+});
+
+test("ignores a weak Postgres match rather than serving a bad answer", async () => {
+  rpcError = null;
+  rpcRows = [{ ...feeRow, id: "k-weak", score: 0.11 }];
+  const hit = await searchKnowledge("xyzzy plugh", "en");
+  assert.notEqual(hit.source, "table");
+});
+
+test("falls through to the in-process matcher when the Postgres function returns nothing", async () => {
+  rpcError = null;
+  rpcRows = [];
+  rows = [feeRow, changeRow];
+  const hit = await searchKnowledge("how do i chnage my bookin", "en");
+  assert.equal(hit.source === "table" && hit.id, "k-chg");
 });

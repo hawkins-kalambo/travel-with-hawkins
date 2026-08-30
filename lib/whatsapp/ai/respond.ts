@@ -1,6 +1,7 @@
 import "server-only";
 
 import { runTool, type ToolContext, type ToolResult } from "@/lib/whatsapp/ai/tools";
+import { isAiFeatureEnabled } from "@/lib/whatsapp/ai/flags";
 import type { ControllerOutput } from "@/lib/whatsapp/ai/schema";
 import type { WhatsAppLanguage } from "@/lib/whatsapp/types";
 
@@ -22,6 +23,8 @@ export type FactPack = {
   needsClarification?: string;
   // Structured bits the deterministic formatter reads.
   route: RouteView | null;
+  // Other verified active routes from the same origin (routeAlternatives flag).
+  alternatives: RouteView[];
   trip: { departureTime: string | null; pickup: string } | null;
   popular: RouteView[];
   universities: { name: string; shortCode: string | null }[];
@@ -56,7 +59,7 @@ function outcomeOf(r: ToolResult): "ok" | "denied" | "error" {
 function emptyPack(intent: string): FactPack {
   return {
     intent, facts: [], allowedTool: null, toolOutcome: "none",
-    route: null, trip: null, popular: [], universities: [], bookings: [], booking: null,
+    route: null, alternatives: [], trip: null, popular: [], universities: [], bookings: [], booking: null,
     payment: null, deadline: null,
   };
 }
@@ -90,6 +93,21 @@ export async function gatherFacts(
     }
   };
 
+  // Other verified routes from the same origin, cheapest first — only when the
+  // routeAlternatives feature is on. Never invents a corridor: every row comes
+  // straight from searchActiveRoutes.
+  const gatherAlternatives = async () => {
+    if (!e.origin || !isAiFeatureEnabled("routeAlternatives", env)) return;
+    const r = await call("searchActiveRoutes", { origin: e.origin, destination: "" });
+    if (!r.ok) return;
+    const rows = ((r.data as RouteView[]) ?? [])
+      .filter((x) => x.priced && x.fare != null && x.routeId !== pack.route?.routeId)
+      .sort((a, b) => (a.fare ?? 0) - (b.fare ?? 0))
+      .slice(0, 3);
+    pack.alternatives = rows;
+    for (const x of rows) add("alternative route", `${x.label} (${mwk(x.fare as number)})`);
+  };
+
   switch (controller.intent) {
     case "fare_question":
     case "route_search":
@@ -98,6 +116,7 @@ export async function gatherFacts(
       if (!e.origin) { pack.needsClarification = "Which town or city are you travelling from?"; pack.allowedTool = "searchActiveRoutes"; return pack; }
       if (!e.destination && !e.university) { pack.needsClarification = `Where would you like to travel to from ${e.origin}? A district, or a university such as MZUNI.`; pack.allowedTool = "searchActiveRoutes"; return pack; }
       await resolveRoute();
+      if (controller.intent === "fare_question" || controller.intent === "route_search") await gatherAlternatives();
       if (pack.route && (controller.intent === "schedule_question" || controller.intent === "route_search") && e.travelDate) {
         const trips = await call("findScheduledTrips", { routeId: pack.route.routeId, travelDate: e.travelDate });
         if (trips.ok) {
@@ -186,6 +205,12 @@ export async function gatherFacts(
   }
 }
 
+function altLine(pack: FactPack): string {
+  if (!pack.alternatives.length) return "";
+  const list = pack.alternatives.map((x) => `${x.label} (${mwk(x.fare as number)})`).join("; ");
+  return ` Other routes from ${pack.alternatives[0].origin}: ${list}.`;
+}
+
 // --------------------------------------------------------------------------
 // Deterministic reply from the pack — the fallback, and the guard baseline.
 export function formatFromPack(controller: ControllerOutput, pack: FactPack): LiveAnswer {
@@ -194,11 +219,11 @@ export function formatFromPack(controller: ControllerOutput, pack: FactPack): Li
 
   switch (controller.intent) {
     case "fare_question": {
-      if (!pack.route) return { text: `I couldn't find an active route from ${controller.entities.origin} to ${controller.entities.destination ?? controller.entities.university}. You can view popular routes, request that route, or ask our team.`, ...base };
+      if (!pack.route) return { text: `I couldn't find an active route from ${controller.entities.origin} to ${controller.entities.destination ?? controller.entities.university}.${altLine(pack) || " You can view popular routes, request that route, or ask our team."}`, ...base };
       return {
-        text: pack.route.priced && pack.route.fare != null
+        text: (pack.route.priced && pack.route.fare != null
           ? `The current fare for ${pack.route.label} is ${mwk(pack.route.fare)}. Choose Make a Booking to reserve a seat.`
-          : `${pack.route.label} is an active route, but its fare hasn't been published yet. Our team can confirm it for you.`,
+          : `${pack.route.label} is an active route, but its fare hasn't been published yet. Our team can confirm it for you.`) + altLine(pack),
         ...base,
       };
     }
@@ -213,8 +238,8 @@ export function formatFromPack(controller: ControllerOutput, pack: FactPack): Li
       };
     }
     case "route_search": {
-      if (!pack.route) return { text: `I couldn't find an active route from ${controller.entities.origin} to ${controller.entities.destination ?? controller.entities.university}. You can view popular routes or request it.`, ...base };
-      return { text: `Yes, ${pack.route.label} is an active route${pack.route.priced && pack.route.fare != null ? ` — fare ${mwk(pack.route.fare)}` : ""}. Choose Make a Booking to reserve a seat.`, ...base };
+      if (!pack.route) return { text: `I couldn't find an active route from ${controller.entities.origin} to ${controller.entities.destination ?? controller.entities.university}.${altLine(pack) || " You can view popular routes or request it."}`, ...base };
+      return { text: `Yes, ${pack.route.label} is an active route${pack.route.priced && pack.route.fare != null ? ` — fare ${mwk(pack.route.fare)}` : ""}. Choose Make a Booking to reserve a seat.${altLine(pack)}`, ...base };
     }
     case "pickup_question": {
       if (!pack.route) return { text: `Tell me the route and I'll give you the pickup point.`, ...base };
