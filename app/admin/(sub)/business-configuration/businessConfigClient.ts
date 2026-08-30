@@ -212,3 +212,58 @@ export async function updateRouteRequest(payload: { id: string; status: RouteReq
   }
   return data.request;
 }
+
+export type AiKnowledgeCategory =
+  | "general" | "faq" | "booking" | "booking_fee" | "payment" | "cancellation" | "luggage"
+  | "pickup" | "business_info" | "contact" | "student_travel" | "university_travel" | "support";
+
+export type AiKnowledgeEntry = {
+  id: string;
+  topic: string;
+  category: AiKnowledgeCategory;
+  example_questions: string;
+  approved_answer: string;
+  language: "en" | "ny";
+  keywords: string;
+  is_active: boolean;
+  priority: number;
+  requires_live_data: boolean;
+  requires_review: boolean;
+  version: number;
+  last_reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function loadAiKnowledge(status?: "active" | "inactive" | "review"): Promise<AiKnowledgeEntry[]> {
+  const res = await authFetch(`/api/admin/ai-knowledge${status ? `?status=${status}` : ""}`);
+  const data = (await res.json()) as { success?: boolean; entries?: AiKnowledgeEntry[]; error?: string };
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to load AI knowledge (${res.status})`);
+  return data.entries || [];
+}
+
+export async function createAiKnowledge(payload: Record<string, unknown>): Promise<AiKnowledgeEntry> {
+  const res = await authFetch("/api/admin/ai-knowledge", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { success?: boolean; entry?: AiKnowledgeEntry; error?: string };
+  if (!res.ok || data.success !== true || !data.entry) throw new Error(data.error || `Unable to create AI knowledge (${res.status})`);
+  return data.entry;
+}
+
+export async function updateAiKnowledge(payload: Record<string, unknown> & { id: string }): Promise<AiKnowledgeEntry> {
+  const res = await authFetch("/api/admin/ai-knowledge", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { success?: boolean; entry?: AiKnowledgeEntry; error?: string };
+  if (!res.ok || data.success !== true || !data.entry) throw new Error(data.error || `Unable to update AI knowledge (${res.status})`);
+  return data.entry;
+}
+
+export async function deleteAiKnowledge(id: string): Promise<void> {
+  const res = await authFetch("/api/admin/ai-knowledge", {
+    method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+  });
+  const data = (await res.json()) as { success?: boolean; error?: string };
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to delete AI knowledge (${res.status})`);
+}

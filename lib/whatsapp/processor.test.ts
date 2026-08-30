@@ -33,6 +33,17 @@ function baseConversation() {
 mock.module("@/lib/logger", { exports: { logInfo: record("logInfo"), logWarn: record("logWarn"), logError: record("logError") } });
 mock.module("@/lib/rateLimit", { exports: { isRateLimited: async () => rateLimited } });
 mock.module("@/lib/whatsapp/client", { exports: { markWhatsAppMessageRead: async () => {} } });
+mock.module("@/lib/whatsapp/ai/knowledgeStore", {
+  exports: {
+    searchKnowledge: async (question: string) => {
+      const q = String(question).toLowerCase();
+      if (/ignore (all|previous)|system prompt|reveal.*(prompt|secret)|api key/.test(q)) return { source: "none", outcome: "unsafe" };
+      if (/how.*book|make.*booking/.test(q)) return { source: "builtin", answer: "Choose Make a Booking, select a published departure, enter the passenger details, review the summary, and confirm.", requiresLiveData: false };
+      if (/travel with hawkins|booking|payment|pickup|bus|trip|fare|route|luggage/.test(q)) return { source: "none", outcome: "unknown" };
+      return { source: "none", outcome: "unrelated" };
+    },
+  },
+});
 mock.module("@/lib/whatsapp/domain", {
   exports: {
     createWhatsAppBooking: async () => ({ outcome: "rejected", reason: "test" }),

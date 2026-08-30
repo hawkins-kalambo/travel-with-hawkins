@@ -9,7 +9,7 @@ import { getWhatsAppAiProvider } from "@/lib/whatsapp/ai-provider";
 import { cancelWhatsAppBooking, createRouteRequest, createUnassignedWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, findDepartureForRouteDate, findGeneralRoute, findStudentRoute, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listActiveUniversities, listBookableRoutes, listPopularRoutes, listWhatsAppBookings, loadBookableRoute, loadDeparture, loadWhatsAppBooking, matchActiveUniversity, trackBookingForWhatsApp, type AvailableDeparture, type BookableRoute } from "@/lib/whatsapp/domain";
 import { UNPAID_RESERVATION_LIMIT, formatMalawiDateTime } from "@/lib/whatsapp/booking-rules";
 import { resolveTravelDate } from "@/lib/whatsapp/travelDate";
-import { answerFromApprovedKnowledge } from "@/lib/whatsapp/knowledge";
+import { searchKnowledge } from "@/lib/whatsapp/ai/knowledgeStore";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
 import { POPULAR_PAGE_SIZE, agentWaitingMessage, bookingActionMessage, bookingDoneMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, popularRoutesMessage, reviewActionsMessage, routeClarifyMessage, routeEntryMessage, routeRequestMessage, routeSelectedMessage, routesListMessage, studentDirectionMessage, universityListMessage } from "@/lib/whatsapp/messages";
@@ -253,18 +253,26 @@ async function resolveCorridor(
 // AI output only picks which existing prompt to show; it never books, pays,
 // or changes state. Any failure falls back to a prompt, never silence.
 async function answerQuestion(conversation: WhatsAppConversationState, question: string): Promise<void> {
-  const known = answerFromApprovedKnowledge(question);
-  if (known.outcome === "answered") { await send(conversation, textMessage(known.text)); return; }
-  // "unsafe" (prompt injection) is a hard stop — never forwarded to the model.
-  if (known.outcome === "unsafe") {
+  // Stage 2: search the admin-managed approved knowledge first (falls back to
+  // the built-in matcher when the table is empty / unavailable, so this is a
+  // strict superset of the previous behaviour). An entry flagged
+  // requires_live_data is NOT answered from static text — it drops through to
+  // the model-assisted routing below.
+  const hit = await searchKnowledge(question, conversation.language);
+  if ((hit.source === "table" && !hit.requiresLiveData) || hit.source === "builtin") {
+    await send(conversation, textMessage(hit.answer)); return;
+  }
+  // Prompt injection is a hard stop — never forwarded to the model.
+  if (hit.source === "none" && hit.outcome === "unsafe") {
     await send(conversation, textMessage(t(conversation.language, "unrelatedQuestion"))); return;
   }
+  const unrelated = hit.source === "none" && hit.outcome === "unrelated";
 
-  // "unknown" or "unrelated": the keyword matcher couldn't place it — ask the
-  // model to interpret. With AI off, fall back to the blunt safe response.
+  // The matcher couldn't place it — ask the model to interpret. With AI off,
+  // fall back to the blunt safe response.
   const provider = getWhatsAppAiProvider();
   if (!provider) {
-    await send(conversation, textMessage(t(conversation.language, known.outcome === "unrelated" ? "unrelatedQuestion" : "aiUnavailable"))); return;
+    await send(conversation, textMessage(t(conversation.language, unrelated ? "unrelatedQuestion" : "aiUnavailable"))); return;
   }
 
   const ai = await provider.interpret(question, conversation.language);
