@@ -84,6 +84,7 @@ export type WhatsAppConversationStep =
   | "route_student_university"
   | "route_student_home"
   | "route_request_confirm"
+  | "route_selected"
   | "route_origin"
   | "route_destination"
   | "route_pick"
@@ -94,6 +95,7 @@ export type WhatsAppConversationStep =
   | "booking_email"
   | "booking_student_id"
   | "booking_review"
+  | "booking_done"
   | "discard_confirm"
   | "payment_booking_id"
   | "tracking_booking_id"
@@ -107,6 +109,15 @@ export type BookingDraft = {
   departureId?: string;
   routeId?: string;
   routeLabel?: string;
+  // Origin / destination for the review summary; travellerType and the
+  // university fields distinguish a student trip from general travel (§6/§9).
+  origin?: string;
+  destination?: string;
+  travellerType?: "student" | "general";
+  universityId?: string;
+  universityName?: string;
+  universityShortCode?: string;
+  journeyDirection?: "to_university" | "from_university";
   travelDate?: string;
   departureTime?: string;
   pickup?: string;
@@ -140,6 +151,8 @@ export type WhatsAppStateData = {
   studentDirection?: "to_university" | "from_university";
   studentUniversityId?: string;
   studentUniversityName?: string;
+  // Popular Routes paging offset.
+  popularOffset?: number;
 };
 
 export type WhatsAppConversationState = {

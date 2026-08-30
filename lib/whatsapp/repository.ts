@@ -216,19 +216,36 @@ export async function setOptOut(conversation: WhatsAppConversationState, optedOu
   if (result.error) throw result.error;
 }
 
+// Raise a support request. The conversation goes to "waiting" and the on-call
+// admin is alerted, but the bot KEEPS control (mode stays "bot") and the
+// customer's step + draft are untouched — self-service stays available while
+// they wait (§14). Only an explicit admin "Take Over" sets mode = "human".
 export async function requestHuman(conversation: WhatsAppConversationState): Promise<WhatsAppConversationState> {
   // Alert the on-call admin only on a genuine new request for a human — not
   // when the conversation is already waiting, or an agent already holds it.
   const isNewRequest = conversation.status === "bot_controlled" || conversation.status === "resolved";
-  const result = await supabaseAdmin.from("whatsapp_conversations").update({
-    mode: "human", status: "waiting", assigned_to: null, updated_at: new Date().toISOString(),
-  }).eq("conversation_id", conversation.conversationId);
-  if (result.error) throw result.error;
   if (isNewRequest) {
+    const result = await supabaseAdmin.from("whatsapp_conversations").update({
+      status: "waiting", updated_at: new Date().toISOString(),
+    }).eq("conversation_id", conversation.conversationId);
+    if (result.error) throw result.error;
     // Fail-soft: an SMS/email problem must never break the handoff itself.
     try { await notifyAdminOfWhatsAppHandoff(conversation); } catch { /* logged inside */ }
   }
-  return { ...conversation, mode: "human", status: "waiting", step: "agent_waiting" };
+  return { ...conversation, status: "waiting" };
+}
+
+// Undo a not-yet-picked-up support request (Cancel Agent Request). No-op once
+// an agent has actually taken over (mode === "human").
+export async function cancelHumanRequest(conversation: WhatsAppConversationState): Promise<WhatsAppConversationState> {
+  if (conversation.mode === "human") return conversation;
+  if (conversation.status === "waiting") {
+    const result = await supabaseAdmin.from("whatsapp_conversations").update({
+      status: "bot_controlled", updated_at: new Date().toISOString(),
+    }).eq("conversation_id", conversation.conversationId);
+    if (result.error) throw result.error;
+  }
+  return { ...conversation, status: "bot_controlled" };
 }
 
 export async function updateDeliveryStatus(event: Extract<WhatsAppParsedEvent, { kind: "status" }>): Promise<void> {

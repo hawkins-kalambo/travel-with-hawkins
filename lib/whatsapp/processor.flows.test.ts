@@ -33,6 +33,7 @@ const state = {
 let claimResult: unknown;
 let conversationRow: Record<string, unknown>;
 let departuresImpl: (origin?: string) => Promise<unknown[]>;
+let departureForRouteDateImpl: (routeId: string, date: string) => unknown;
 let loadDepartureImpl: (id: string) => Promise<unknown>;
 let createBookingImpl: (...a: unknown[]) => Promise<unknown>;
 let bookableRoutesImpl: (origin?: string) => unknown[];
@@ -72,6 +73,7 @@ mock.module("@/lib/whatsapp/ai-provider", {
 mock.module("@/lib/whatsapp/domain", {
   exports: {
     findAvailableDepartures: async (origin?: string) => { state.departuresCalls += 1; return departuresImpl(origin); },
+    findDepartureForRouteDate: async (routeId: string, date: string) => departureForRouteDateImpl(routeId, date),
     loadDeparture: async (id: string) => { state.loadDepartureCalls += 1; return loadDepartureImpl(id); },
     createWhatsAppBooking: async (...a: unknown[]) => { state.bookingCalls += 1; return createBookingImpl(...a); },
     createUnassignedWhatsAppBooking: async (...a: unknown[]) => { state.unassignedCalls += 1; return createUnassignedImpl(...a); },
@@ -81,6 +83,16 @@ mock.module("@/lib/whatsapp/domain", {
     findGeneralRoute: async (origin: string, destination: string) => generalRouteImpl(origin, destination),
     findStudentRoute: async (home: string, universityId: string, direction: string) => studentRouteImpl(home, universityId, direction),
     listActiveUniversities: async () => activeUniversitiesImpl(),
+    matchActiveUniversity: (value: string, unis: Array<{ id: string; name: string; shortCode: string | null }>) => {
+      const v = String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!v) return null;
+      return unis.find((u) => u.shortCode && u.shortCode.toLowerCase() === v)
+        ?? unis.find((u) => u.name.toLowerCase() === v)
+        ?? unis.find((u) => {
+          const name = u.name.toLowerCase();
+          return name.includes(v) || v.includes(name) || (u.shortCode ? v.includes(u.shortCode.toLowerCase()) : false);
+        }) ?? null;
+    },
     createRouteRequest: async (...a: unknown[]) => { state.routeRequestCalls += 1; return routeRequestImpl(...a); },
     getBookingFeeAmount: async () => 5000,
     getOrCreateBookingFeeCheckout: async () => { state.paymentCalls += 1; return paymentImpl(); },
@@ -106,7 +118,8 @@ mock.module("@/lib/whatsapp/repository", {
     },
     setLanguage: async (conversation: Record<string, unknown>, language: string) => ({ ...conversation, language }),
     setOptOut: async () => {},
-    requestHuman: async (conversation: Record<string, unknown>) => ({ ...conversation, mode: "human", status: "waiting", step: "agent_waiting" }),
+    requestHuman: async (conversation: Record<string, unknown>) => ({ ...conversation, status: "waiting" }),
+    cancelHumanRequest: async (conversation: Record<string, unknown>) => ({ ...conversation, status: "bot_controlled" }),
   },
 });
 
@@ -130,6 +143,7 @@ beforeEach(() => {
   claimResult = null;
   conversationRow = baseConversation();
   departuresImpl = async () => [];
+  departureForRouteDateImpl = () => null;
   loadDepartureImpl = async () => null;
   createBookingImpl = async () => ({ outcome: "rejected", reason: "test" });
   bookableRoutesImpl = () => [];
@@ -319,7 +333,7 @@ test("a resolved conversation reopened gets the welcome, then handles the messag
   inbound("Make a Booking");
   await processWhatsAppEvent("evt");
   assert.match(texts().join("\n"), /Welcome to Travel With Hawkins/i);
-  assert.equal(steps().at(-1), "route_origin", "the booking request still runs after the welcome");
+  assert.equal(steps().at(-1), "route_entry", "the booking request still runs after the welcome");
 });
 
 test("plain 'menu' in an active session shows the menu WITHOUT repeating the welcome", async () => {
@@ -397,6 +411,35 @@ test("agent-managed conversations are never taken over by the bot", async () => 
   assert.equal(state.finished, 1, "event still acknowledged");
 });
 
+// §14 — requesting an agent raises a "waiting" support request but the bot
+// KEEPS serving from the same step. Only a Take Over (mode -> human) silences it.
+test("§14 asking for an agent acknowledges + offers self-service, without pinning the step", async () => {
+  conversationRow = baseConversation({ step: "route_selected", data: { booking: { routeId: "sr-1", routeLabel: "Lilongwe - MZUNI" } } });
+  inbound("agent");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), [], "no step change — the customer stays where they were");
+  const body = texts().join("\n");
+  assert.match(body, /sent to our support team/i);
+  const opts = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string }> };
+  assert.equal(opts.type, "list");
+  assert.ok(opts.rows.some((r) => r.id === "cancel_agent"));
+});
+
+test("§14 while waiting for an agent (mode still bot), self-service still works", async () => {
+  conversationRow = baseConversation({ step: "route_date", status: "waiting", mode: "bot", data: { booking: { routeId: "sr-1", routeLabel: "Lilongwe - MZUNI", fare: 15000 } } });
+  departureForRouteDateImpl = () => null;
+  inbound("2027-06-20");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"], "the booking flow keeps moving while waiting");
+});
+
+test("§14 Cancel agent request returns the conversation to bot control", async () => {
+  conversationRow = baseConversation({ step: "menu", status: "waiting", mode: "bot" });
+  inbound("cancel agent", { actionId: "cancel_agent" });
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /cancelled the agent request/i);
+});
+
 // ===========================================================================
 // P2 pilot booking rules
 // ===========================================================================
@@ -436,19 +479,36 @@ test("booking flow: the review shows fare, booking fee and total before confirmi
   assert.match(body, /Total: MWK 17,000/);
 });
 
-test("booking review: the confirm prompt offers Confirm, Edit and Cancel", async () => {
+test("booking review: the prompt offers Confirm plus granular Edit route / date / passenger and Cancel", async () => {
   conversationRow = baseConversation({ step: "booking_student_id", data: { booking: draft } });
   inbound("skip");
   await processWhatsAppEvent("evt");
   const last = state.delivered.at(-1);
-  assert.equal(last?.type, "buttons");
-  assert.deepEqual((last as unknown as { buttons: Array<{ id: string }> }).buttons.map((b) => b.id),
-    ["flow_confirm", "flow_back", "flow_cancel"]);
+  assert.equal(last?.type, "list");
+  assert.deepEqual((last as unknown as { rows: Array<{ id: string }> }).rows.map((r) => r.id),
+    ["flow_confirm", "edit_route", "edit_date", "edit_passenger", "flow_cancel"]);
 });
 
-test("booking review: Edit steps back to the previous question, keeping the draft", async () => {
+test("booking review: Edit date jumps back to the date step, keeping the draft", async () => {
   conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
-  inbound("Edit", { actionId: "flow_back" });
+  inbound("Edit date", { actionId: "edit_date" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_date"]);
+  assert.equal(state.bookingCalls, 0);
+  assert.deepEqual((state.transitions.at(-1)?.data as { booking: unknown }).booking, draft, "draft is preserved");
+});
+
+test("booking review: Edit passenger jumps to the name step, keeping the draft", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  inbound("Edit passenger", { actionId: "edit_passenger" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_name"]);
+  assert.equal(state.bookingCalls, 0);
+});
+
+test("booking review: 'back' still steps to the previous question", async () => {
+  conversationRow = baseConversation({ step: "booking_review", data: { booking: draft } });
+  inbound("back");
   await processWhatsAppEvent("evt");
   assert.deepEqual(steps(), ["booking_student_id"]);
   assert.equal(state.bookingCalls, 0);
@@ -468,7 +528,9 @@ test("booking review + confirm: standard-deadline booking returns ID, deadline a
   assert.match(body, /BK-9/);
   assert.match(body, /Malawi time/);
   assert.match(body, /https:\/\/pay\.example\/abc/);
-  assert.equal(steps().at(-1), "menu");
+  assert.equal(steps().at(-1), "booking_done");
+  const doneMsg = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string }> };
+  assert.deepEqual(doneMsg.rows.map((r) => r.id), ["menu_booking", "menu_mybookings", "menu_payment", "route_menu"]);
   assert.equal(state.finished, 1);
 });
 
@@ -517,8 +579,10 @@ test("booking review: declining creates no booking and takes no payment", async 
 // ===========================================================================
 
 const bookableRoute = {
-  routeId: "route-1", label: "Lilongwe - Mzuzu University", origin: "Lilongwe",
-  destination: "Mzuzu University", pickup: "Lilongwe Main", fare: 12000, priced: true,
+  routeId: "route-1", label: "Lilongwe - Mzuzu University", menuLabel: "Lilongwe - MZUNI",
+  origin: "Lilongwe", destination: "Mzuzu University", pickup: "Lilongwe Main", fare: 12000, priced: true,
+  routeType: "student", isPopular: false,
+  universityId: "u-mzuni", universityName: "Mzuzu University", universityShortCode: "MZUNI",
 };
 
 test("no scheduled departure in booking mode: offers supported routes and moves to route_pick", async () => {
@@ -551,7 +615,7 @@ test("route_pick with a priced route asks for a preferred travel date", async ()
   inbound("pick", { actionId: "route:route-1" });
   await processWhatsAppEvent("evt");
   assert.deepEqual(steps(), ["route_date"]);
-  assert.match(texts().join("\n"), /YYYY-MM-DD/);
+  assert.match(texts().join("\n"), /what date would you like to travel/i);
 });
 
 test("route_pick with an unpriced route flags it for an agent and stops before personal details", async () => {
@@ -569,15 +633,26 @@ test("route_date rejects a non-date and re-prompts without advancing", async () 
   inbound("next friday");
   await processWhatsAppEvent("evt");
   assert.deepEqual(steps(), []);
-  assert.match(texts().join("\n"), /real future date/i);
+  assert.match(texts().join("\n"), /couldn't read that date/i);
 });
 
-test("route_date accepts a future date and moves on to passenger details", async () => {
+test("route_date accepts a future date, echoes it back, and moves on to passenger details", async () => {
   conversationRow = baseConversation({ step: "route_date", data: { booking: { routeId: "route-1", routeLabel: "Lilongwe - Mzuzu University", pickup: "Lilongwe Main", fare: 12000 }, origin: "Lilongwe" } });
-  inbound("2026-12-20");
+  inbound("2027-06-20");
   await processWhatsAppEvent("evt");
   assert.deepEqual(steps(), ["booking_passenger_for"]);
+  assert.match(texts().join("\n"), /travelling on .*20 June 2027/);
   assert.equal(state.delivered.at(-1)?.type, "buttons");
+});
+
+test("route_date accepts 'tomorrow' and resolves it to a concrete date", async () => {
+  conversationRow = baseConversation({ step: "route_date", data: { booking: { routeId: "route-1", routeLabel: "Lilongwe - Mzuzu University", pickup: "Lilongwe Main", fare: 12000 }, origin: "Lilongwe" } });
+  inbound("tomorrow");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"]);
+  const iso = (state.transitions.at(-1)?.data as { booking: { travelDate: string } }).booking.travelDate;
+  assert.match(iso, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(new Date(iso + "T00:00:00Z").getTime() > Date.now(), "resolved to a future date");
 });
 
 const unassignedDraft = {
@@ -611,7 +686,7 @@ test("unassigned booking confirm: creates an unassigned booking and says transpo
   assert.match(body, /BK-U1/);
   assert.match(body, /assigned later/i);
   assert.match(body, /https:\/\/pay\.example\/u1/);
-  assert.equal(steps().at(-1), "menu");
+  assert.equal(steps().at(-1), "booking_done");
 });
 
 test("unassigned booking confirm: route_unpriced rejection is explained and takes no payment", async () => {
@@ -856,14 +931,16 @@ test("restarting from the question step does not create/cancel a booking or take
 // ===========================================================================
 
 const studentRoute = {
-  routeId: "sr-1", label: "Lilongwe - Mzuzu University", origin: "Lilongwe",
-  destination: "Mzuzu University", pickup: "Lilongwe Bus Depot", fare: 15000,
+  routeId: "sr-1", label: "Lilongwe - Mzuzu University", menuLabel: "Lilongwe - MZUNI",
+  origin: "Lilongwe", destination: "Mzuzu University", pickup: "Lilongwe Bus Depot", fare: 15000,
   priced: true, routeType: "student", isPopular: false,
+  universityId: "u-mzuni", universityName: "Mzuzu University", universityShortCode: "MZUNI",
 };
 const generalRoute = {
-  routeId: "gr-1", label: "Lilongwe - Blantyre", origin: "Lilongwe",
-  destination: "Blantyre", pickup: "Lilongwe Bus Depot", fare: 18000,
+  routeId: "gr-1", label: "Lilongwe - Blantyre", menuLabel: "Lilongwe - Blantyre",
+  origin: "Lilongwe", destination: "Blantyre", pickup: "Lilongwe Bus Depot", fare: 18000,
   priced: true, routeType: "general", isPopular: true,
+  universityId: null, universityName: null, universityShortCode: null,
 };
 
 test("menu -> Find a Route opens the route entry (Popular / Student / Other / Menu), no route lookup", async () => {
@@ -888,7 +965,9 @@ test("route_entry: a typed 'X to University' resolves a student route and shows 
   assert.match(body, /Lilongwe - Mzuzu University/);
   assert.match(body, /MWK 15,000/);
   assert.match(body, /Lilongwe Bus Depot/);
-  assert.equal(steps().at(-1), "menu");
+  assert.equal(steps().at(-1), "route_selected", "resolved route offers Continue Booking, not the menu");
+  const last = state.delivered.at(-1) as unknown as { type: string; buttons: Array<{ id: string }> };
+  assert.deepEqual(last.buttons.map((b) => b.id), ["flow_confirm", "route_change", "route_menu"]);
 });
 
 test("route_entry: a single place asks the one-location clarifier", async () => {
@@ -917,7 +996,7 @@ test("route_clarify -> 'Travelling from' then a destination resolves a general r
   await processWhatsAppEvent("evt");
   assert.match(texts().join("\n"), /Lilongwe - Blantyre/);
   assert.match(texts().join("\n"), /MWK 18,000/);
-  assert.equal(steps().at(-1), "menu");
+  assert.equal(steps().at(-1), "route_selected");
 });
 
 test("route_entry: 'Other Travel' sets the general lane, then 'X to Y' matches a general route", async () => {
@@ -935,7 +1014,7 @@ test("route_entry: 'Other Travel' sets the general lane, then 'X to Y' matches a
   inbound("Lilongwe to Blantyre");
   await processWhatsAppEvent("evt");
   assert.match(texts().join("\n"), /Lilongwe - Blantyre/);
-  assert.equal(steps().at(-1), "menu");
+  assert.equal(steps().at(-1), "route_selected");
 });
 
 test("route_entry: an unknown corridor offers 'Request this route', which logs it and returns to the menu", async () => {
@@ -970,13 +1049,15 @@ test("Student Travel: direction -> university -> home district resolves the rout
 
   state.delivered = []; state.transitions = [];
   conversationRow = baseConversation({ step: "route_student_direction" });
-  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University" }];
+  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University", shortCode: "MZUNI" }];
   inbound("to", { actionId: "route_dir_to" });
   await processWhatsAppEvent("evt");
   assert.deepEqual(steps(), ["route_student_university"]);
   assert.deepEqual(state.transitions.at(-1)?.data, { studentDirection: "to_university" });
-  const uniList = state.delivered.at(-1) as unknown as { rows: Array<{ id: string }> };
+  const uniList = state.delivered.at(-1) as unknown as { rows: Array<{ id: string; title: string; description?: string }> };
   assert.deepEqual(uniList.rows.map((r) => r.id), ["uni:u-mzuni"]);
+  assert.equal(uniList.rows[0].title, "MZUNI");             // short code is the row title
+  assert.equal(uniList.rows[0].description, "Mzuzu University"); // full name is supporting text
 
   state.delivered = []; state.transitions = [];
   conversationRow = baseConversation({ step: "route_student_university", data: { studentDirection: "to_university" } });
@@ -994,7 +1075,7 @@ test("Student Travel: direction -> university -> home district resolves the rout
   inbound("Lilongwe");
   await processWhatsAppEvent("evt");
   assert.match(texts().join("\n"), /MWK 15,000/);
-  assert.equal(steps().at(-1), "menu");
+  assert.equal(steps().at(-1), "route_selected");
 });
 
 test("Student Travel: no active universities routes to the menu with an explanation", async () => {
@@ -1006,15 +1087,28 @@ test("Student Travel: no active universities routes to the menu with an explanat
   assert.equal(steps().at(-1), "menu");
 });
 
-test("Popular Routes: lists the curated routes; empty falls back to a typed-route hint", async () => {
+test("route_entry: a typed university short code ('MZUNI to Lilongwe') resolves the same route as the full name", async () => {
   conversationRow = baseConversation({ step: "route_entry" });
-  popularRoutesImpl = () => [generalRoute];
+  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University", shortCode: "MZUNI" }];
+  studentRouteImpl = (home, universityId, direction) => (home.toLowerCase() === "lilongwe"
+    && universityId === "u-mzuni" && direction === "from_university" ? { ...studentRoute, label: "Mzuzu University - Lilongwe" } : null);
+  inbound("MZUNI to Lilongwe");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /Mzuzu University - Lilongwe/);
+  assert.equal(steps().at(-1), "route_selected");
+});
+
+test("Popular Routes: lists the curated routes with the short-code label; empty falls back to a typed-route hint", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  popularRoutesImpl = () => [{ ...studentRoute }];
   inbound("popular", { actionId: "route_popular" });
   await processWhatsAppEvent("evt");
   assert.equal(state.popularRoutesCalls, 1);
-  const last = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string }> };
+  const last = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string; title: string; description?: string }> };
   assert.equal(last.type, "list");
-  assert.deepEqual(last.rows.map((r) => r.id), ["route:gr-1"]);
+  assert.deepEqual(last.rows.map((r) => r.id), ["route:sr-1"]);
+  assert.equal(last.rows[0].title, "Lilongwe - MZUNI");                       // compact short-code label
+  assert.match(String(last.rows[0].description), /MWK 15,000.*Mzuzu University/); // fare · full name
 
   state.delivered = [];
   conversationRow = baseConversation({ step: "route_entry" });
@@ -1024,6 +1118,57 @@ test("Popular Routes: lists the curated routes; empty falls back to a typed-rout
   assert.match(texts().join("\n"), /don't have popular routes/i);
 });
 
+test("Popular Routes: more than 8 paginate with More / Previous rows", async () => {
+  const many = Array.from({ length: 11 }, (_, i) => ({
+    ...generalRoute, routeId: `gr-${i + 1}`, menuLabel: `Route ${i + 1}`, label: `Route ${i + 1}`,
+  }));
+  popularRoutesImpl = () => many;
+
+  conversationRow = baseConversation({ step: "route_entry" });
+  inbound("popular", { actionId: "route_popular" });
+  await processWhatsAppEvent("evt");
+  const first = state.delivered.at(-1) as unknown as { rows: Array<{ id: string }> };
+  assert.deepEqual(first.rows.map((r) => r.id), [
+    "route:gr-1", "route:gr-2", "route:gr-3", "route:gr-4", "route:gr-5",
+    "route:gr-6", "route:gr-7", "route:gr-8", "route_popular_more",
+  ]);
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "route_entry", data: { popularOffset: 0 } });
+  inbound("more", { actionId: "route_popular_more" });
+  await processWhatsAppEvent("evt");
+  const second = state.delivered.at(-1) as unknown as { rows: Array<{ id: string }> };
+  assert.deepEqual(second.rows.map((r) => r.id), ["route_popular_prev", "route:gr-9", "route:gr-10", "route:gr-11"]);
+  assert.equal(state.transitions.at(-1)?.data && (state.transitions.at(-1)!.data as { popularOffset: number }).popularOffset, 8);
+});
+
+test("route_entry: a corridor that matches more than one route shows the choices, does not guess", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  // "Zomba" is both a district AND (here) a university name, so "Lilongwe to
+  // Zomba" matches a student leg (Lilongwe -> Zomba University) and a general
+  // district leg (Lilongwe -> Zomba).
+  activeUniversitiesImpl = () => [{ id: "u-zomba", name: "Zomba University", shortCode: "ZU" }];
+  studentRouteImpl = () => ({ ...studentRoute, routeId: "sr-9" });
+  generalRouteImpl = () => ({ ...generalRoute, routeId: "gr-9" });
+  inbound("Lilongwe to Zomba");
+  await processWhatsAppEvent("evt");
+  const last = state.delivered.at(-1) as unknown as { type: string; rows: Array<{ id: string }> };
+  assert.equal(last.type, "list");
+  assert.deepEqual(last.rows.map((r) => r.id).sort(), ["route:gr-9", "route:sr-9"]);
+  assert.equal(steps().at(-1), "route_entry", "stays on the entry step to receive the pick");
+});
+
+test("route_entry: 'I want to travel from Blantyre to Mzuzu' is parsed and resolved", async () => {
+  conversationRow = baseConversation({ step: "route_entry" });
+  activeUniversitiesImpl = () => [{ id: "u-mzuni", name: "Mzuzu University", shortCode: "MZUNI" }];
+  studentRouteImpl = (home, universityId, direction) => (home.toLowerCase() === "blantyre"
+    && universityId === "u-mzuni" && direction === "to_university" ? studentRoute : null);
+  inbound("I want to travel from Blantyre to Mzuzu");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /MWK 15,000/);
+  assert.equal(steps().at(-1), "route_selected");
+});
+
 test("route_entry: unparseable text re-prompts without a route lookup or state change", async () => {
   conversationRow = baseConversation({ step: "route_entry" });
   inbound("how much is the fare please");
@@ -1031,4 +1176,107 @@ test("route_entry: unparseable text re-prompts without a route lookup or state c
   assert.deepEqual(steps(), []);
   assert.equal(state.departuresCalls, 0);
   assert.match(texts().join("\n"), /one town or city|full route/i);
+});
+
+// ===========================================================================
+// §7 one continuous route-to-booking journey + §9 review + §10 what-next
+// ===========================================================================
+
+test("route_selected: Continue Booking carries straight into the date step (no trip back to the menu)", async () => {
+  conversationRow = baseConversation({ step: "route_selected", data: { booking: { ...studentRoute, routeLabel: studentRoute.label } } });
+  inbound("continue", { actionId: "flow_confirm" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_date"]);
+  assert.match(texts().join("\n"), /what date would you like to travel/i);
+});
+
+test("route_selected: Change Route returns to the route entry", async () => {
+  conversationRow = baseConversation({ step: "route_selected", data: { booking: { routeId: "sr-1" } } });
+  inbound("change", { actionId: "route_change" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_entry"]);
+});
+
+test("route_selected: a stray 'menu' with a route picked asks before discarding the draft (§12)", async () => {
+  conversationRow = baseConversation({ step: "route_selected", data: { booking: { routeId: "sr-1", routeLabel: "Lilongwe - MZUNI" } } });
+  inbound("menu");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["discard_confirm"]);
+});
+
+test("route resolves -> Continue -> date with a matching scheduled trip binds it and shows verified info (§8)", async () => {
+  conversationRow = baseConversation({
+    step: "route_date",
+    data: { booking: { ...studentRoute, routeLabel: studentRoute.label } },
+  });
+  departureForRouteDateImpl = (routeId, date) => (routeId === "sr-1" && date === "2027-06-20"
+    ? { id: "dep-77", routeId: "sr-1", routeLabel: studentRoute.label, travelDate: "2027-06-20", departureTime: "07:30:00", fare: 15000, pickup: "Depot Gate", availableSeats: 20 }
+    : null);
+  inbound("2027-06-20");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"]);
+  const body = texts().join("\n");
+  assert.match(body, /a trip is scheduled/i);
+  assert.match(body, /07:30/);
+  const bookingData = (state.transitions.at(-1)?.data as { booking: { departureId?: string } }).booking;
+  assert.equal(bookingData.departureId, "dep-77");
+});
+
+test("route resolves -> Continue -> date with NO scheduled trip keeps the reservation and says so plainly (§8)", async () => {
+  conversationRow = baseConversation({
+    step: "route_date",
+    data: { booking: { ...studentRoute, routeLabel: studentRoute.label } },
+  });
+  departureForRouteDateImpl = () => null;
+  inbound("2027-06-20");
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["booking_passenger_for"]);
+  const body = texts().join("\n");
+  assert.match(body, /hasn't been assigned for this date yet/i);
+  assert.doesNotMatch(body, /a trip is scheduled/i);
+  const bookingData = (state.transitions.at(-1)?.data as { booking: { departureId?: string } }).booking;
+  assert.equal(bookingData.departureId, undefined);
+});
+
+test("§9 review shows traveller type, university + direction, and trip status", async () => {
+  conversationRow = baseConversation({
+    step: "booking_student_id",
+    data: { booking: {
+      routeId: "sr-1", routeLabel: "Lilongwe - Mzuzu University", pickup: "Depot", fare: 15000,
+      travelDate: "2027-06-20", name: "Jane Banda",
+      travellerType: "student", universityName: "Mzuzu University", universityShortCode: "MZUNI",
+      journeyDirection: "to_university",
+    } },
+  });
+  inbound("skip");
+  await processWhatsAppEvent("evt");
+  const body = texts().join("\n");
+  assert.match(body, /Traveller: Student/);
+  assert.match(body, /University: MZUNI/);
+  assert.match(body, /Trip: to be assigned/);
+});
+
+test("§10 after a held booking, Book Another Passenger restarts the journey", async () => {
+  conversationRow = baseConversation({ step: "booking_done" });
+  inbound("Book another passenger", { actionId: "menu_booking" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["route_entry"]);
+});
+
+test("§10 after a held booking, Pay Booking Fee opens the payment step", async () => {
+  conversationRow = baseConversation({ step: "booking_done" });
+  inbound("Pay Booking Fee", { actionId: "menu_payment" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["payment_booking_id"]);
+});
+
+test("§10 after a held booking, My Bookings lists them", async () => {
+  conversationRow = baseConversation({ step: "booking_done" });
+  listImpl = () => [
+    { bookingId: "BK-9", routeLabel: "Lilongwe - MZUNI", travelDate: "2027-06-20", status: "Booked", bookingFeeStatus: "unpaid", fareStatus: "unpaid", expiresAt: null },
+  ];
+  inbound("My Bookings", { actionId: "menu_mybookings" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(steps(), ["my_bookings"]);
+  assert.equal(state.delivered.at(-1)?.type, "list");
 });

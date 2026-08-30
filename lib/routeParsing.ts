@@ -2,12 +2,17 @@ import { MALAWI_DISTRICTS } from "@/lib/tripSearchData";
 
 // Split a typed route into its two ends. Accepts, case-insensitively:
 //   "Lilongwe to Mzuzu", "From Zomba to Lilongwe", "Kasungu - Mzuzu",
-//   "Karonga → Mzuzu", "Lilongwe -> Mzuzu University".
+//   "Karonga → Mzuzu", "Lilongwe -> Mzuzu University",
+//   "I want to travel from Blantyre to Mzuzu", "MZUNI to Lilongwe".
 // One place on its own ("Lilongwe") returns { kind: "single" } so the caller
 // can ask which end it is. Anything that doesn't look like a route returns null.
 
 const SEPARATOR = /\s+(?:to|->|→|–|—|-)\s+/i;
 const PLACE_RE = /^[\p{L}][\p{L}\s.'()-]{1,60}$/u;
+
+// Conversational lead-ins customers put before the actual route. Stripped so
+// "I want to travel from Blantyre to Mzuzu" reduces to "Blantyre to Mzuzu".
+const LEAD_IN_RE = /^\s*(?:i\s+(?:would\s+like|want|need|wanna|wish)\s+to\s+(?:travel|go|book|ride)|can\s+you\s+(?:take|book|get)\s+me|please\s+(?:take|book|help)\s+me|i'?m\s+(?:travelling|traveling|going)|book\s+me|take\s+me|get\s+me)\s+/i;
 
 export type ParsedRoute =
   | { kind: "pair"; origin: string; destination: string }
@@ -23,7 +28,8 @@ function isPlace(value: string): boolean {
 }
 
 export function parseTypedRoute(raw: string): ParsedRoute {
-  const text = cleanPlace(String(raw || "").replace(/^\s*from\s+/i, ""));
+  const stripped = String(raw || "").replace(LEAD_IN_RE, "").replace(/^\s*from\s+/i, "");
+  const text = cleanPlace(stripped);
   if (!text) return null;
 
   const parts = text.split(SEPARATOR).map(cleanPlace).filter(Boolean);
