@@ -889,6 +889,28 @@ test("AI is NOT consulted when the deterministic knowledge base already answers"
   assert.match(texts().join("\n"), /Make a Booking/i);
 });
 
+test("a bare 'thank you' at the question step gets a warm reply, no model call", async () => {
+  aiInterpret = async () => ({ intent: "unknown" });
+  let controllerCalls = 0;
+  controllerImpl = async () => { controllerCalls += 1; return { intent: "feedback", language: "en", confidence: 0.9, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal", schemaVersion: 1 }; };
+  conversationRow = baseConversation({ step: "question" });
+  inbound("thank you for your assistance");
+  await processWhatsAppEvent("evt");
+  assert.equal(state.aiCalls, 0);
+  assert.equal(controllerCalls, 0, "smalltalk is handled before any AI");
+  assert.match(texts().join("\n"), /You're welcome/i);
+  assert.deepEqual(steps(), [], "no state change from a courtesy reply");
+  assert.equal(state.finished, 1);
+});
+
+test("'thanks, but how much is the fare?' is still treated as a real question", async () => {
+  aiInterpret = async () => ({ intent: "unknown", clarify: true });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("thanks, but how much is the fare to Lilongwe?");
+  await processWhatsAppEvent("evt");
+  assert.doesNotMatch(texts().join("\n"), /You're welcome/i);
+});
+
 test("prompt-injection at the question step is refused before the model is called", async () => {
   aiInterpret = async () => ({ intent: "routes" });
   conversationRow = baseConversation({ step: "question" });
