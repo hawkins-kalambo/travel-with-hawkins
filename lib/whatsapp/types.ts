@@ -156,6 +156,9 @@ export type WhatsAppStateData = {
   // Short rolling memory for the AI assistant at the "question" step (last few
   // turns, redacted + length-capped). Never the full history.
   aiRecent?: { role: "user" | "bot"; text: string }[];
+  // The last AI-answer audit row, so a Helpful / Still-need-help tap can be
+  // attributed to it.
+  lastAiInteractionId?: string;
 };
 
 export type WhatsAppConversationState = {

@@ -73,7 +73,13 @@ mock.module("@/lib/whatsapp/ai/controller", { exports: { interpretTurn: (t: stri
 mock.module("@/lib/whatsapp/ai/respond", { exports: { gatherFacts: (c: { intent: string }) => factsImpl(c), formatFromPack: (c: { intent: string }, p: unknown) => formatImpl(c, p) } });
 mock.module("@/lib/whatsapp/ai/synthesise", { exports: { synthesiseReply: () => synthImpl() } });
 mock.module("@/lib/whatsapp/ai/bookingBridge", { exports: { prepareBookingDraft: () => bridgeImpl() } });
-mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async (r: unknown) => { state.aiAuditRows.push(r); } } });
+let aiFeedbackCalls: Array<{ id: unknown; feedback: unknown }>;
+mock.module("@/lib/whatsapp/ai/audit", {
+  exports: {
+    recordAiInteraction: async (r: unknown) => { state.aiAuditRows.push(r); return "ai-int-1"; },
+    setInteractionFeedback: async (id: unknown, feedback: unknown) => { aiFeedbackCalls.push({ id, feedback }); },
+  },
+});
 mock.module("@/lib/whatsapp/ai/knowledgeStore", {
   exports: {
     searchKnowledge: async (question: string) => {
@@ -163,6 +169,7 @@ beforeEach(() => {
   state.listCalls = 0; state.cancelCalls = 0; state.aiCalls = 0;
   state.popularRoutesCalls = 0; state.routeRequestCalls = 0;
   state.aiAuditRows = [];
+  aiFeedbackCalls = [];
   controllerImpl = async () => ({ intent: "unknown", language: "en", confidence: 0, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal", schemaVersion: 1 });
   factsImpl = async (c) => ({ intent: c.intent, facts: [], allowedTool: null, toolOutcome: "none", route: null, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null });
   formatImpl = () => ({ text: null, allowedTool: null, toolOutcome: "none" });
@@ -1000,6 +1007,34 @@ test("A1 with synthesis on, the model-composed reply is sent (marked synthesis) 
   const saved = state.transitions.at(-1)?.data as { aiRecent: { role: string; text: string }[] };
   assert.equal(saved.aiRecent.length, 2);
   assert.equal(saved.aiRecent[0].role, "user");
+}));
+
+test("A2 a weaker answer offers feedback; 'Yes thanks' records helpful and thanks the customer", withLiveTools(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "fare_question", confidence: 0.9, entities: { origin: "Blantyre", destination: "MZUNI" }, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  factsImpl = async (c) => ({ intent: c.intent, facts: [{ label: "fare", value: "MWK 120,000" }], allowedTool: "searchActiveRoutes", toolOutcome: "ok", route: {}, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null });
+  formatImpl = () => ({ text: "The current fare is MWK 120,000.", allowedTool: "searchActiveRoutes", toolOutcome: "ok" });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("how much to MZUNI");
+  await processWhatsAppEvent("evt");
+  const last = state.delivered.at(-1) as unknown as { type: string; buttons: Array<{ id: string }> };
+  assert.equal(last.type, "buttons");
+  assert.deepEqual(last.buttons.map((b) => b.id), ["ai_helpful", "ai_needs_help"]);
+  assert.equal((state.transitions.at(-1)?.data as { lastAiInteractionId: string }).lastAiInteractionId, "ai-int-1");
+
+  state.delivered = []; state.transitions = [];
+  conversationRow = baseConversation({ step: "question", data: { lastAiInteractionId: "ai-int-1" } });
+  inbound("yes", { actionId: "ai_helpful" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(aiFeedbackCalls, [{ id: "ai-int-1", feedback: "helpful" }]);
+  assert.match(texts().join("\n"), /glad that helped/i);
+}));
+
+test("A2 'I still need help' records needs_help and raises an agent", withLiveTools(async () => {
+  conversationRow = baseConversation({ step: "question", data: { lastAiInteractionId: "ai-int-9" } });
+  inbound("more help", { actionId: "ai_needs_help" });
+  await processWhatsAppEvent("evt");
+  assert.deepEqual(aiFeedbackCalls, [{ id: "ai-int-9", feedback: "needs_help" }]);
+  assert.match(texts().join("\n"), /sent to our support team/i);
 }));
 
 test("A1 when the synthesis guard trips, the deterministic answer is used instead", withSynthesis(async () => {

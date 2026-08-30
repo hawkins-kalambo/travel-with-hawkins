@@ -37,7 +37,7 @@ mock.module("@/lib/whatsapp/ai/controller", { exports: { interpretTurn: async ()
 mock.module("@/lib/whatsapp/ai/respond", { exports: { gatherFacts: async () => ({ intent: "unknown", facts: [], allowedTool: null, toolOutcome: "none", route: null, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null }), formatFromPack: () => ({ text: null, allowedTool: null, toolOutcome: "none" }) } });
 mock.module("@/lib/whatsapp/ai/synthesise", { exports: { synthesiseReply: async () => ({ text: null, guardTripped: false }) } });
 mock.module("@/lib/whatsapp/ai/bookingBridge", { exports: { prepareBookingDraft: async () => ({ outcome: "need_origin" }) } });
-mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async () => {} } });
+mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async () => "ai-int-1", setInteractionFeedback: async () => {} } });
 mock.module("@/lib/whatsapp/ai/knowledgeStore", {
   exports: {
     searchKnowledge: async (question: string) => {
