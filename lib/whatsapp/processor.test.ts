@@ -33,6 +33,10 @@ function baseConversation() {
 mock.module("@/lib/logger", { exports: { logInfo: record("logInfo"), logWarn: record("logWarn"), logError: record("logError") } });
 mock.module("@/lib/rateLimit", { exports: { isRateLimited: async () => rateLimited } });
 mock.module("@/lib/whatsapp/client", { exports: { markWhatsAppMessageRead: async () => {} } });
+mock.module("@/lib/whatsapp/ai/controller", { exports: { interpretTurn: async () => ({ intent: "unknown", language: "en", confidence: 0, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal", schemaVersion: 1 }) } });
+mock.module("@/lib/whatsapp/ai/respond", { exports: { composeLiveAnswer: async () => ({ text: null, allowedTool: null, toolOutcome: "none" }) } });
+mock.module("@/lib/whatsapp/ai/bookingBridge", { exports: { prepareBookingDraft: async () => ({ outcome: "need_origin" }) } });
+mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async () => {} } });
 mock.module("@/lib/whatsapp/ai/knowledgeStore", {
   exports: {
     searchKnowledge: async (question: string) => {

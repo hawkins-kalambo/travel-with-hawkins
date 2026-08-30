@@ -10,6 +10,12 @@ import { cancelWhatsAppBooking, createRouteRequest, createUnassignedWhatsAppBook
 import { UNPAID_RESERVATION_LIMIT, formatMalawiDateTime } from "@/lib/whatsapp/booking-rules";
 import { resolveTravelDate } from "@/lib/whatsapp/travelDate";
 import { searchKnowledge } from "@/lib/whatsapp/ai/knowledgeStore";
+import { isAiFeatureEnabled } from "@/lib/whatsapp/ai/flags";
+import { interpretTurn } from "@/lib/whatsapp/ai/controller";
+import { composeLiveAnswer } from "@/lib/whatsapp/ai/respond";
+import { recordAiInteraction } from "@/lib/whatsapp/ai/audit";
+import { prepareBookingDraft } from "@/lib/whatsapp/ai/bookingBridge";
+import { classifyUrgency } from "@/lib/whatsapp/ai/urgency";
 import { detectIntent, languageFromInput } from "@/lib/whatsapp/intent";
 import { t } from "@/lib/whatsapp/i18n";
 import { POPULAR_PAGE_SIZE, agentWaitingMessage, bookingActionMessage, bookingDoneMessage, bookingsListMessage, confirmPromptMessage, discardConfirmMessage, languageMessage, mainMenuMessage, passengerForMessage, popularRoutesMessage, reviewActionsMessage, routeClarifyMessage, routeEntryMessage, routeRequestMessage, routeSelectedMessage, routesListMessage, studentDirectionMessage, universityListMessage } from "@/lib/whatsapp/messages";
@@ -253,6 +259,22 @@ async function resolveCorridor(
 // AI output only picks which existing prompt to show; it never books, pays,
 // or changes state. Any failure falls back to a prompt, never silence.
 async function answerQuestion(conversation: WhatsAppConversationState, question: string): Promise<void> {
+  // Stage 5 (§19): an urgent message goes straight to a person — no AI advice,
+  // works even with AI disabled. The bot keeps serving while they wait (§14).
+  if (classifyUrgency(question) === "urgent") {
+    const next = await requestHuman(conversation);
+    await send(next, textMessage(t(next.language, "agentWaiting")));
+    await send(next, agentWaitingMessage(next.language));
+    void recordAiInteraction({
+      conversationId: conversation.conversationId, contactId: conversation.contactId,
+      customerMessage: question, detectedLanguage: conversation.language, detectedIntent: "urgent_support",
+      confidence: 1, entities: {}, requestedTool: null, allowedTool: null, toolOutcome: "none",
+      fallbackUsed: false, clarificationRequested: false, humanRequested: true, urgency: "urgent",
+      responsePreview: "(urgent — agent requested)", responseMs: 0,
+    });
+    return;
+  }
+
   // Stage 2: search the admin-managed approved knowledge first (falls back to
   // the built-in matcher when the table is empty / unavailable, so this is a
   // strict superset of the previous behaviour). An entry flagged
@@ -267,6 +289,78 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
     await send(conversation, textMessage(t(conversation.language, "unrelatedQuestion"))); return;
   }
   const unrelated = hit.source === "none" && hit.outcome === "unrelated";
+
+  // Stage 3: when live tools are enabled, let the controller read the turn and
+  // answer from VERIFIED data via the tool registry. Any failure, or nothing
+  // it can answer, falls through to the legacy hint path below.
+  if (isAiFeatureEnabled("liveTools")) {
+    const started = Date.now();
+    const controller = await interpretTurn(question, conversation.language);
+    let replied = false;
+    let clarification = false;
+    let allowedTool: string | null = null;
+    let toolOutcome: "none" | "ok" | "denied" | "error" = "none";
+    let previewText: string | null = null;
+
+    if (controller.requiresHuman || controller.urgency === "urgent") {
+      // Stage 5 will attach an agent summary; for now raise the request and
+      // keep serving (§14).
+      const next = await requestHuman(conversation);
+      await send(next, textMessage(t(next.language, "agentWaiting")));
+      await send(next, agentWaitingMessage(next.language));
+      replied = true;
+      previewText = "(agent requested)";
+    } else if (controller.intent === "start_booking" && isAiFeatureEnabled("bookingDrafts")) {
+      // Stage 4: prepare a draft from the natural-language request, then hand
+      // to the deterministic flow. The AI never creates the booking.
+      const bridge = await prepareBookingDraft(controller.entities);
+      allowedTool = "createBookingDraft";
+      if (bridge.outcome === "ready") {
+        const next = await transitionState(conversation, "route_selected", { booking: bridge.draft });
+        if (bridge.dateLabel) {
+          await send(next, textMessage(t(next.language, "travelDateConfirmed", { date: bridge.dateLabel })));
+        }
+        await send(next, routeSelectedMessage(next.language, t(next.language, "routeSelectedSummary", {
+          label: bridge.draft.routeLabel ?? "",
+          fare: `MWK ${(Number(bridge.draft.fare) || 0).toLocaleString("en-MW")}`,
+          pickup: bridge.draft.pickup ?? "",
+        })));
+        replied = true; toolOutcome = "ok"; previewText = `(draft: ${bridge.draft.routeLabel})`;
+      } else if (bridge.outcome === "need_origin") {
+        await send(conversation, textMessage(t(conversation.language, "routeAskOriginPlace")));
+        replied = true; clarification = true; previewText = "(clarify origin)";
+      } else if (bridge.outcome === "need_destination") {
+        await send(conversation, textMessage(t(conversation.language, "routeAskDestinationPlace")));
+        replied = true; clarification = true; previewText = "(clarify destination)";
+      } else {
+        await send(conversation, textMessage(t(conversation.language, "routeNotFoundPrompt", { origin: bridge.origin, destination: bridge.destination })));
+        replied = true; toolOutcome = "ok"; previewText = "(no route)";
+      }
+    } else {
+      const live = await composeLiveAnswer(
+        controller, { contactId: conversation.contactId, waId: conversation.waId }, conversation.language,
+      );
+      allowedTool = live.allowedTool;
+      toolOutcome = live.toolOutcome;
+      if (live.text) { await send(conversation, textMessage(live.text)); replied = true; previewText = live.text; }
+      else if (live.needsClarification) {
+        await send(conversation, textMessage(live.needsClarification));
+        replied = true; clarification = true; previewText = live.needsClarification;
+      }
+    }
+
+    void recordAiInteraction({
+      conversationId: conversation.conversationId, contactId: conversation.contactId,
+      inboundMessageId: null, customerMessage: question,
+      detectedLanguage: controller.language, detectedIntent: controller.intent,
+      confidence: controller.confidence, entities: controller.entities,
+      requestedTool: controller.requestedTool, allowedTool, toolOutcome,
+      fallbackUsed: !replied, clarificationRequested: clarification,
+      humanRequested: controller.requiresHuman, urgency: controller.urgency,
+      responsePreview: previewText, responseMs: Date.now() - started,
+    });
+    if (replied) return;
+  }
 
   // The matcher couldn't place it — ask the model to interpret. With AI off,
   // fall back to the blunt safe response.
@@ -568,6 +662,26 @@ async function handleMessage(conversationInput: WhatsAppConversationState & { op
     }
     if (action === "route_menu") { await goToMenu(conversation); return; }
     if (isAffirmative(message) || /^\s*continue/.test(message.text.trim().toLowerCase())) {
+      // A date already on the draft (e.g. from a natural-language "…tomorrow"
+      // request) skips the date prompt and does the trip lookup right away.
+      if (draft.travelDate) {
+        const travelDate = draft.travelDate;
+        let booking: BookingDraft = { ...draft, departureId: undefined, departureTime: undefined };
+        let tripLine = t(conversation.language, "noTripLine");
+        if (booking.routeId) {
+          const dep = await tryRouteLookup(conversation, () => findDepartureForRouteDate(booking.routeId!, travelDate));
+          if (dep.ok && dep.value) {
+            booking = { ...booking, departureId: dep.value.id, departureTime: dep.value.departureTime, pickup: dep.value.pickup || booking.pickup, fare: dep.value.fare || booking.fare };
+            tripLine = t(conversation.language, "tripConfirmedLine", {
+              date: travelDate, time: dep.value.departureTime ? ` at ${dep.value.departureTime.slice(0, 5)}` : "",
+              pickup: dep.value.pickup || booking.pickup || "",
+            });
+          }
+        }
+        const next = await transitionState(conversation, "booking_passenger_for", { ...conversation.data, booking });
+        await send(next, textMessage(tripLine));
+        await send(next, passengerForMessage(next.language)); return;
+      }
       const next = await transitionState(conversation, "route_date", { ...conversation.data, booking: draft });
       await send(next, textMessage(t(next.language, "askTravelDate"))); return;
     }

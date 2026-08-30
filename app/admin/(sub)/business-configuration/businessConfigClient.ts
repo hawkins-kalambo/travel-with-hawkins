@@ -267,3 +267,56 @@ export async function deleteAiKnowledge(id: string): Promise<void> {
   const data = (await res.json()) as { success?: boolean; error?: string };
   if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to delete AI knowledge (${res.status})`);
 }
+
+export type AiInteraction = {
+  id: string;
+  customer_message: string | null;
+  detected_language: string | null;
+  detected_intent: string | null;
+  confidence: number | null;
+  requested_tool: string | null;
+  allowed_tool: string | null;
+  tool_outcome: string;
+  fallback_used: boolean;
+  clarification_requested: boolean;
+  human_requested: boolean;
+  urgency: string;
+  response_preview: string | null;
+  response_ms: number | null;
+  feedback: string | null;
+  created_at: string;
+};
+
+export type AiQualitySummary = {
+  windowDays: number; turns: number; fallbackRate: number; unknownIntentRate: number;
+  clarificationRate: number; humanHandoverRate: number; toolDenied: number; urgent: number;
+  byLanguage: Record<string, number>; topIntents: { intent: string; count: number }[];
+  avgResponseMs: number | null; feedbackHelpful: number; feedbackNeedsHelp: number;
+};
+
+export async function loadAiSummary(days = 30): Promise<{ summary: AiQualitySummary; features: Record<string, boolean> }> {
+  const res = await authFetch(`/api/admin/ai-interactions?summary=1&days=${days}`);
+  const data = (await res.json()) as { success?: boolean; summary?: AiQualitySummary; features?: Record<string, boolean>; error?: string };
+  if (!res.ok || data.success !== true || !data.summary) throw new Error(data.error || `Unable to load AI summary (${res.status})`);
+  return { summary: data.summary, features: data.features ?? {} };
+}
+
+export async function loadAiInteractions(params: { fallback?: boolean; unreviewed?: boolean; intent?: string } = {}): Promise<AiInteraction[]> {
+  const qs = new URLSearchParams();
+  if (params.fallback) qs.set("fallback", "1");
+  if (params.unreviewed) qs.set("unreviewed", "1");
+  if (params.intent) qs.set("intent", params.intent);
+  const res = await authFetch(`/api/admin/ai-interactions${qs.toString() ? `?${qs}` : ""}`);
+  const data = (await res.json()) as { success?: boolean; interactions?: AiInteraction[]; error?: string };
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Unable to load AI interactions (${res.status})`);
+  return data.interactions || [];
+}
+
+export async function reviewAiInteraction(id: string, feedback: "correct" | "needs_improvement" | "unsafe"): Promise<AiInteraction> {
+  const res = await authFetch("/api/admin/ai-interactions", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, feedback }),
+  });
+  const data = (await res.json()) as { success?: boolean; interaction?: AiInteraction; error?: string };
+  if (!res.ok || data.success !== true || !data.interaction) throw new Error(data.error || `Unable to review (${res.status})`);
+  return data.interaction;
+}
