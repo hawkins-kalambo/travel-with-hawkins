@@ -17,17 +17,17 @@ export default function AiActivityPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const loadRows = async (f = filter) => {
-    setRows(await loadAiInteractions(f === "fallback" ? { fallback: true } : f === "unreviewed" ? { unreviewed: true } : {}));
-  };
+  const fetchRows = (f: "all" | "fallback" | "unreviewed") =>
+    loadAiInteractions(f === "fallback" ? { fallback: true } : f === "unreviewed" ? { unreviewed: true } : {});
+  const loadRows = async (f = filter) => { setRows(await fetchRows(f)); };
 
   useEffect(() => {
     const run = async () => {
       try {
-        const s = await loadAiSummary(30);
+        const [s, initialRows] = await Promise.all([loadAiSummary(30), fetchRows("unreviewed")]);
         setSummary(s.summary);
         setFeatures(s.features);
-        await loadRows("unreviewed");
+        setRows(initialRows);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -119,6 +119,7 @@ export default function AiActivityPage() {
                 <span className="rounded-full bg-slate-200 px-2 py-0.5">{r.detected_language ?? "?"}</span>
                 <span>conf {r.confidence ?? "—"}</span>
                 {r.allowed_tool && <span>tool {r.allowed_tool} → {r.tool_outcome}</span>}
+                {r.model === "synthesis" && <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-800">synthesised</span>}
                 {r.fallback_used && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">fallback</span>}
                 {r.human_requested && <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">handover</span>}
                 {r.urgency !== "normal" && <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800">{r.urgency}</span>}

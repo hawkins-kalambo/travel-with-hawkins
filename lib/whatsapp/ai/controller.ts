@@ -58,6 +58,7 @@ function extractJson(body: unknown): unknown {
 
 export async function interpretTurn(
   text: string, language: WhatsAppLanguage,
+  recent: { role: "user" | "bot"; text: string }[] = [],
 ): Promise<ControllerOutput> {
   let config;
   try {
@@ -82,7 +83,13 @@ export async function interpretTurn(
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `Language hint: ${language}. Message: ${String(text).slice(0, MAX_INPUT_CHARS)}` },
+          {
+            role: "user",
+            content: [
+              recent.length ? `Recent turns:\n${recent.slice(-4).map((r) => `${r.role === "user" ? "Customer" : "Assistant"}: ${r.text}`).join("\n")}\n` : "",
+              `Language hint: ${language}. Message: ${String(text).slice(0, MAX_INPUT_CHARS)}`,
+            ].filter(Boolean).join("\n"),
+          },
         ],
       }),
     });

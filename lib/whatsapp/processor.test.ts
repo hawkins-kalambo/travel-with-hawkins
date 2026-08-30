@@ -34,7 +34,8 @@ mock.module("@/lib/logger", { exports: { logInfo: record("logInfo"), logWarn: re
 mock.module("@/lib/rateLimit", { exports: { isRateLimited: async () => rateLimited } });
 mock.module("@/lib/whatsapp/client", { exports: { markWhatsAppMessageRead: async () => {} } });
 mock.module("@/lib/whatsapp/ai/controller", { exports: { interpretTurn: async () => ({ intent: "unknown", language: "en", confidence: 0, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal", schemaVersion: 1 }) } });
-mock.module("@/lib/whatsapp/ai/respond", { exports: { composeLiveAnswer: async () => ({ text: null, allowedTool: null, toolOutcome: "none" }) } });
+mock.module("@/lib/whatsapp/ai/respond", { exports: { gatherFacts: async () => ({ intent: "unknown", facts: [], allowedTool: null, toolOutcome: "none", route: null, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null }), formatFromPack: () => ({ text: null, allowedTool: null, toolOutcome: "none" }) } });
+mock.module("@/lib/whatsapp/ai/synthesise", { exports: { synthesiseReply: async () => ({ text: null, guardTripped: false }) } });
 mock.module("@/lib/whatsapp/ai/bookingBridge", { exports: { prepareBookingDraft: async () => ({ outcome: "need_origin" }) } });
 mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async () => {} } });
 mock.module("@/lib/whatsapp/ai/knowledgeStore", {

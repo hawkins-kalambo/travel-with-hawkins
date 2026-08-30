@@ -12,7 +12,8 @@ import { resolveTravelDate } from "@/lib/whatsapp/travelDate";
 import { searchKnowledge } from "@/lib/whatsapp/ai/knowledgeStore";
 import { isAiFeatureEnabled } from "@/lib/whatsapp/ai/flags";
 import { interpretTurn } from "@/lib/whatsapp/ai/controller";
-import { composeLiveAnswer } from "@/lib/whatsapp/ai/respond";
+import { formatFromPack, gatherFacts } from "@/lib/whatsapp/ai/respond";
+import { synthesiseReply } from "@/lib/whatsapp/ai/synthesise";
 import { recordAiInteraction } from "@/lib/whatsapp/ai/audit";
 import { prepareBookingDraft } from "@/lib/whatsapp/ai/bookingBridge";
 import { classifyUrgency } from "@/lib/whatsapp/ai/urgency";
@@ -295,9 +296,12 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
   // it can answer, falls through to the legacy hint path below.
   if (isAiFeatureEnabled("liveTools")) {
     const started = Date.now();
-    const controller = await interpretTurn(question, conversation.language);
+    const recent = conversation.data.aiRecent ?? [];
+    const controller = await interpretTurn(question, conversation.language, recent);
     let replied = false;
     let clarification = false;
+    let synthesised = false;
+    let handledInPlace = false;
     let allowedTool: string | null = null;
     let toolOutcome: "none" | "ok" | "denied" | "error" = "none";
     let previewText: string | null = null;
@@ -337,15 +341,28 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
         replied = true; toolOutcome = "ok"; previewText = "(no route)";
       }
     } else {
-      const live = await composeLiveAnswer(
-        controller, { contactId: conversation.contactId, waId: conversation.waId }, conversation.language,
-      );
-      allowedTool = live.allowedTool;
-      toolOutcome = live.toolOutcome;
-      if (live.text) { await send(conversation, textMessage(live.text)); replied = true; previewText = live.text; }
-      else if (live.needsClarification) {
-        await send(conversation, textMessage(live.needsClarification));
-        replied = true; clarification = true; previewText = live.needsClarification;
+      handledInPlace = true;
+      // Phase A1: gather every verified fact the turn needs, then either let
+      // the model compose the reply from that pack (guarded) or fall back to
+      // the deterministic formatter over the same pack.
+      const pack = await gatherFacts(controller, { contactId: conversation.contactId, waId: conversation.waId });
+      allowedTool = pack.allowedTool;
+      toolOutcome = pack.toolOutcome;
+
+      if (isAiFeatureEnabled("synthesis") && pack.facts.length && !pack.needsClarification) {
+        const s = await synthesiseReply(question, conversation.language, pack, recent);
+        if (s.text) {
+          await send(conversation, textMessage(s.text));
+          replied = true; synthesised = true; previewText = s.text;
+        }
+      }
+      if (!replied) {
+        const live = formatFromPack(controller, pack);
+        if (live.text) { await send(conversation, textMessage(live.text)); replied = true; previewText = live.text; }
+        else if (live.needsClarification) {
+          await send(conversation, textMessage(live.needsClarification));
+          replied = true; clarification = true; previewText = live.needsClarification;
+        }
       }
     }
 
@@ -358,8 +375,22 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
       fallbackUsed: !replied, clarificationRequested: clarification,
       humanRequested: controller.requiresHuman, urgency: controller.urgency,
       responsePreview: previewText, responseMs: Date.now() - started,
+      model: synthesised ? "synthesis" : null,
     });
-    if (replied) return;
+
+    if (replied) {
+      // Keep a short rolling memory for follow-ups (only when we stayed on the
+      // question step — the agent / booking-draft paths have moved elsewhere).
+      if (handledInPlace) {
+        const nextRecent = [
+          ...recent,
+          { role: "user" as const, text: question.slice(0, 160) },
+          ...(previewText ? [{ role: "bot" as const, text: previewText.replace(/\n+/g, " ").slice(0, 160) }] : []),
+        ].slice(-6);
+        await transitionState(conversation, "question", { ...conversation.data, aiRecent: nextRecent });
+      }
+      return;
+    }
   }
 
   // The matcher couldn't place it — ask the model to interpret. With AI off,
