@@ -65,10 +65,13 @@ mock.module("@/lib/logger", { exports: { logInfo() {}, logWarn() {}, logError() 
 mock.module("@/lib/rateLimit", { exports: { isRateLimited: async () => false } });
 mock.module("@/lib/whatsapp/client", { exports: { markWhatsAppMessageRead: async () => {} } });
 let controllerImpl: (text: string, lang: string) => Promise<unknown>;
-let composeLiveImpl: () => Promise<unknown>;
+let factsImpl: (controller: { intent: string }) => Promise<Record<string, unknown>>;
+let formatImpl: (controller: { intent: string }, pack: unknown) => unknown;
+let synthImpl: () => Promise<{ text: string | null; guardTripped: boolean }>;
 let bridgeImpl: () => Promise<unknown>;
 mock.module("@/lib/whatsapp/ai/controller", { exports: { interpretTurn: (t: string, l: string) => controllerImpl(t, l) } });
-mock.module("@/lib/whatsapp/ai/respond", { exports: { composeLiveAnswer: () => composeLiveImpl() } });
+mock.module("@/lib/whatsapp/ai/respond", { exports: { gatherFacts: (c: { intent: string }) => factsImpl(c), formatFromPack: (c: { intent: string }, p: unknown) => formatImpl(c, p) } });
+mock.module("@/lib/whatsapp/ai/synthesise", { exports: { synthesiseReply: () => synthImpl() } });
 mock.module("@/lib/whatsapp/ai/bookingBridge", { exports: { prepareBookingDraft: () => bridgeImpl() } });
 mock.module("@/lib/whatsapp/ai/audit", { exports: { recordAiInteraction: async (r: unknown) => { state.aiAuditRows.push(r); } } });
 mock.module("@/lib/whatsapp/ai/knowledgeStore", {
@@ -161,7 +164,9 @@ beforeEach(() => {
   state.popularRoutesCalls = 0; state.routeRequestCalls = 0;
   state.aiAuditRows = [];
   controllerImpl = async () => ({ intent: "unknown", language: "en", confidence: 0, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal", schemaVersion: 1 });
-  composeLiveImpl = async () => ({ text: null, allowedTool: null, toolOutcome: "none" });
+  factsImpl = async (c) => ({ intent: c.intent, facts: [], allowedTool: null, toolOutcome: "none", route: null, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null });
+  formatImpl = () => ({ text: null, allowedTool: null, toolOutcome: "none" });
+  synthImpl = async () => ({ text: null, guardTripped: false });
   bridgeImpl = async () => ({ outcome: "need_origin" });
   claimResult = null;
   conversationRow = baseConversation();
@@ -961,16 +966,52 @@ function withLiveTools(fn: () => Promise<void>) {
   };
 }
 
-test("§3 with liveTools on, a verified answer from the composer is sent and audited", withLiveTools(async () => {
+test("§3 with liveTools on, a verified deterministic answer is sent and audited", withLiveTools(async () => {
   controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "fare_question", confidence: 0.9, entities: { origin: "Blantyre", destination: "MZUNI" }, missingFields: [], requestedTool: "getPublicFare", requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
-  composeLiveImpl = async () => ({ text: "The current fare for Blantyre - Mzuzu University is MWK 120,000.", allowedTool: "getPublicFare", toolOutcome: "ok" });
+  factsImpl = async (c) => ({ intent: c.intent, facts: [{ label: "route", value: "Blantyre - Mzuzu University" }, { label: "fare", value: "MWK 120,000" }], allowedTool: "searchActiveRoutes", toolOutcome: "ok", route: { fare: 120000 }, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null });
+  formatImpl = () => ({ text: "The current fare for Blantyre - Mzuzu University is MWK 120,000.", allowedTool: "searchActiveRoutes", toolOutcome: "ok" });
   conversationRow = baseConversation({ step: "question" });
   inbound("how much from Blantyre to MZUNI");
   await processWhatsAppEvent("evt");
   assert.match(texts().join("\n"), /MWK 120,000/);
   assert.equal(state.aiCalls, 0, "the legacy provider path is not used when the composer answers");
-  assert.equal(state.aiAuditRows.length, 1);
-  assert.equal((state.aiAuditRows[0] as { detectedIntent: string }).detectedIntent, "fare_question");
+  assert.equal((state.aiAuditRows.at(-1) as { detectedIntent: string }).detectedIntent, "fare_question");
+}));
+
+function withSynthesis(fn: () => Promise<void>) {
+  return withLiveTools(async () => {
+    const prev = process.env.WHATSAPP_AI_SYNTHESIS_ENABLED;
+    process.env.WHATSAPP_AI_SYNTHESIS_ENABLED = "true";
+    try { await fn(); } finally { process.env.WHATSAPP_AI_SYNTHESIS_ENABLED = prev; }
+  });
+}
+
+test("A1 with synthesis on, the model-composed reply is sent (marked synthesis) and memory is kept", withSynthesis(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "fare_question", confidence: 0.9, entities: { origin: "Blantyre", destination: "MZUNI", travelDate: "2027-06-20" }, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  factsImpl = async (c) => ({ intent: c.intent, facts: [{ label: "route", value: "Blantyre - Mzuzu University" }, { label: "fare", value: "MWK 120,000" }, { label: "scheduled trip", value: "none scheduled for that date" }], allowedTool: "searchActiveRoutes", toolOutcome: "ok", route: {}, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null });
+  synthImpl = async () => ({ text: "The Blantyre - Mzuzu University fare is MWK 120,000. There's no scheduled trip for 20 June 2027 yet, but you can still reserve.", guardTripped: false });
+  formatImpl = () => ({ text: "(deterministic)", allowedTool: "x", toolOutcome: "ok" });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("how much Blantyre to MZUNI and is there a bus on the 20th of June");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /MWK 120,000.*no scheduled trip for 20 June 2027/);
+  assert.doesNotMatch(texts().join("\n"), /\(deterministic\)/);
+  assert.equal((state.aiAuditRows.at(-1) as { model: string }).model, "synthesis");
+  const saved = state.transitions.at(-1)?.data as { aiRecent: { role: string; text: string }[] };
+  assert.equal(saved.aiRecent.length, 2);
+  assert.equal(saved.aiRecent[0].role, "user");
+}));
+
+test("A1 when the synthesis guard trips, the deterministic answer is used instead", withSynthesis(async () => {
+  controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "fare_question", confidence: 0.9, entities: { origin: "Blantyre", destination: "MZUNI" }, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
+  factsImpl = async (c) => ({ intent: c.intent, facts: [{ label: "fare", value: "MWK 120,000" }], allowedTool: "searchActiveRoutes", toolOutcome: "ok", route: {}, trip: null, popular: [], universities: [], bookings: [], booking: null, payment: null, deadline: null });
+  synthImpl = async () => ({ text: null, guardTripped: true });
+  formatImpl = () => ({ text: "The current fare for Blantyre - Mzuzu University is MWK 120,000.", allowedTool: "searchActiveRoutes", toolOutcome: "ok" });
+  conversationRow = baseConversation({ step: "question" });
+  inbound("how much to MZUNI");
+  await processWhatsAppEvent("evt");
+  assert.match(texts().join("\n"), /MWK 120,000/);
+  assert.equal((state.aiAuditRows.at(-1) as { model: string | null }).model, null, "not marked as synthesis when the guard tripped");
 }));
 
 test("§3 urgent turn raises an agent request and keeps serving, still audited", withLiveTools(async () => {
@@ -984,7 +1025,7 @@ test("§3 urgent turn raises an agent request and keeps serving, still audited",
 
 test("§3 when the composer can't answer, it falls through to the legacy hint path", withLiveTools(async () => {
   controllerImpl = async () => ({ schemaVersion: 1, language: "en", intent: "route_search", confidence: 0.7, entities: {}, missingFields: [], requestedTool: null, requiresConfirmation: false, requiresHuman: false, urgency: "normal" });
-  composeLiveImpl = async () => ({ text: null, allowedTool: null, toolOutcome: "none" });
+  formatImpl = () => ({ text: null, allowedTool: null, toolOutcome: "none" });
   aiInterpret = async () => ({ intent: "routes", origin: "Lilongwe", clarify: false });
   conversationRow = baseConversation({ step: "question" });
   inbound("do you have buses");

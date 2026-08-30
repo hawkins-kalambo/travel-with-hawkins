@@ -10,6 +10,7 @@
 export type AiFeature =
   | "assistant"        // the conversational assistant runs at all
   | "liveTools"        // read-only live-data tools (routes, bookings, payments…)
+  | "synthesis"        // AI composes the reply from verified facts (with a guard)
   | "bookingDrafts"    // natural-language booking drafts
   | "routeAlternatives"// verified multi-leg suggestions
   | "personalization"  // saved customer preferences / suggestions
@@ -19,6 +20,7 @@ export type AiFeature =
 const ENV_KEY: Record<AiFeature, string> = {
   assistant: "WHATSAPP_AI_ASSISTANT_ENABLED",
   liveTools: "WHATSAPP_AI_LIVE_TOOLS_ENABLED",
+  synthesis: "WHATSAPP_AI_SYNTHESIS_ENABLED",
   bookingDrafts: "WHATSAPP_AI_BOOKING_DRAFTS_ENABLED",
   routeAlternatives: "WHATSAPP_AI_ROUTE_ALTERNATIVES_ENABLED",
   personalization: "WHATSAPP_AI_PERSONALIZATION_ENABLED",
@@ -52,6 +54,7 @@ export function aiFeatureSnapshot(env: NodeJS.ProcessEnv = process.env): Record<
     killSwitch: aiKillSwitchEngaged(env),
     assistant: isAiFeatureEnabled("assistant", env),
     liveTools: isAiFeatureEnabled("liveTools", env),
+    synthesis: isAiFeatureEnabled("synthesis", env),
     bookingDrafts: isAiFeatureEnabled("bookingDrafts", env),
     routeAlternatives: isAiFeatureEnabled("routeAlternatives", env),
     personalization: isAiFeatureEnabled("personalization", env),

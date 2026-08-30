@@ -283,6 +283,7 @@ export type AiInteraction = {
   urgency: string;
   response_preview: string | null;
   response_ms: number | null;
+  model: string | null;
   feedback: string | null;
   created_at: string;
 };

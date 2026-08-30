@@ -47,7 +47,7 @@ test("the kill switch overrides every flag", () => {
 test("snapshot reflects the enabled set", () => {
   const snap = aiFeatureSnapshot(on({ WHATSAPP_AI_LIVE_TOOLS_ENABLED: "1", WHATSAPP_AI_PERSONALIZATION_ENABLED: "yes" }));
   assert.deepEqual(snap, {
-    killSwitch: false, assistant: true, liveTools: true, bookingDrafts: false,
+    killSwitch: false, assistant: true, liveTools: true, synthesis: false, bookingDrafts: false,
     routeAlternatives: false, personalization: true, voiceNotes: false, proactiveNotifications: false,
   });
 });

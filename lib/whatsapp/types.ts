@@ -153,6 +153,9 @@ export type WhatsAppStateData = {
   studentUniversityName?: string;
   // Popular Routes paging offset.
   popularOffset?: number;
+  // Short rolling memory for the AI assistant at the "question" step (last few
+  // turns, redacted + length-capped). Never the full history.
+  aiRecent?: { role: "user" | "bot"; text: string }[];
 };
 
 export type WhatsAppConversationState = {
