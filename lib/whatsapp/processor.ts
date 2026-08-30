@@ -9,6 +9,7 @@ import { getWhatsAppAiProvider } from "@/lib/whatsapp/ai-provider";
 import { cancelWhatsAppBooking, createRouteRequest, createUnassignedWhatsAppBooking, createWhatsAppBooking, findAvailableDepartures, findDepartureForRouteDate, findGeneralRoute, findStudentRoute, getBookingFeeAmount, getOrCreateBookingFeeCheckout, listActiveUniversities, listBookableRoutes, listPopularRoutes, listWhatsAppBookings, loadBookableRoute, loadDeparture, loadWhatsAppBooking, matchActiveUniversity, trackBookingForWhatsApp, type AvailableDeparture, type BookableRoute } from "@/lib/whatsapp/domain";
 import { UNPAID_RESERVATION_LIMIT, formatMalawiDateTime } from "@/lib/whatsapp/booking-rules";
 import { resolveTravelDate } from "@/lib/whatsapp/travelDate";
+import { classifySmalltalk } from "@/lib/whatsapp/smalltalk";
 import { searchKnowledge } from "@/lib/whatsapp/ai/knowledgeStore";
 import { isAiFeatureEnabled } from "@/lib/whatsapp/ai/flags";
 import { interpretTurn } from "@/lib/whatsapp/ai/controller";
@@ -273,6 +274,19 @@ async function answerQuestion(conversation: WhatsAppConversationState, question:
       fallbackUsed: false, clarificationRequested: false, humanRequested: true, urgency: "urgent",
       responsePreview: "(urgent — agent requested)", responseMs: 0,
     });
+    return;
+  }
+
+  // A bare pleasantry (thanks / hello / goodbye) with no real question in it:
+  // answer warmly and stop. Neither the knowledge base nor the model handles
+  // these today, so the customer would otherwise get silence or a clumsy
+  // "I didn't understand". Anything carrying a question keyword is not matched
+  // here and follows the normal path below.
+  const smalltalk = classifySmalltalk(question);
+  if (smalltalk) {
+    const key = smalltalk === "thanks" ? "smalltalkThanks"
+      : smalltalk === "farewell" ? "smalltalkFarewell" : "smalltalkGreeting";
+    await send(conversation, textMessage(t(conversation.language, key)));
     return;
   }
 
