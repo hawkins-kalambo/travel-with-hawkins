@@ -72,6 +72,65 @@ export function reviewConfirmMessage(language: WhatsAppLanguage, summary: string
   };
 }
 
+// A resolved route: its real details, then Continue booking / Change route /
+// Main menu. Continue booking carries straight on — it never sends the
+// customer back to the menu to start over (§7).
+export function routeSelectedMessage(language: WhatsAppLanguage, summary: string): WhatsAppOutboundMessage {
+  return {
+    type: "buttons", body: summary,
+    buttons: [
+      { id: "flow_confirm", title: t(language, "continueBooking") },
+      { id: "route_change", title: t(language, "changeRoute") },
+      { id: "route_menu", title: t(language, "routeOptMenu") },
+    ],
+    fallback: `${summary}\n1. ${t(language, "continueBooking")}\n2. ${t(language, "changeRoute")}\n3. ${t(language, "routeOptMenu")}`,
+  };
+}
+
+// Review screen with granular edit targets (§9). A list so all the actions fit.
+export function reviewActionsMessage(language: WhatsAppLanguage, summary: string): WhatsAppOutboundMessage {
+  const rows = [
+    { id: "flow_confirm", title: t(language, "confirmed") },
+    { id: "edit_route", title: t(language, "editRoute") },
+    { id: "edit_date", title: t(language, "editDate") },
+    { id: "edit_passenger", title: t(language, "editPassenger") },
+    { id: "flow_cancel", title: t(language, "cancel") },
+  ];
+  return {
+    type: "list", body: summary, button: t(language, "editButton"), rows,
+    fallback: `${summary}\n${rows.map((r, i) => `${i + 1}. ${r.title}`).join("\n")}`,
+  };
+}
+
+// Raised a support request but the bot still serves the customer (§14).
+export function agentWaitingMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  const rows = [
+    { id: "menu_booking", title: t(language, "menuBooking") },
+    { id: "menu_mybookings", title: t(language, "menuMyBookings") },
+    { id: "menu_payment", title: t(language, "menuPayment") },
+    { id: "route_menu", title: t(language, "routeOptMenu") },
+    { id: "cancel_agent", title: t(language, "cancelAgentRequest") },
+  ];
+  return {
+    type: "list", body: t(language, "agentWaitingPrompt"), button: t(language, "routeEntryButton"), rows,
+    fallback: `${t(language, "agentWaitingPrompt")}\n${rows.map((r, i) => `${i + 1}. ${r.title}`).join("\n")}`,
+  };
+}
+
+// After a booking is held: what next? (§10)
+export function bookingDoneMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
+  const rows = [
+    { id: "menu_booking", title: t(language, "bookNextPassenger") },
+    { id: "menu_mybookings", title: t(language, "menuMyBookings") },
+    { id: "menu_payment", title: t(language, "menuPayment") },
+    { id: "route_menu", title: t(language, "routeOptMenu") },
+  ];
+  return {
+    type: "list", body: t(language, "bookingDonePrompt"), button: t(language, "routeEntryButton"), rows,
+    fallback: `${t(language, "bookingDonePrompt")}\n${rows.map((r, i) => `${i + 1}. ${r.title}`).join("\n")}`,
+  };
+}
+
 export function passengerForMessage(language: WhatsAppLanguage): WhatsAppOutboundMessage {
   return {
     type: "buttons", body: t(language, "askPassengerFor"),

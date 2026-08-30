@@ -166,6 +166,17 @@ export async function loadDeparture(departureId: string): Promise<AvailableDepar
   return all.find((departure) => departure.id === departureId) ?? null;
 }
 
+// After a customer picks a route + date: is there a published trip on that
+// exact route and date with seats left? (§8 — the flow shows verified trip
+// info when one exists, and an "assigned later" reservation when it does not.)
+export async function findDepartureForRouteDate(
+  routeId: string, travelDate: string,
+): Promise<AvailableDeparture | null> {
+  if (!routeId || !travelDate) return null;
+  const all = await findAvailableDepartures();
+  return all.find((d) => d.routeId === routeId && d.travelDate === travelDate) ?? null;
+}
+
 export type CreateWhatsAppBookingResult =
   | { outcome: "created" | "existing"; bookingId: string; expiresAt: string | null; fare: number; bookingFee: number; shortNotice: boolean }
   | { outcome: "rejected"; reason: string };

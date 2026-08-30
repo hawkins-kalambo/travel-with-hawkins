@@ -38,6 +38,7 @@ mock.module("@/lib/whatsapp/domain", {
     createWhatsAppBooking: async () => ({ outcome: "rejected", reason: "test" }),
     createUnassignedWhatsAppBooking: async () => ({ outcome: "rejected", reason: "test" }),
     findAvailableDepartures: async () => [],
+    findDepartureForRouteDate: async () => null,
     listBookableRoutes: async () => [],
     loadBookableRoute: async () => null,
     listPopularRoutes: async () => [],
@@ -73,7 +74,8 @@ mock.module("@/lib/whatsapp/repository", {
     },
     setLanguage: async (conversation: unknown) => conversation,
     setOptOut: async () => {},
-    requestHuman: async (conversation: Record<string, unknown>) => ({ ...conversation, mode: "human", status: "waiting", step: "agent_waiting" }),
+    requestHuman: async (conversation: Record<string, unknown>) => ({ ...conversation, status: "waiting" }),
+    cancelHumanRequest: async (conversation: Record<string, unknown>) => ({ ...conversation, status: "bot_controlled" }),
   },
 });
 

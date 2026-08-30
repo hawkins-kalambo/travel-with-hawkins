@@ -12,10 +12,11 @@ export type StateMachineCommand =
 const BACK: Partial<Record<WhatsAppConversationStep, WhatsAppConversationStep>> = {
   route_clarify: "route_entry", route_student_direction: "route_entry",
   route_student_university: "route_student_direction", route_student_home: "route_student_university",
-  route_request_confirm: "route_entry",
-  route_destination: "route_origin", route_pick: "route_origin", route_date: "route_origin",
-  booking_departure: "route_origin",
-  booking_passenger_for: "booking_departure", booking_name: "booking_passenger_for",
+  route_request_confirm: "route_entry", route_selected: "route_entry",
+  // Unified route-to-booking journey (§7): route -> date -> passenger details.
+  route_destination: "route_origin", route_pick: "route_entry", route_date: "route_selected",
+  booking_departure: "route_entry",
+  booking_passenger_for: "route_date", booking_name: "booking_passenger_for",
   booking_email: "booking_name", booking_student_id: "booking_email",
   booking_review: "booking_student_id", payment_booking_id: "menu",
   tracking_booking_id: "menu", my_bookings: "menu", booking_action: "my_bookings",
