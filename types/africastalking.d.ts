@@ -3,6 +3,7 @@ declare module "africastalking" {
     to: string | string[];
     message: string;
     enqueue?: boolean;
+    from?: string;
     senderId?: string;
   };
 
