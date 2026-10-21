@@ -93,7 +93,8 @@ async function deliverSms({
 
   try {
     const sms = AfricasTalking({ username, apiKey }).SMS;
-    const response = (await sms.send({ to: [phone], message })) as SmsResponse;
+    const from = process.env.AT_SENDER_ID?.trim() || "HAWKINS";
+    const response = (await sms.send({ to: [phone], message, from })) as SmsResponse;
     const recipients = response.SMSMessageData?.Recipients;
     const recipient =
       recipients?.find((item) => !item.number || item.number === phone) ?? recipients?.[0];
