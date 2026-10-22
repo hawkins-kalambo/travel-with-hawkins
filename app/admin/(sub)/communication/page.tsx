@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { authFetch } from "@/lib/auth";
 import AnnouncementsSection from "./announcements";
 import BroadcastCenterSection from "./broadcasts";
+import CustomerMessagesSection from "./customer-messages";
 import InboxSection from "./inbox";
 import SupportTicketsSection from "./support-tickets";
 import WebsiteChatInboxSection from "./website-chat-inbox";
@@ -70,8 +71,8 @@ function getNotificationCategory(type: string) {
   return "System";
 }
 
-type TabKey = "overview" | "notifications" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website" | "whatsapp";
-const TAB_KEYS: readonly TabKey[] = ["overview", "notifications", "broadcasts", "announcements", "tickets", "conversations", "website", "whatsapp"];
+type TabKey = "overview" | "notifications" | "customers" | "broadcasts" | "announcements" | "tickets" | "conversations" | "website" | "whatsapp";
+const TAB_KEYS: readonly TabKey[] = ["overview", "notifications", "customers", "broadcasts", "announcements", "tickets", "conversations", "website", "whatsapp"];
 
 function AdminCommunicationPageContent() {
   const searchParams = useSearchParams();
@@ -221,6 +222,7 @@ function AdminCommunicationPageContent() {
           {[
             { key: "overview", label: "Overview" },
             { key: "notifications", label: "Notifications" },
+            { key: "customers", label: "Customer Messages" },
             { key: "broadcasts", label: "Broadcasts" },
             { key: "announcements", label: "Announcements" },
             { key: "tickets", label: "Support Desk" },
@@ -381,6 +383,8 @@ function AdminCommunicationPageContent() {
               )}
             </div>
           )}
+
+          {activeTab === "customers" && <CustomerMessagesSection />}
 
           {activeTab === "broadcasts" && <BroadcastCenterSection />}
 

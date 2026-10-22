@@ -62,3 +62,12 @@ The university-admin migration must be applied before assigning the
 behavior while adding explicit user-to-university operational assignments.
 The ambassador-scope migration then backfills and protects university
 ownership across applications, ambassadors, referrals, and commissions.
+
+## Customer contacts and messages
+
+Apply `2026_10_22_customer_contacts_and_messages.sql` before deploying the
+Communication -> Customer Messages tab. It creates `customer_contacts` (one
+row per phone, filled by an AFTER INSERT trigger on `bookings` and backfilled
+from every existing booking) plus the `customer_messages` /
+`customer_message_recipients` send log. Without it the tab loads with an
+error and booking creation is unaffected.
