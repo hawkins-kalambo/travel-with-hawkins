@@ -313,6 +313,57 @@ export async function sendAmbassadorReferralAlertSms({
   });
 }
 
+const BULK_SMS_CHUNK_SIZE = 100;
+
+export type BulkSmsRecipientResult = {
+  success: boolean;
+  status: string;
+  messageId?: string;
+};
+
+// Admin-written customer messages (see lib/customerMessages.ts). One provider
+// call per chunk of numbers rather than per number, so messaging every
+// customer stays inside a single request's time budget. Never throws: a
+// failed chunk marks each of its numbers "request_failed".
+export async function sendBulkSms({
+  phones,
+  message,
+}: {
+  phones: string[];
+  message: string;
+}): Promise<Map<string, BulkSmsRecipientResult>> {
+  const results = new Map<string, BulkSmsRecipientResult>();
+  const username = process.env.AFRICASTALKING_USERNAME;
+  const apiKey = process.env.AFRICASTALKING_API_KEY;
+
+  if (!username || !apiKey) {
+    logWarn("Bulk SMS skipped because Africa's Talking is not configured", { recipients: phones.length });
+    for (const phone of phones) results.set(phone, { success: false, status: "not_configured" });
+    return results;
+  }
+
+  const sms = AfricasTalking({ username, apiKey }).SMS;
+  const from = process.env.AT_SENDER_ID?.trim() || "HAWKINS";
+
+  for (let index = 0; index < phones.length; index += BULK_SMS_CHUNK_SIZE) {
+    const chunk = phones.slice(index, index + BULK_SMS_CHUNK_SIZE);
+    try {
+      const response = (await sms.send({ to: chunk, message, from })) as SmsResponse;
+      const recipients = response.SMSMessageData?.Recipients ?? [];
+      for (const phone of chunk) {
+        const recipient = recipients.find((item) => item.number === phone);
+        const status = recipient?.status?.trim() || "unknown";
+        results.set(phone, { success: status.toLowerCase() === "success", status, messageId: recipient?.messageId });
+      }
+    } catch (error) {
+      logError("Bulk SMS chunk request failed", { recipients: chunk.length, ...safeError(error) });
+      for (const phone of chunk) results.set(phone, { success: false, status: "request_failed" });
+    }
+  }
+
+  return results;
+}
+
 export async function sendOtpSms({
   phone,
   otp,
