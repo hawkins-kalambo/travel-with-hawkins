@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAdminUser } from "@/lib/supabaseServer";
-import { listCustomerContacts, setContactOptOut } from "@/lib/customerMessages";
+import { addCustomerContact, listCustomerContacts, setContactOptOut } from "@/lib/customerMessages";
+import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
 import { logError } from "@/lib/logger";
 import { jsonError } from "@/lib/apiResponse";
 
-// Customer contact book for Communication -> Customer Messages. Rows are
-// created by the bookings trigger only; admins can search them and toggle
-// per-channel opt-outs, never add or edit contact details here.
+// Customer contact book for Communication -> Customer Messages. Most rows are
+// created by the bookings trigger; admins can also add a contact by hand,
+// search them and toggle per-channel opt-outs. Existing contact details are
+// never overwritten here.
 
 const MAX_PAGE_SIZE = 100;
 
@@ -27,6 +29,30 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     logError("GET /api/admin/customer-contacts failed", { error: err instanceof Error ? err.message : String(err) });
     return jsonError("Unable to load customer contacts", 500);
+  }
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export async function POST(req: NextRequest) {
+  const response = NextResponse.next();
+  const { authorized, error } = await requireAdminUser(req, response);
+  if (!authorized) return jsonError(error || "Unauthorized", 401);
+
+  try {
+    const body = (await req.json()) as Record<string, unknown>;
+    const phone = normalizeMalawiPhone(body.phone);
+    const name = typeof body.name === "string" ? body.name.trim().slice(0, 100) : "";
+    const email = typeof body.email === "string" ? body.email.trim().slice(0, 200) : "";
+
+    if (!phone) return jsonError("Enter a valid Malawi mobile number, e.g. 0991234567", 400);
+    if (email && !EMAIL_PATTERN.test(email)) return jsonError("Enter a valid email address", 400);
+
+    const { contact, created } = await addCustomerContact({ phone, name, email });
+    return NextResponse.json({ success: true, contact, created }, { status: created ? 201 : 200 });
+  } catch (err) {
+    logError("POST /api/admin/customer-contacts failed", { error: err instanceof Error ? err.message : String(err) });
+    return jsonError("Unable to add customer contact", 500);
   }
 }
 
