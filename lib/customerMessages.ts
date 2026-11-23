@@ -6,13 +6,17 @@ import { sendBulkSms } from "@/lib/africasTalking";
 import { resend } from "@/lib/resend";
 import { logError, logInfo, logWarn } from "@/lib/logger";
 
-// Admin-written messages to customers who have booked with us. Contacts are
-// captured by a trigger on bookings (db/migrations/2026_10_22_customer_contacts_and_messages.sql),
-// so this module only reads them -- it never creates contacts itself.
+// Admin-written messages to customers. Most contacts are captured by a
+// trigger on bookings (db/migrations/2026_10_22_customer_contacts_and_messages.sql);
+// admins can also add a contact by hand, or type numbers straight into a
+// message, which are optionally saved as contacts too.
 
 export type MessageChannel = "sms" | "email";
 export type MessageAudience = "all" | "selected";
 type DeliveryStatus = "sent" | "failed" | "skipped";
+
+// first_source / last_source for contacts an admin added rather than a booking.
+export const MANUAL_CONTACT_SOURCE = "admin";
 
 export type CustomerContact = {
   id: string;
@@ -72,6 +76,86 @@ export async function setContactOptOut(
     .single();
   if (error) throw error;
   return data as CustomerContact;
+}
+
+// Adds one contact by hand. `phone` must already be normalized (+265...).
+// If the number is already on file the existing row is kept as it is, apart
+// from filling in a name or email it doesn't have yet.
+export async function addCustomerContact(input: {
+  phone: string;
+  name?: string | null;
+  email?: string | null;
+}): Promise<{ contact: CustomerContact; created: boolean }> {
+  const name = input.name?.trim() || null;
+  const email = input.email?.trim().toLowerCase() || null;
+
+  const { data: existing, error: lookupError } = await supabaseAdmin
+    .from("customer_contacts")
+    .select(CONTACT_COLUMNS)
+    .eq("phone", input.phone)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
+  if (existing) {
+    const contact = existing as CustomerContact;
+    const updates: { name?: string; email?: string } = {};
+    if (name && !contact.name) updates.name = name;
+    if (email && !contact.email) updates.email = email;
+    if (Object.keys(updates).length === 0) return { contact, created: false };
+
+    const { data, error } = await supabaseAdmin
+      .from("customer_contacts")
+      .update(updates)
+      .eq("id", contact.id)
+      .select(CONTACT_COLUMNS)
+      .single();
+    if (error) throw error;
+    return { contact: data as CustomerContact, created: false };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("customer_contacts")
+    .insert({ phone: input.phone, name, email, first_source: MANUAL_CONTACT_SOURCE, last_source: MANUAL_CONTACT_SOURCE })
+    .select(CONTACT_COLUMNS)
+    .single();
+  if (error) {
+    // A booking or another admin saved the same number a moment ago.
+    if (error.code === "23505") return addCustomerContact(input);
+    throw error;
+  }
+  return { contact: data as CustomerContact, created: true };
+}
+
+// A message recipient. Typed-in numbers that aren't saved as contacts have no id.
+type Recipient = Pick<CustomerContact, "phone" | "email" | "sms_opt_out" | "email_opt_out"> & { id: string | null };
+
+// Adds numbers the admin typed in to the recipients. A number already in the
+// contact book is sent to as that contact, so its opt-outs still apply.
+async function addTypedNumbers(recipients: CustomerContact[], phones: string[], saveNew: boolean): Promise<Recipient[]> {
+  const result: Recipient[] = [...recipients];
+  const alreadyIncluded = new Set(recipients.map((contact) => contact.phone));
+  const typed = [...new Set(phones)].filter((phone) => !alreadyIncluded.has(phone));
+  if (typed.length === 0) return result;
+
+  if (saveNew) {
+    const { error } = await supabaseAdmin
+      .from("customer_contacts")
+      .upsert(
+        typed.map((phone) => ({ phone, first_source: MANUAL_CONTACT_SOURCE, last_source: MANUAL_CONTACT_SOURCE })),
+        { onConflict: "phone", ignoreDuplicates: true }
+      );
+    // Saving is secondary to sending: log it and still send.
+    if (error) logError("Saving typed-in numbers as contacts failed", { numbers: typed.length, error: error.message });
+  }
+
+  const { data, error } = await supabaseAdmin.from("customer_contacts").select(CONTACT_COLUMNS).in("phone", typed);
+  if (error) throw error;
+  const onFile = new Map(((data ?? []) as CustomerContact[]).map((contact) => [contact.phone, contact]));
+
+  for (const phone of typed) {
+    result.push(onFile.get(phone) ?? { id: null, phone, email: null, sms_opt_out: false, email_opt_out: false });
+  }
+  return result;
 }
 
 async function loadRecipients(audience: MessageAudience, contactIds: string[]): Promise<CustomerContact[]> {
@@ -159,6 +243,10 @@ export type SendCustomerMessageInput = {
   channels: MessageChannel[];
   audience: MessageAudience;
   contactIds: string[];
+  // Normalized numbers typed in by the admin, sent to on top of the audience.
+  phones?: string[];
+  // Save typed-in numbers that aren't contacts yet to the contact book.
+  saveNewContacts?: boolean;
   createdBy: string;
 };
 
@@ -173,7 +261,10 @@ export type SendCustomerMessageSummary = {
 export async function sendCustomerMessage(input: SendCustomerMessageInput): Promise<SendCustomerMessageSummary> {
   const subject = input.subject?.trim() || "Message from Travel With Hawkins";
   const body = input.body.trim();
-  const recipients = await loadRecipients(input.audience, input.contactIds);
+  const contacts = input.audience === "selected" && input.contactIds.length === 0
+    ? []
+    : await loadRecipients(input.audience, input.contactIds);
+  const recipients = await addTypedNumbers(contacts, input.phones ?? [], input.saveNewContacts ?? false);
 
   if (recipients.length === 0) {
     throw new Error("No customers match this message's audience.");

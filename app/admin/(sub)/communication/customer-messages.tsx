@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { authFetch } from "@/lib/auth";
 import { LoadingState } from "@/app/components/ui/Spinner";
 import Badge, { type BadgeTone } from "@/app/components/ui/Badge";
+import { normalizeMalawiPhone } from "@/lib/phoneNumbers";
 
 type Contact = {
   id: string;
@@ -56,6 +57,22 @@ function smsParts(text: string): { parts: number; unicode: boolean } {
   return { parts: text.length <= single ? 1 : Math.ceil(text.length / multi), unicode };
 }
 
+// Numbers typed into the message form: one per line or comma-separated.
+// Spaces are allowed inside a number ("099 123 4567").
+function parseTypedNumbers(text: string): { valid: string[]; invalid: string[] } {
+  const entries = text.split(/[\n,;]+/).map((entry) => entry.trim()).filter(Boolean);
+  const valid = new Set<string>();
+  const invalid: string[] = [];
+  for (const entry of entries) {
+    const phone = normalizeMalawiPhone(entry);
+    if (phone) valid.add(phone);
+    else invalid.push(entry);
+  }
+  return { valid: [...valid], invalid };
+}
+
+const EMPTY_NEW_CONTACT = { phone: "", name: "", email: "" };
+
 export default function CustomerMessagesSection() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
@@ -76,6 +93,14 @@ export default function CustomerMessagesSection() {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [typedNumbers, setTypedNumbers] = useState("");
+  const [saveTypedNumbers, setSaveTypedNumbers] = useState(true);
+
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [newContact, setNewContact] = useState(EMPTY_NEW_CONTACT);
+  const [addingContact, setAddingContact] = useState(false);
+  const [contactNotice, setContactNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const loadContacts = useCallback(async () => {
     setLoadingContacts(true);
@@ -158,10 +183,46 @@ export default function CustomerMessagesSection() {
     }
   };
 
-  const recipientCount = audience === "all" ? allContactsTotal : selected.size;
+  const handleAddContact = async (event: FormEvent) => {
+    event.preventDefault();
+    if (addingContact) return;
+    setAddingContact(true);
+    setContactNotice(null);
+    try {
+      const response = await authFetch("/api/admin/customer-contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newContact),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) throw new Error(data?.error || "Unable to add contact");
+
+      const contact = data.contact as Contact;
+      setSelected((current) => new Map(current).set(contact.id, contact));
+      setAudience("selected");
+      setContactNotice({
+        type: "success",
+        text: data.created
+          ? `${contact.name || contact.phone} saved and selected. Write your message above to send.`
+          : `${contact.phone} is already a contact. It's now selected.`,
+      });
+      setNewContact(EMPTY_NEW_CONTACT);
+      setShowAddContact(false);
+      await loadContacts();
+    } catch (error) {
+      setContactNotice({ type: "error", text: error instanceof Error ? error.message : "Unable to add contact" });
+    } finally {
+      setAddingContact(false);
+    }
+  };
+
+  const typed = parseTypedNumbers(typedNumbers);
+  const selectedPhones = new Set([...selected.values()].map((contact) => contact.phone));
+  const extraTypedCount = audience === "selected" ? typed.valid.filter((phone) => !selectedPhones.has(phone)).length : typed.valid.length;
+  const recipientCount = (audience === "all" ? allContactsTotal : selected.size) + extraTypedCount;
   const { parts, unicode } = smsParts(body);
   const channels = [useSms ? "sms" : null, useEmail ? "email" : null].filter(Boolean) as string[];
-  const canSend = !sending && body.trim().length > 0 && channels.length > 0 && recipientCount > 0;
+  const canSend = !sending && body.trim().length > 0 && channels.length > 0 && recipientCount > 0 && typed.invalid.length === 0;
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -184,6 +245,8 @@ export default function CustomerMessagesSection() {
           channels,
           audience,
           contactIds: audience === "selected" ? [...selected.keys()] : [],
+          phones: typed.valid,
+          saveNewContacts: saveTypedNumbers,
         }),
       });
       const data = await response.json();
@@ -198,7 +261,9 @@ export default function CustomerMessagesSection() {
       setBody("");
       setSubject("");
       setSelected(new Map());
-      await loadHistory();
+      setTypedNumbers("");
+      if (typed.valid.length > 0 && saveTypedNumbers) await Promise.all([loadHistory(), loadContacts()]);
+      else await loadHistory();
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "Unable to send the message" });
     } finally {
@@ -214,7 +279,7 @@ export default function CustomerMessagesSection() {
         <div className="mb-4">
           <h3 className="text-lg font-semibold text-gray-800">Message customers</h3>
           <p className="mt-1 text-sm text-gray-600">
-            Write one message and send it by SMS (from HAWKINS) and/or email to every customer who has booked, or to the customers you select below.
+            Write one message and send it by SMS (from HAWKINS) and/or email to every customer who has booked, to the customers you select below, or to any number you type in.
           </p>
         </div>
 
@@ -228,6 +293,41 @@ export default function CustomerMessagesSection() {
               <input type="radio" name="audience" checked={audience === "selected"} onChange={() => setAudience("selected")} />
               Selected customers ({selected.size})
             </label>
+          </div>
+
+          <div>
+            <label htmlFor="typed-numbers" className="text-sm font-semibold text-gray-700">
+              Send to other numbers <span className="font-normal text-gray-500">(optional)</span>
+            </label>
+            <textarea
+              id="typed-numbers"
+              value={typedNumbers}
+              onChange={(event) => {
+                setTypedNumbers(event.target.value);
+                if (event.target.value.trim()) setAudience("selected");
+              }}
+              placeholder="Type phone numbers, e.g. 0991234567, 0881234567 (commas or new lines between them)"
+              rows={2}
+              inputMode="tel"
+              className="input-field mt-1"
+            />
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-gray-500">
+                {typed.valid.length > 0 ? `${typed.valid.length} number${typed.valid.length === 1 ? "" : "s"} added` : "Use this for someone who isn't in your contacts yet."}
+              </span>
+              {typed.invalid.length > 0 ? (
+                <span className="font-semibold text-danger">
+                  Not a valid Malawi number: {typed.invalid.slice(0, 3).join(", ")}
+                  {typed.invalid.length > 3 ? ` +${typed.invalid.length - 3} more` : ""}
+                </span>
+              ) : null}
+            </div>
+            {typed.valid.length > 0 ? (
+              <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={saveTypedNumbers} onChange={(event) => setSaveTypedNumbers(event.target.checked)} />
+                Save new numbers to customer contacts
+              </label>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -277,6 +377,10 @@ export default function CustomerMessagesSection() {
             </p>
           ) : null}
 
+          {useEmail && typed.valid.length > 0 ? (
+            <p className="text-xs text-gray-500">Typed-in numbers get SMS only, unless the number is already a contact with an email.</p>
+          ) : null}
+
           {notice ? (
             <div className={`rounded-lg p-3 text-sm ${notice.type === "success" ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>
               {notice.text}
@@ -293,27 +397,79 @@ export default function CustomerMessagesSection() {
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-800">Customer contacts</h3>
-            <p className="mt-1 text-sm text-gray-600">Saved automatically whenever someone books, on the website or WhatsApp.</p>
+            <p className="mt-1 text-sm text-gray-600">Saved automatically whenever someone books (website or WhatsApp), or added by you.</p>
           </div>
-          <form
-            className="flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setPage(0);
-              setAppliedSearch(search.trim());
-            }}
-          >
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search name, phone, email, route"
-              className="input-field md:w-72"
-            />
-            <button type="submit" className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-              Search
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddContact((open) => !open);
+                setContactNotice(null);
+              }}
+              className="btn-primary whitespace-nowrap"
+            >
+              {showAddContact ? "Close" : "+ Add contact"}
+            </button>
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setPage(0);
+                setAppliedSearch(search.trim());
+              }}
+            >
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search name, phone, email, route"
+                className="input-field md:w-72"
+              />
+              <button type="submit" className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                Search
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {showAddContact ? (
+          <form onSubmit={(event) => void handleAddContact(event)} className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <p className="mb-3 text-sm font-semibold text-gray-800">New contact</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <input
+                value={newContact.phone}
+                onChange={(event) => setNewContact((current) => ({ ...current, phone: event.target.value }))}
+                placeholder="Phone, e.g. 0991234567"
+                inputMode="tel"
+                required
+                className="input-field"
+              />
+              <input
+                value={newContact.name}
+                onChange={(event) => setNewContact((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Name (optional)"
+                maxLength={100}
+                className="input-field"
+              />
+              <input
+                type="email"
+                value={newContact.email}
+                onChange={(event) => setNewContact((current) => ({ ...current, email: event.target.value }))}
+                placeholder="Email (optional)"
+                maxLength={200}
+                className="input-field"
+              />
+            </div>
+            <button type="submit" disabled={addingContact || !newContact.phone.trim()} className="btn-primary mt-3 disabled:opacity-60">
+              {addingContact ? "Saving..." : "Save and select"}
             </button>
           </form>
-        </div>
+        ) : null}
+
+        {contactNotice ? (
+          <div className={`mb-3 rounded-lg p-3 text-sm ${contactNotice.type === "success" ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>
+            {contactNotice.text}
+          </div>
+        ) : null}
 
         {selected.size > 0 ? (
           <div className="mb-3 flex items-center justify-between rounded-lg bg-primary-50 px-3 py-2 text-sm text-primary-700">
@@ -328,7 +484,7 @@ export default function CustomerMessagesSection() {
           <LoadingState label="Loading customers…" />
         ) : contacts.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-            {appliedSearch ? "No customers match this search." : "No customer contacts yet. They appear here after a customer books."}
+            {appliedSearch ? "No customers match this search." : "No customer contacts yet. They appear here after a customer books, or when you add one."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -360,6 +516,7 @@ export default function CustomerMessagesSection() {
                     <td className="py-2 pr-3 font-semibold text-gray-800">
                       {contact.name || "—"}
                       {contact.last_source === "whatsapp" ? <span className="ml-2 text-xs font-normal text-gray-500">WhatsApp</span> : null}
+                      {contact.booking_count === 0 ? <span className="ml-2 text-xs font-normal text-gray-500">Added manually</span> : null}
                     </td>
                     <td className="py-2 pr-3 text-gray-700">{contact.phone}</td>
                     <td className="py-2 pr-3 text-gray-700">{contact.email || "—"}</td>
